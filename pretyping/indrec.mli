@@ -43,6 +43,32 @@ val eval_case_analysis : case_analysis -> EConstr.t * EConstr.types
 
 val default_case_analysis_dependence : env -> inductive -> bool
 
+
+(*
+let mis_make_indrec env sigma ?(force_mutual=false) listdepkind mib u =
+        . . . 
+	let make_one_rec p =
+		let makefix nbconstruct =
+			let rec mrec i ln lrelevance ltyp ldef = function
+				. . . 
+			in
+        		mrec 0 [] [] [] []
+    		in
+    		let rec make_branch env i = function
+			. . . 
+		in
+    		let rec put_arity env i = function
+			. . .
+		in
+		(* Body on make_one_rec *)
+    		let ((indi,u),mibi,mipi,dep,kind) = List.nth listdepkind p in
+                . . .
+	in
+    	(* Body of mis_make_indrec *)
+    	!evdref, List.init nrec make_one_rec
+*)
+
+
 val build_case_analysis_scheme : env -> Evd.evar_map -> inductive puniverses ->
   dep_flag -> ESorts.t -> evar_map * case_analysis
 

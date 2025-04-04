@@ -384,7 +384,7 @@ val dependent_evar_ident : Evar.t -> evar_map -> Id.t
 (** {5 Side-effects} *)
 
 type side_effect_role =
-| Schema of inductive * string
+| Schema of inductive * (string list * Sorts.family option * bool)
 
 type side_effects = {
   seff_private : Safe_typing.private_constants;
