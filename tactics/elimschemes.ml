@@ -145,14 +145,7 @@ let make_suff_sort one_ind suff dep =
   match one_ind with
   | None -> suff
   | Some i ->
-    let decl_arr = i.mind_arity in
-    let sort = match decl_arr with
-      | RegularArity regular_arity ->
-        let { mind_user_arity; mind_sort } = regular_arity in
-        mind_sort
-      | TemplateArity template_arity ->
-        let { template_level } = template_arity in
-        template_level
+    let sort = i.mind_sort
     in
     match sort with
     | Prop -> if dep then (Names.Id.to_string i.mind_typename) ^ "_" ^ suff ^ "_dep"

@@ -336,7 +336,7 @@ let find_scheme kind (mind,i as ind) =
                 Proofview.tclEFFECTS eff <*> Proofview.tclUNIT ca.(i)
             end
         end
-    with Coqlib.NotFoundRef _ as e ->
+    with Rocqlib.NotFoundRef _ as e ->
       let e, info = Exninfo.capture e in
       Proofview.tclZERO ~info e
 
