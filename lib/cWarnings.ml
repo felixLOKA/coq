@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -437,10 +437,12 @@ module CoreCategories = struct
   let parsing = make "parsing"
   let pedantic = make "pedantic"
   let records = make "records"
+  let rewrite_rules = make "rewrite-rules"
   let ssr = make "ssr"
   let syntax = make "syntax"
   let tactics = make "tactics"
   let user_warn = make "user-warn"
   let vernacular = make "vernacular"
+  let internal = make "internal"
 
 end

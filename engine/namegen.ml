@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -419,9 +419,9 @@ let next_name_away_in_goal (type a) (gen : a Generator.t) env na (avoid : a) =
    used globally, one looks for a name of same base with lower subscript
    beyond the current subscript *)
 
-let next_global_ident_away id avoid =
+let next_global_ident_away senv id avoid =
   let id = if Id.Set.mem id avoid then restart_subscript id else id in
-  let bad id = Id.Set.mem id avoid || Global.exists_objlabel (Label.of_id id) in
+  let bad id = Id.Set.mem id avoid || Safe_typing.exists_objlabel (Label.of_id id) senv in
   next_ident_away_from id bad
 
 (* 4- Looks for next fresh name outside a list; if name already used,
@@ -522,7 +522,11 @@ let next_name_for_display gen env sigma flags na avoid =
 
 (* Remark: Anonymous var may be dependent in Evar's contexts *)
 let compute_displayed_name_in_gen_poly gen noccurn_fun env sigma flags avoid na c =
-  if noccurn_fun sigma 1 c then Anonymous, avoid
+  let noccurs =
+    try noccurn_fun sigma 1 c
+    with _ when !Flags.in_debugger -> false
+  in
+  if noccurs then Anonymous, avoid
   else
     let fresh_id, avoid = next_name_for_display gen env sigma flags na avoid in
     Name fresh_id, avoid

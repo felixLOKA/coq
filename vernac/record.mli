@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -19,7 +19,7 @@ module Ast : sig
     ; is_coercion : coercion_flag
     ; binders: local_binder_expr list
     ; cfs : (local_decl_expr * record_field_attr) list
-    ; idbuild : Id.t
+    ; idbuild : lident
     ; sort : constr_expr option
     ; default_inhabitant_id : Id.t option
     }
@@ -33,43 +33,50 @@ val definition_structure
   -> Ast.t list
   -> GlobRef.t list
 
-  module Data : sig
-    type projection_flags = {
-      pf_coercion: bool;
-      pf_reversible: bool;
-      pf_instance: bool;
-      pf_priority: int option;
-      pf_locality: Goptions.option_locality;
-      pf_canonical: bool;
+module Data : sig
+  type projection_flags = {
+    pf_coercion: bool;
+    pf_reversible: bool;
+    pf_instance: bool;
+    pf_priority: int option;
+    pf_locality: Goptions.option_locality;
+    pf_canonical: bool;
+  }
+  type t =
+    { is_coercion : Vernacexpr.coercion_flag
+    ; proj_flags : projection_flags list
     }
-    type raw_data
-    type t =
-      { id : Id.t
-      ; idbuild : Id.t
-      ; is_coercion : bool
-      ; proj_flags : projection_flags list
-      ; rdata : raw_data
-      ; inhabitant_id : Id.t
-      }
-  end
+end
 
-  (** A record is an inductive [mie] with extra metadata in [records] *)
-  module Record_decl : sig
-    type t = {
-      mie : Entries.mutual_inductive_entry;
-      default_dep_elim : DeclareInd.default_dep_elim list;
-      records : Data.t list;
-      (* TODO: this part could be factored in mie *)
-      primitive_proj : bool;
-      impls : DeclareInd.one_inductive_impls list;
-      globnames : UState.named_universes_entry;
-      global_univ_decls : Univ.ContextSet.t option;
-      projunivs : Entries.universes_entry;
-      ubinders : UnivNames.universe_binders;
-      projections_kind : Decls.definition_object_kind;
-      poly : bool;
-      indlocs : Loc.t option list;
-    }
+module RecordEntry : sig
+
+  type one_ind_info = {
+    (* inhabitant_id not redundant with the entry in non prim record case *)
+    inhabitant_id : Id.t;
+    default_dep_elim : DeclareInd.default_dep_elim;
+    (* implfs includes the param and principal argument info *)
+    implfs : Impargs.manual_implicits list;
+    fieldlocs : Loc.t option list;
+  }
+
+  type t = {
+    global_univs : Univ.ContextSet.t;
+    ubinders : UState.named_universes_entry;
+    mie : Entries.mutual_inductive_entry;
+    ind_infos : one_ind_info list;
+    param_impls : Impargs.manual_implicits;
+  }
+
+end
+
+(** A record is an inductive [mie] with extra metadata *)
+module Record_decl : sig
+  type t = {
+    entry : RecordEntry.t;
+    records : Data.t list;
+    projections_kind : Decls.definition_object_kind;
+    indlocs : DeclareInd.indlocs;
+  }
 end
 
 (** Ast.t list at the constr level *)
@@ -86,7 +93,7 @@ val declare_existing_class : GlobRef.t -> unit
 
 val canonical_inhabitant_id : isclass:bool -> Id.t -> Id.t
 
-(* Implementation internals, consult Coq developers before using;
+(* Implementation internals, consult Rocq developers before using;
    current user Elpi, see https://github.com/LPCIC/coq-elpi/pull/151 *)
 module Internal : sig
   type projection_flags = {
@@ -100,12 +107,11 @@ module Internal : sig
 
   val declare_projections
     : Names.inductive
-    -> Entries.universes_entry * UnivNames.universe_binders
-    -> ?kind:Decls.definition_object_kind
-    -> Names.Id.t
+    -> kind:Decls.definition_object_kind
+    -> inhabitant_id:Names.Id.t
     -> projection_flags list
+    -> ?fieldlocs:Loc.t option list
     -> Impargs.manual_implicits list
-    -> Constr.rel_context
     -> Structure.projection list
 
   val declare_structure_entry : Structure.t -> unit

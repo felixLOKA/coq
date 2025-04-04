@@ -722,6 +722,11 @@ simple_reserv: [
 | LIST1 ident ":" type
 ]
 
+debug_univ_name: [
+| qualid
+| string
+]
+
 command: [
 | "Goal" type
 | "Pwd"
@@ -765,7 +770,7 @@ command: [
 | "Print" "Scope" scope_name
 | "Print" "Visibility" OPT scope_name
 | "Print" "Implicit" reference
-| "Print" OPT "Sorted" "Universes" OPT ( "Subgraph" "(" LIST0 qualid ")" ) OPT string
+| "Print" OPT "Sorted" "Universes" OPT ( "Subgraph" "(" LIST0 debug_univ_name ")" ) OPT [ [ "With" | "Without" ] "Constraint" "Sources" ] OPT string
 | "Print" "Assumptions" reference
 | "Print" "Opaque" "Dependencies" reference
 | "Print" "Transparent" "Dependencies" reference
@@ -789,7 +794,8 @@ command: [
 | "Debug" [ "On" | "Off" ]
 | "Declare" "Reduction" ident ":=" red_expr
 | "Declare" "Custom" "Entry" ident
-| "Derive" ident "SuchThat" one_term "As" ident      (* derive plugin *)
+| "Derive" open_binders "SuchThat" type "As" ident
+| "Derive" open_binders "in" type "as" ident
 | "Extraction" qualid      (* extraction plugin *)
 | "Recursive" "Extraction" LIST1 qualid      (* extraction plugin *)
 | "Extraction" string LIST1 qualid      (* extraction plugin *)
@@ -844,13 +850,13 @@ command: [
 | "Attributes" LIST1 attribute SEP ","
 | "Declare" "Instance" ident_decl LIST0 binder ":" term OPT hint_info
 | "Declare" "Scope" scope_name
-| "Obligation" natural OPT ( "of" ident ) OPT ( ":" type OPT ( "with" ltac_expr ) )
-| "Next" "Obligation" OPT ( "of" ident ) OPT ( "with" ltac_expr )
-| "Final" "Obligation" OPT ( "of" ident ) OPT ( "with" ltac_expr )
+| "Obligation" natural OPT ( "of" ident ) OPT ( "with" generic_tactic )
+| "Next" "Obligation" OPT ( "of" ident ) OPT ( "with" generic_tactic )
+| "Final" "Obligation" OPT ( "of" ident ) OPT ( "with" generic_tactic )
 | "Solve" "Obligations" OPT ( "of" ident ) OPT ( "with" ltac_expr )
 | "Solve" "All" "Obligations" OPT ( "with" ltac_expr )
 | "Admit" "Obligations" OPT ( "of" ident )
-| "Obligation" "Tactic" ":=" ltac_expr
+| "Obligation" "Tactic" ":=" generic_tactic
 | "Show" "Obligation" "Tactic"
 | "Obligations" OPT ( "of" ident )
 | "Preterm" OPT ( "of" ident )
@@ -879,8 +885,8 @@ command: [
 | "Typeclasses" "Transparent" LIST1 qualid
 | "Typeclasses" "Opaque" LIST1 qualid
 | "Typeclasses" "eauto" ":=" OPT "debug" OPT ( "(" [ "bfs" | "dfs" ] ")" ) OPT natural
-| "Proof" "with" ltac_expr OPT [ "using" section_var_expr ]
-| "Proof" "using" section_var_expr OPT [ "with" ltac_expr ]
+| "Proof" "with" generic_tactic OPT [ "using" section_var_expr ]
+| "Proof" "using" section_var_expr OPT [ "with" generic_tactic ]
 | "Tactic" "Notation" OPT ( "(" "at" "level" natural ")" ) LIST1 ltac_production_item ":=" ltac_expr
 | "Print" "Rewrite" "HintDb" ident
 | "Print" "Ltac" qualid
@@ -891,7 +897,7 @@ command: [
 | "Functional" "Scheme" func_scheme_def LIST0 ( "with" func_scheme_def )
 | "Functional" "Case" func_scheme_def      (* funind plugin *)
 | "Generate" "graph" "for" qualid      (* funind plugin *)
-| "Hint" "Rewrite" OPT [ "->" | "<-" ] LIST1 one_term OPT ( "using" ltac_expr ) OPT ( ":" LIST0 ident )
+| "Hint" "Rewrite" OPT [ "->" | "<-" ] LIST1 one_term OPT ( "using" ltac_expr ) OPT ( ":" LIST1 ident )
 | "Derive" "Inversion_clear" ident "with" one_term OPT ( "Sort" sort_family )
 | "Derive" "Inversion" ident "with" one_term OPT ( "Sort" sort_family )
 | "Derive" "Dependent" "Inversion" ident "with" one_term "Sort" sort_family
@@ -982,7 +988,7 @@ command: [
 | "Ltac2" "@" "external" ident ":" ltac2_type ":=" string string
 | "Ltac2" "Notation" LIST1 ltac2_scope OPT ( ":" natural ) ":=" ltac2_expr      (* ltac2 plugin *)
 | "Ltac2" "Set" qualid OPT [ "as" ident ] ":=" ltac2_expr
-| "Ltac2" "Notation" [ string | ident ] ":=" ltac2_expr      (* Ltac2 plugin *)
+| "Ltac2" "Notation" ident ":=" ltac2_expr      (* Ltac2 plugin *)
 | "Ltac2" "Eval" ltac2_expr      (* ltac2 plugin *)
 | "Print" "Ltac2" qualid      (* ltac2 plugin *)
 | "Print" "Ltac2" "Type" qualid      (* ltac2 plugin *)
@@ -998,9 +1004,10 @@ command: [
 | "Hint" "Mode" qualid LIST1 [ "+" | "!" | "-" ] OPT ( ":" LIST1 ident )
 | "Hint" "Unfold" LIST1 qualid OPT ( ":" LIST1 ident )
 | "Hint" "Constructors" LIST1 qualid OPT ( ":" LIST1 ident )
-| "Hint" "Extern" natural OPT one_pattern "=>" ltac_expr OPT ( ":" LIST1 ident )
+| "Hint" "Extern" natural OPT one_pattern "=>" generic_tactic OPT ( ":" LIST1 ident )
 | "Time" sentence
 | "Instructions" sentence
+| "Profile" OPT string sentence
 | "Redirect" string sentence
 | "Timeout" natural sentence
 | "Fail" sentence
@@ -1489,7 +1496,6 @@ simple_tactic: [
 | "eauto" OPT nat_or_var OPT auto_using OPT hintbases
 | "debug" "eauto" OPT nat_or_var OPT auto_using OPT hintbases
 | "info_eauto" OPT nat_or_var OPT auto_using OPT hintbases
-| "dfs" "eauto" OPT nat_or_var OPT auto_using OPT hintbases
 | "autounfold" OPT hintbases OPT simple_occurrences
 | "autounfold_one" OPT hintbases OPT ( "in" ident )
 | "unify" one_term one_term OPT ( "with" ident )
@@ -1578,7 +1584,6 @@ simple_tactic: [
 | "simple" "congruence" OPT natural OPT ( "with" LIST1 one_term )
 | "f_equal"
 | "firstorder" OPT ltac_expr OPT ( "using" LIST1 qualid SEP "," ) OPT ( "with" LIST1 ident )
-| "gintuition" OPT ltac_expr
 | "functional" "inversion" [ ident | natural ] OPT qualid      (* funind plugin *)
 | "functional" "induction" term OPT ( "using" one_term_with_bindings ) OPT ( "as" simple_intropattern )      (* funind plugin *)
 | "soft" "functional" "induction" LIST1 one_term OPT ( "using" one_term_with_bindings ) OPT ( "as" simple_intropattern )      (* funind plugin *)
@@ -1622,7 +1627,6 @@ simple_tactic: [
 | "classical_right"
 | "contradict" ident
 | "dintuition" OPT ltac_expr
-| "discrR"
 | "dtauto"
 | "easy"
 | "exfalso"
@@ -1633,8 +1637,6 @@ simple_tactic: [
 | "now_show" one_type
 | "nra"
 | "rapply" one_term
-| "split_Rabs"
-| "split_Rmult"
 | "tauto"
 | "time_constr" ltac_expr
 | "zify"
@@ -2027,8 +2029,8 @@ tac2typ_knd: [
 ]
 
 tac2alg_constructor: [
-| ident      (* ltac2 plugin *)
-| ident "(" LIST0 ltac2_type SEP "," ")"      (* ltac2 plugin *)
+| LIST0 [ "#[" LIST1 attribute SEP "," "]" ] ident      (* ltac2 plugin *)
+| LIST0 [ "#[" LIST1 attribute SEP "," "]" ] ident "(" LIST0 ltac2_type SEP "," ")"      (* ltac2 plugin *)
 ]
 
 tac2rec_field: [
@@ -2122,6 +2124,10 @@ ltac2_quotations: [
 ltac1_expr_in_env: [
 | ltac_expr      (* ltac2_ltac1 plugin *)
 | LIST0 ident "|-" ltac_expr      (* ltac2_ltac1 plugin *)
+]
+
+generic_tactic: [
+| ltac_expr
 ]
 
 ltac2_branches: [

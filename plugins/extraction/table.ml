@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -297,8 +297,8 @@ let safe_pr_long_global r =
     | _ -> assert false
 
 let pr_long_mp mp =
-  let lid = DirPath.repr (Nametab.dirpath_of_module mp) in
-  str (String.concat "." (List.rev_map Id.to_string lid))
+  let sp = Nametab.path_of_module mp in
+  Libnames.pr_path sp
 
 let pr_long_global ref = pr_path (Nametab.path_of_global ref)
 
@@ -413,7 +413,7 @@ let error_nb_cons () =
   err (str "Not the right number of constructors.")
 
 let error_module_clash mp1 mp2 =
-  err (str "The Coq modules " ++ pr_long_mp mp1 ++ str " and " ++
+  err (str "The Rocq modules " ++ pr_long_mp mp1 ++ str " and " ++
        pr_long_mp mp2 ++ str " have the same ML name.\n" ++
        str "This is not supported yet. Please do some renaming first.")
 
@@ -423,15 +423,9 @@ let error_no_module_expr mp =
        ++ str "some Declare Module outside any Module Type.\n"
        ++ str "This situation is currently unsupported by the extraction.")
 
-let error_singleton_become_prop id og =
-  let loc =
-    match og with
-    | Some g -> fnl () ++ str "in " ++ safe_pr_global g ++
-                str " (or in its mutual block)"
-    | None -> mt ()
-  in
-  err (str "The informative inductive type " ++ Id.print id ++
-       str " has a Prop instance" ++ loc ++ str "." ++ fnl () ++
+let error_singleton_become_prop ind =
+  err (str "The informative inductive type " ++ safe_pr_global (IndRef ind) ++
+       str " has a Prop instance" ++ str "." ++ fnl () ++
        str "This happens when a sort-polymorphic singleton inductive type\n" ++
        str "has logical parameters, such as (I,I) : (True * True) : Prop.\n" ++
        str "Extraction cannot handle this situation yet.\n" ++
@@ -612,21 +606,22 @@ let chg_flag n = int_flag_ref := n; opt_flag_ref := flag_of_int n
 
 let optims () = !opt_flag_ref
 
-let () = declare_bool_option
-          {optstage = Summary.Stage.Interp;
-           optdepr = None;
-           optkey = ["Extraction"; "Optimize"];
-           optread = (fun () -> not (Int.equal !int_flag_ref 0));
-           optwrite = (fun b -> chg_flag (if b then int_flag_init else 0))}
+let () = declare_option ~kind:BoolKind
+    ~no_summary:true (* synchronization handled by Extraction Flag *)
+    {optstage = Summary.Stage.Interp;
+     optdepr = None;
+     optkey = ["Extraction"; "Optimize"];
+     optread = (fun () -> not (Int.equal !int_flag_ref 0));
+     optwrite = (fun b -> chg_flag (if b then int_flag_init else 0))}
 
 let () = declare_int_option
-          { optstage = Summary.Stage.Interp;
-            optdepr = None;
-            optkey = ["Extraction";"Flag"];
-            optread = (fun _ -> Some !int_flag_ref);
-            optwrite = (function
-                          | None -> chg_flag 0
-                          | Some i -> chg_flag (max i 0))}
+    { optstage = Summary.Stage.Interp;
+      optdepr = None;
+      optkey = ["Extraction";"Flag"];
+      optread = (fun _ -> Some !int_flag_ref);
+      optwrite = (function
+        | None -> chg_flag 0
+        | Some i -> chg_flag (max i 0))}
 
 (* This option controls whether "dummy lambda" are removed when a
    toplevel constant is defined. *)

@@ -10,6 +10,7 @@ install_printer Top_printers.ppproj
 install_printer Top_printers.ppprojrepr
 install_printer Top_printers.ppkn
 install_printer Top_printers.ppmind
+install_printer Top_printers.ppseff
 install_printer Top_printers.ppind
 install_printer Top_printers.ppsp
 install_printer Top_printers.ppqualid
@@ -25,6 +26,7 @@ install_printer Top_printers.ppconstr_expr
 install_printer Top_printers.ppglob_constr
 install_printer Top_printers.pppattern
 install_printer Top_printers.ppfconstr
+install_printer Top_printers.pphconstr
 install_printer Top_printers.ppfsubst
 install_printer Top_printers.ppnumtokunsigned
 install_printer Top_printers.ppnumtokunsignednat
@@ -37,7 +39,6 @@ install_printer Top_printers.ppdpmapgen
 install_printer Top_printers.ppconmapenvgen
 install_printer Top_printers.ppmindmapenvgen
 install_printer Top_printers.ppididmap
-install_printer Top_printers.ppmodidmapgen
 install_printer Top_printers.ppconstrunderbindersidmap
 install_printer Top_printers.ppevarsubst
 install_printer Top_printers.ppunbound_ltac_var_map
@@ -56,6 +57,7 @@ install_printer Top_printers.pp_transparent_state
 install_printer Top_printers.pp_estack_t
 install_printer Top_printers.pp_state_t
 install_printer Top_printers.ppmetas
+install_printer Top_printers.ppmetamap
 install_printer Top_printers.ppevm
 install_printer Top_printers.ppexistentialset
 install_printer Top_printers.ppexistentialfilter
@@ -68,6 +70,7 @@ install_printer Top_printers.ppopenconstr
 install_printer Top_printers.pproof
 install_printer Top_printers.ppuni
 install_printer Top_printers.ppesorts
+install_printer Top_printers.pperelevance
 install_printer Top_printers.ppqvar
 install_printer Top_printers.ppuni_level
 install_printer Top_printers.ppqvarset

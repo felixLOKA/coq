@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -75,7 +75,7 @@ module Quality : sig
 
   val hash : t -> int
 
-  val hcons : t -> t
+  val hcons : t Hashcons.f
 
   (* XXX Inconsistent naming: this one should be subst_fn *)
   val subst : (QVar.t -> t) -> t -> t
@@ -155,7 +155,7 @@ val is_small : t -> bool
 val family : t -> family
 val quality : t -> Quality.t
 
-val hcons : t -> t
+val hcons : t Hashcons.f
 
 val family_compare : family -> family -> int
 val family_equal : family -> family -> bool

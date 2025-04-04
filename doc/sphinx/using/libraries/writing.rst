@@ -1,9 +1,9 @@
-Writing Coq libraries and plugins
+Writing Rocq libraries and plugins
 ===================================
 
-This section presents the part of the Coq language that is useful only
-to library and plugin authors.  A tutorial for writing Coq plugins is
-available in the Coq repository in `doc/plugin_tutorial
+This section presents the part of the Rocq language that is useful only
+to library and plugin authors.  A tutorial for writing Rocq plugins is
+available in the Rocq repository in `doc/plugin_tutorial
 <https://github.com/coq/coq/tree/master/doc/plugin_tutorial>`_.
 
 Deprecating library objects, tactics or library files
@@ -38,12 +38,13 @@ deprecated compatibility alias using :cmd:`Notation (abbreviation)`
 
    .. warn:: Library File @qualid is deprecated since @string__since. @string__note. Use @qualid__use instead.
              Library File (transitively required) @qualid is deprecated since @string__since. @string__note. Use @qualid__use instead.
-             Ltac2 alias @qualid is deprecated since @string__since. @string__note. Use @qualid__use instead.
-             Ltac2 definition @qualid is deprecated since @string__since. @string__note. Use @qualid__use instead.
-             Ltac2 notation {+ @ltac2_scope } is deprecated since @string__since. @string__note. Use @qualid__use instead.
+             Ltac2 alias @qualid is deprecated since @string__since. @string__note.
+             Ltac2 definition @qualid is deprecated since @string__since. @string__note.
+             Ltac2 notation {+ @ltac2_scope } is deprecated since @string__since. @string__note.
+             Ltac2 constructor @qualid is deprecated since @string__since. @string__note.
              Notation @string is deprecated since @string__since. @string__note. Use @qualid__use instead.
-             Tactic @qualid is deprecated since @string__since. @string__note. Use @qualid__use instead.
-             Tactic Notation @qualid is deprecated since @string__since. @string__note. Use @qualid__use instead.
+             Tactic @qualid is deprecated since @string__since. @string__note.
+             Tactic Notation @qualid is deprecated since @string__since. @string__note.
 
       :n:`@qualid` or :n:`@string` is the notation,
       :n:`@string__since` is the version number, :n:`@string__note` is
@@ -59,12 +60,12 @@ deprecated compatibility alias using :cmd:`Notation (abbreviation)`
 
 .. note::
 
-   Coq and its standard library follow this deprecation policy:
+   Rocq and its standard library follow this deprecation policy:
 
-   * it should always be possible for a project written in Coq to be
+   * it should always be possible for a project written in Rocq to be
      compatible with two successive major versions,
    * features must be deprecated in one major version before removal,
-   * Coq developers should provide an estimate of the required effort
+   * Rocq developers should provide an estimate of the required effort
      to fix a project with respect to a given change,
    * breaking changes should be clearly documented in the public
      release notes, along with recommendations on how to fix a project
@@ -111,7 +112,7 @@ notation, definition, axiom, theorem or file.
 
 .. example:: Deprecating a tactic.
 
-   .. coqtop:: all abort warn
+   .. rocqtop:: all abort warn
 
       #[deprecated(since="mylib 0.9", note="Use idtac instead.")]
       Ltac foo := idtac.
@@ -125,7 +126,7 @@ notation, definition, axiom, theorem or file.
 
    Let's say your library initially contained:
 
-   .. coqtop:: in
+   .. rocqtop:: in
 
       Definition foo x := S x.
 
@@ -133,7 +134,7 @@ notation, definition, axiom, theorem or file.
    your users' code without advanced notice.  To do so, replace the previous
    code by the following:
 
-   .. coqtop:: in reset
+   .. rocqtop:: in reset
 
       Definition bar x := S x.
       #[deprecated(since="mylib 1.2", note="Use bar instead.")]
@@ -141,6 +142,6 @@ notation, definition, axiom, theorem or file.
 
    Then, the following code still works, but emits a warning:
 
-   .. coqtop:: all warn
+   .. rocqtop:: all warn
 
       Check (foo 0).

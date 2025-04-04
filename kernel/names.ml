@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -51,15 +51,15 @@ struct
   let of_bytes s =
     let s = Bytes.to_string s in
     check_valid s;
-    String.hcons s
+    snd @@ String.hcons s
 
   let of_string s =
     let () = check_valid s in
-    String.hcons s
+    snd @@ String.hcons s
 
   let of_string_soft s =
     let () = check_valid ~strict:false s in
-    String.hcons s
+    snd @@ String.hcons s
 
   let to_string id = id
 
@@ -113,22 +113,22 @@ struct
   module Self_Hashcons =
     struct
       type nonrec t = t
-      type u = Id.t -> Id.t
-      let hashcons hident = function
-        | Name id -> Name (hident id)
-        | n -> n
+      let hashcons = function
+        | Name id ->
+          let h, id = Id.hcons id in
+          h, Name id
+        | Anonymous -> 0, Anonymous
       let eq n1 n2 =
         n1 == n2 ||
         match (n1,n2) with
           | (Name id1, Name id2) -> id1 == id2
           | (Anonymous,Anonymous) -> true
           | _ -> false
-      let hash = hash
     end
 
   module Hname = Hashcons.Make(Self_Hashcons)
 
-  let hcons = Hashcons.simple_hcons Hname.generate Hname.hcons Id.hcons
+  let hcons = Hashcons.simple_hcons Hname.generate Hname.hcons ()
 
 end
 
@@ -139,22 +139,17 @@ type name = Name.t = Anonymous | Name of Id.t
 
 type variable = Id.t
 
-type module_ident = Id.t
-
-module ModIdset = Id.Set
-module ModIdmap = Id.Map
-
 (** {6 Directory paths = section names paths } *)
 
 (** Dirpaths are lists of module identifiers.
     The actual representation is reversed to optimise sharing:
-    Coq.A.B is ["B";"A";"Coq"] *)
+    Corelib.A.B is ["B";"A";"Corelib"] *)
 
 let dummy_module_name = "If you see this, it's a bug"
 
 module DirPath =
 struct
-  type t = module_ident list
+  type t = Id.t list
 
   let compare = List.compare Id.compare
   let equal = List.equal Id.equal
@@ -184,7 +179,7 @@ struct
 
   module Hdir = Hashcons.Hlist(Id)
 
-  let hcons = Hashcons.simple_hcons Hdir.generate Hdir.hcons Id.hcons
+  let hcons = Hashcons.simple_hcons Hdir.generate Hdir.hcons ()
 
 end
 
@@ -237,17 +232,18 @@ struct
   module Self_Hashcons =
     struct
       type nonrec t = t
-      type u = (Id.t -> Id.t) * (DirPath.t -> DirPath.t)
-      let hashcons (hid,hdir) (n,s,dir) = (n,hid s,hdir dir)
+      let hashcons (n,s,dir) =
+        let hs, s = Id.hcons s in
+        let hdir, dir = DirPath.hcons dir in
+        combine3 (Int.hash n) hs hdir, (n,s,dir)
       let eq ((n1,s1,dir1) as x) ((n2,s2,dir2) as y) =
         (x == y) ||
         (Int.equal n1 n2 && s1 == s2 && dir1 == dir2)
-      let hash = hash
     end
 
   module HashMBId = Hashcons.Make(Self_Hashcons)
 
-  let hcons = Hashcons.simple_hcons HashMBId.generate HashMBId.hcons (Id.hcons, DirPath.hcons)
+  let hcons = Hashcons.simple_hcons HashMBId.generate HashMBId.hcons ()
 
 end
 
@@ -314,6 +310,12 @@ module ModPath = struct
     | MPdot (mp1, l1), MPdot (mp2, l2) -> String.equal l1 l2 && equal mp1 mp2
     | (MPfile _ | MPbound _ | MPdot _), _ -> false
 
+  let rec subpath mp mp' =
+    if equal mp mp' then true
+    else match mp' with
+    | MPdot (mp', _) -> subpath mp mp'
+    | _ -> false
+
   open Hashset.Combine
 
   let rec hash = function
@@ -331,27 +333,30 @@ module ModPath = struct
 
   module Self_Hashcons = struct
     type t = module_path
-    type u = (DirPath.t -> DirPath.t) * (MBId.t -> MBId.t) *
-        (string -> string)
-    let rec hashcons (hdir,huniqid,hstr as hfuns) = function
-      | MPfile dir -> MPfile (hdir dir)
-      | MPbound m -> MPbound (huniqid m)
-      | MPdot (md,l) -> MPdot (hashcons hfuns md, hstr l)
+    let hashcons hcons = function
+      | MPfile dir ->
+        let hdir, dir = DirPath.hcons dir in
+        combinesmall 1 hdir, MPfile dir
+      | MPbound m ->
+        let hm, m = MBId.hcons m in
+        combinesmall 2 hm, MPbound m
+      | MPdot (md,l) ->
+        let hmd, md = hcons md in
+        let hl, l = Id.hcons l in
+        combinesmall 3 (combine hmd hl), MPdot (md, l)
     let eq d1 d2 =
       d1 == d2 ||
       match d1,d2 with
       | MPfile dir1, MPfile dir2 -> dir1 == dir2
       | MPbound m1, MPbound m2 -> m1 == m2
       | MPdot (mod1,l1), MPdot (mod2,l2) -> l1 == l2 && equal mod1 mod2
+      (* XXX use physical equality for mod1 = mod2 *)
       | _ -> false
-    let hash = hash
   end
 
-  module HashMP = Hashcons.Make(Self_Hashcons)
+  module HashMP = Hashcons.MakeRec(Self_Hashcons)
 
-  let hcons =
-    Hashcons.simple_hcons HashMP.generate HashMP.hcons
-      (DirPath.hcons,MBId.hcons,String.hcons)
+  let hcons = Hashcons.simple_hcons HashMP.generate HashMP.hcons ()
 
 end
 
@@ -417,21 +422,18 @@ module KerName = struct
 
   module Self_Hashcons = struct
     type t = kernel_name
-    type u = (ModPath.t -> ModPath.t) * (DirPath.t -> DirPath.t)
-        * (string -> string)
-    let hashcons (hmod,_hdir,hstr) kn =
+    let hashcons kn =
       let { modpath = mp; knlabel = l; refhash; } = kn in
-      { modpath = hmod mp; knlabel = hstr l; refhash; }
+      let _, mp = ModPath.hcons mp in
+      let _, l = Id.hcons l in
+      refhash, { modpath =  mp; knlabel = l; refhash; }
     let eq kn1 kn2 =
       kn1.modpath == kn2.modpath && kn1.knlabel == kn2.knlabel
-    let hash = hash
   end
 
   module HashKN = Hashcons.Make(Self_Hashcons)
 
-  let hcons =
-    Hashcons.simple_hcons HashKN.generate HashKN.hcons
-      (ModPath.hcons,DirPath.hcons,String.hcons)
+  let hcons = Hashcons.simple_hcons HashKN.generate HashKN.hcons ()
 end
 
 module KNmap = HMap.Make(KerName)
@@ -565,10 +567,14 @@ module KerPair = struct
   module Self_Hashcons =
     struct
       type t = kernel_pair
-      type u = KerName.t -> KerName.t
-      let hashcons hkn = function
-        | Same kn -> Same (hkn kn)
-        | Dual (knu,knc) -> make (hkn knu) (hkn knc)
+      let hashcons = function
+        | Same kn ->
+          let hkn, kn = KerName.hcons kn in
+          hkn, Same kn
+        | Dual (knu,knc) ->
+          let hknu, knu = KerName.hcons knu in
+          let hknc, knc = KerName.hcons knc in
+          Hashset.Combine.combine hknu hknc, make knu knc
       let eq x y = (* physical comparison on subterms *)
         x == y ||
         match x,y with
@@ -579,15 +585,11 @@ module KerPair = struct
           the same canonical part is a logical invariant of the system, it
           is not necessarily an invariant in memory, so we treat kernel
           names as they are syntactically for hash-consing) *)
-      let hash = function
-      | Same kn -> KerName.hash kn
-      | Dual (knu, knc) ->
-        Hashset.Combine.combine (KerName.hash knu) (KerName.hash knc)
     end
 
   module HashKP = Hashcons.Make(Self_Hashcons)
 
-  let hcons = Hashcons.simple_hcons HashKP.generate HashKP.hcons KerName.hcons
+  let hcons = Hashcons.simple_hcons HashKP.generate HashKP.hcons ()
 
 end
 
@@ -743,25 +745,26 @@ module Constrmap_env = Map.Make(Construct.UserOrd)
 module Hind = Hashcons.Make(
   struct
     type t = inductive
-    type u = MutInd.t -> MutInd.t
-    let hashcons hmind (mind, i) = (hmind mind, i)
+    let hashcons (mind, i) =
+      let hmind, mind = MutInd.hcons mind in
+      Hashset.Combine.combine hmind (Int.hash i), (mind, i)
     let eq (mind1,i1) (mind2,i2) = mind1 == mind2 && Int.equal i1 i2
-    let hash = Ind.CanOrd.hash
-  end)
-
-module Hconstruct = Hashcons.Make(
-  struct
-    type t = constructor
-    type u = inductive -> inductive
-    let hashcons hind (ind, j) = (hind ind, j)
-    let eq (ind1, j1) (ind2, j2) = ind1 == ind2 && Int.equal j1 j2
-    let hash = Construct.CanOrd.hash
   end)
 
 let hcons_con = Constant.hcons
 let hcons_mind = MutInd.hcons
-let hcons_ind = Hashcons.simple_hcons Hind.generate Hind.hcons hcons_mind
-let hcons_construct = Hashcons.simple_hcons Hconstruct.generate Hconstruct.hcons hcons_ind
+let hcons_ind = Hashcons.simple_hcons Hind.generate Hind.hcons ()
+
+module Hconstruct = Hashcons.Make(
+  struct
+    type t = constructor
+    let hashcons (ind, j) =
+      let hind, ind = hcons_ind ind in
+      Hashset.Combine.combine hind (Int.hash j), (ind, j)
+    let eq (ind1, j1) (ind2, j2) = ind1 == ind2 && Int.equal j1 j2
+  end)
+
+let hcons_construct = Hashcons.simple_hcons Hconstruct.generate Hconstruct.hcons ()
 
 (*****************)
 
@@ -898,18 +901,20 @@ struct
 
     module Self_Hashcons = struct
       type nonrec t = t
-      type u = (inductive -> inductive) * (Constant.t -> Constant.t)
-      let hashcons (hind,hid) p =
-        { proj_ind = hind p.proj_ind;
+      let hashcons p =
+        let hind, ind = hcons_ind p.proj_ind in
+        let _, na = Constant.hcons p.proj_name in
+        Hashset.Combine.combinesmall p.proj_arg hind, {
+          proj_ind = ind;
           proj_npars = p.proj_npars;
           proj_arg = p.proj_arg;
-          proj_name = hid p.proj_name }
+          proj_name = na;
+        }
       let eq p p' =
         p == p' || (p.proj_ind == p'.proj_ind && p.proj_npars == p'.proj_npars && p.proj_arg == p'.proj_arg && p.proj_name == p'.proj_name)
-      let hash = hash
     end
     module HashRepr = Hashcons.Make(Self_Hashcons)
-    let hcons = Hashcons.simple_hcons HashRepr.generate HashRepr.hcons (hcons_ind,Constant.hcons)
+    let hcons = Hashcons.simple_hcons HashRepr.generate HashRepr.hcons ()
 
     let map_npars f p =
       let npars = p.proj_npars in
@@ -947,7 +952,7 @@ struct
 
   let repr_equal p p' = Repr.equal (repr p) (repr p')
 
-  let hash (c, b) = (if b then 0 else 1) + Repr.hash c
+  let hash (c, b) = (if b then 1 else 0) + Repr.hash c
 
   module SyntacticOrd = struct
     type nonrec t = t
@@ -956,7 +961,7 @@ struct
       if c <> 0 then c else Repr.SyntacticOrd.compare p p'
     let equal (c, b as x) (c', b' as x') =
       x == x' || b = b' && Repr.SyntacticOrd.equal c c'
-    let hash (c, b) = (if b then 0 else 1) + Repr.SyntacticOrd.hash c
+    let hash (c, b) = (if b then 1 else 0) + Repr.SyntacticOrd.hash c
   end
   module CanOrd = struct
     type nonrec t = t
@@ -965,7 +970,7 @@ struct
       if c <> 0 then c else Repr.CanOrd.compare p p'
     let equal (c, b as x) (c', b' as x') =
       x == x' || b = b' && Repr.CanOrd.equal c c'
-    let hash (c, b) = (if b then 0 else 1) + Repr.CanOrd.hash c
+    let hash (c, b) = (if b then 1 else 0) + Repr.CanOrd.hash c
   end
   module UserOrd = struct
     type nonrec t = t
@@ -974,17 +979,17 @@ struct
       if c <> 0 then c else Repr.UserOrd.compare p p'
     let equal (c, b as x) (c', b' as x') =
       x == x' || b = b' && Repr.UserOrd.equal c c'
-    let hash (c, b) = (if b then 0 else 1) + Repr.UserOrd.hash c
+    let hash (c, b) = (if b then 1 else 0) + Repr.UserOrd.hash c
   end
 
   module Self_Hashcons =
     struct
       type nonrec t = t
-      type u = Repr.t -> Repr.t
-      let hashcons hc (c,b) = (hc c,b)
+      let hashcons (c,b) =
+        let hc, c = Repr.hcons c in
+        (if b then 1 else 0) + hc, (c,b)
       let eq ((c,b) as x) ((c',b') as y) =
         x == y || (c == c' && b == b')
-      let hash = hash
     end
 
   let canonize ((r, u) as p) =
@@ -993,7 +998,7 @@ struct
 
   module HashProjection = Hashcons.Make(Self_Hashcons)
 
-  let hcons = Hashcons.simple_hcons HashProjection.generate HashProjection.hcons Repr.hcons
+  let hcons = Hashcons.simple_hcons HashProjection.generate HashProjection.hcons ()
 
   let compare (p, b) (p', b') =
     let c = Bool.compare b b' in

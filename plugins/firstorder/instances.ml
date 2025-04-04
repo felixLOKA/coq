@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -59,13 +59,13 @@ let do_sequent env sigma setref triv id seq i dom atoms=
   let phref=ref triv in
   let do_atoms a1 a2 =
     let do_pair t1 t2 =
-      match unif_atoms (Sequent.state seq) env sigma i dom t1 t2 with
-          None->()
+      match unif_atoms ~check:(not !phref) (Sequent.state seq) env sigma i dom t1 t2 with
+        | None-> ()
         | Some (Phantom _) ->phref:=true
         | Some c ->flag:=false;setref:=IS.add (c,id) !setref in
       List.iter (fun t->List.iter (do_pair t) a2.negative) a1.positive;
       List.iter (fun t->List.iter (do_pair t) a2.positive) a1.negative in
-    Sequent.iter_redexes (function AnyFormula lf->do_atoms atoms lf.atoms) seq;
+    Sequent.iter_redexes (function lf -> do_atoms atoms lf) seq;
     do_atoms atoms (Sequent.make_simple_atoms seq);
     !flag && !phref
 
@@ -85,6 +85,8 @@ let give_instances env sigma lf seq=
 
 let rec collect_quantified env sigma seq =
   try
+    (* This works because the only caller of this function ensures that at this
+       point we only have formulae with priority lower than forall / exists. *)
     let hd, seq1 = take_formula env sigma seq in
     let AnyFormula hd0 = hd in
       (match hd0.pat with

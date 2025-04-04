@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -9,7 +9,7 @@
 (************************************************************************)
 
 (** This modules implements basic manipulations of errors for use
-    throughout Coq's code. *)
+    throughout Rocq's code. *)
 
 (** {6 Error handling} *)
 
@@ -65,10 +65,10 @@ val print_no_report : exn -> Pp.t
 val iprint_no_report : Exninfo.iexn -> Pp.t
 
 (** "Critical" exceptions, such as anomalies or interruptions should
-    not be caught and ignored by mistake by inner Coq functions by
+    not be caught and ignored by mistake by inner Rocq functions by
     means of doing a "catch-all". They should be handled instead by
     the compiler layer which is in charge of coordinating the
-    intepretation of Coq vernaculars.
+    intepretation of Rocq vernaculars.
 
     Please, avoid exceptions catch-all! If you must do so, then use the form:
     {[

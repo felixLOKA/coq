@@ -1,9 +1,9 @@
 # How to use?
 
 # If you have Nix installed, you can get in an environment with everything
-# needed to compile Coq and CoqIDE by running:
+# needed to compile Rocq and RocqIDE by running:
 # $ nix-shell
-# at the root of the Coq repository.
+# at the root of the Rocq repository.
 
 # How to tweak default arguments?
 
@@ -11,15 +11,15 @@
 # instance to do this:
 # $ nix-shell --arg ocamlPackages "(import <nixpkgs> {}).ocaml-ng.ocamlPackages_4_09" --arg buildIde false
 
-# You can also compile Coq and "install" it by running:
+# You can also compile Rocq and "install" it by running:
 # $ make clean # (only needed if you have left-over compilation files)
 # $ nix-build
-# at the root of the Coq repository.
+# at the root of the Rocq repository.
 # nix-build also supports the --arg option, so you will be able to do:
 # $ nix-build --arg doInstallCheck false
 # if you want to speed up things by not running the test-suite.
 # Once the build is finished, you will find, in the current directory,
-# a symlink to where Coq was installed.
+# a symlink to where Rocq was installed.
 
 { pkgs ? import ./dev/nixpkgs.nix {}
 , ocamlPackages ? pkgs.ocaml-ng.ocamlPackages_4_14
@@ -42,6 +42,8 @@ stdenv.mkDerivation rec {
   buildInputs = [
     hostname
     python311
+    ocamlPackages.yojson
+    ocamlPackages.camlzip
     # coq-makefile timing tools
     time
     dune_3
@@ -104,23 +106,23 @@ stdenv.mkDerivation rec {
            !elem (baseNameOf path) [".git" "result" "bin" "_build" "_build_ci" "_build_vo" "nix"]) ./.;
 
   preConfigure = ''
-    patchShebangs dev/tools/ doc/stdlib
+    patchShebangs dev/tools/ doc/corelib
   '';
 
   prefixKey = "-prefix ";
 
   enableParallelBuilding = true;
 
-  buildFlags = [ "world" ] ++ optional buildIde "coqide";
+  buildFlags = [ "world" ] ++ optional buildIde "rocqide";
 
   # TODO, building of documentation package when not in dev mode
-  # https://github.com/coq/coq/issues/16198
+  # https://github.com/rocq-prover/rocq/issues/16198
   # buildFlags = [ "world" ] ++ optional buildDoc "refman-html";
 
   # From https://github.com/NixOS/nixpkgs/blob/master/pkgs/build-support/ocaml/dune.nix
   installPhase = ''
     runHook preInstall
-    dune install --prefix $out --libdir $OCAMLFIND_DESTDIR coq-core coq-stdlib coq coqide-server ${optionalString buildIde "coqide"}
+    dune install --prefix $out --libdir $OCAMLFIND_DESTDIR rocq-runtime coq-core rocq-core coqide-server ${optionalString buildIde "rocqide"}
     runHook postInstall
   '';
 
@@ -131,7 +133,7 @@ stdenv.mkDerivation rec {
 
   createFindlibDestdir = !shell;
 
-  postInstall = "ln -s $out/lib/coq-core $OCAMLFIND_DESTDIR/coq-core";
+  postInstall = "ln -s $out/lib/rocq-runtime $OCAMLFIND_DESTDIR/rocq-runtime && ln -s $out/lib/coq-core $OCAMLFIND_DESTDIR/coq-core";
 
   inherit doInstallCheck;
 
@@ -151,7 +153,7 @@ stdenv.mkDerivation rec {
   setupHook = writeText "setupHook.sh" "
     addCoqPath () {
       if test -d \"$1/lib/coq/${coq-version}/user-contrib\"; then
-        export COQPATH=\"\${COQPATH-}\${COQPATH:+:}$1/lib/coq/${coq-version}/user-contrib/\"
+        export ROCQPATH=\"\${ROCQPATH-}\${ROCQPATH:+:}$1/lib/coq/${coq-version}/user-contrib/\"
       fi
     }
 
@@ -159,14 +161,14 @@ stdenv.mkDerivation rec {
   ";
 
   meta = {
-    description = "Coq proof assistant";
+    description = "Rocq Prover";
     longDescription = ''
-      Coq is a formal proof management system.  It provides a formal language
+      The Rocq Prover is an interactive theorem prover, or proof assistant.  It provides a formal language
       to write mathematical definitions, executable algorithms and theorems
       together with an environment for semi-interactive development of
       machine-checked proofs.
     '';
-    homepage = http://coq.inria.fr;
+    homepage = https://rocq-prover.org;
     license = licenses.lgpl21;
     platforms = platforms.unix;
   };

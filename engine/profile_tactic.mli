@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -47,8 +47,10 @@ val do_profile_gen :
 
 val set_profiling : bool -> unit
 
+val get_profiling : unit -> bool
+
 (* Cut off results < than specified cutoff *)
-val print_results : cutoff:float -> unit
+val print_results : cutoff:float option -> unit
 
 val print_results_tactic : string -> unit
 

@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -73,7 +73,7 @@ let binder_kind_eq b1 b2 = match b1, b2 with
 | Generalized (ck1, b1), Generalized (ck2, b2) ->
   Glob_ops.binding_kind_eq ck1 ck2 &&
   (if b1 then b2 else not b2)
-| _ -> false
+| (Default _ | Generalized _), _ -> false
 
 let default_binder_kind = Default Explicit
 

@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -8,7 +8,7 @@
 (*         *     (see LICENSE file for the text of the license)         *)
 (************************************************************************)
 
-open Pcoq
+open Procq
 
 (* Main entry for extensions *)
 let simple_tactic = Entry.make "simple_tactic"
@@ -21,7 +21,6 @@ let constr_with_bindings =
 let bindings =
   Entry.make "bindings"
 let hypident = Entry.make "hypident"
-let constr_may_eval = Entry.make "constr_may_eval"
 let constr_eval = Entry.make "constr_eval"
 let uconstr =
   Entry.make "uconstr"

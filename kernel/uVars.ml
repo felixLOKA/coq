@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -81,10 +81,8 @@ module Instance : sig
     val equal : t -> t -> bool
     val length : t -> int * int
 
-    val hcons : t -> t
+    val hcons : t -> int * t
     val hash : t -> int
-
-    val share : t -> t * int
 
     val subst_fn : (Sorts.QVar.t -> Quality.t) * (Level.t -> Level.t) -> t -> t
 
@@ -103,58 +101,44 @@ struct
   module HInstancestruct =
   struct
     type nonrec t = t
-    type u = (Quality.t -> Quality.t) * (Level.t -> Level.t)
 
-    let hashcons (hqual, huniv) (aq, au as a) =
+    let hashcons (aq, au as a) =
       let qlen = Array.length aq in
       let ulen = Array.length au in
-        if Int.equal qlen 0 && Int.equal ulen 0 then empty
-        else begin
-          for i = 0 to qlen - 1 do
-            let x = Array.unsafe_get aq i in
-            let x' = hqual x in
-              if x == x' then ()
-              else Array.unsafe_set aq i x'
-          done;
-          for i = 0 to ulen - 1 do
-            let x = Array.unsafe_get au i in
-            let x' = huniv x in
-              if x == x' then ()
-              else Array.unsafe_set au i x'
-          done;
-          a
-        end
+      if Int.equal qlen 0 && Int.equal ulen 0 then 0, empty
+      else
+        let hq, aq' = Hashcons.hashcons_array Quality.hcons aq in
+        let hu, au' = Hashcons.hashcons_array Level.hcons au in
+        let a = if aq' == aq && au' == au then a else (aq',au') in
+        Hashset.Combine.combine hq hu, a
 
     let eq t1 t2 =
       CArray.equal (==) (fst t1) (fst t2)
       && CArray.equal (==) (snd t1) (snd t2)
 
-    let hash (aq,au) =
-      let accu = ref 0 in
-        for i = 0 to Array.length aq - 1 do
-          let l = Array.unsafe_get aq i in
-          let h = Quality.hash l in
-            accu := Hashset.Combine.combine !accu h;
-        done;
-        for i = 0 to Array.length au - 1 do
-          let l = Array.unsafe_get au i in
-          let h = Level.hash l in
-            accu := Hashset.Combine.combine !accu h;
-        done;
-        (* [h] must be positive. *)
-        let h = !accu land 0x3FFFFFFF in
-          h
   end
 
   module HInstance = Hashcons.Make(HInstancestruct)
 
-  let hcons = Hashcons.simple_hcons HInstance.generate HInstance.hcons (Quality.hcons,Level.hcons)
+  let hcons = Hashcons.simple_hcons HInstance.generate HInstance.hcons ()
 
-  let hash = HInstancestruct.hash
+  let hash (aq,au) =
+    let accu = ref 0 in
+    for i = 0 to Array.length aq - 1 do
+      let l = Array.unsafe_get aq i in
+      let h = Quality.hash l in
+      accu := Hashset.Combine.combine !accu h;
+    done;
+    for i = 0 to Array.length au - 1 do
+      let l = Array.unsafe_get au i in
+      let h = Level.hash l in
+      accu := Hashset.Combine.combine !accu h;
+    done;
+    (* [h] must be positive (XXX why?). *)
+    let h = !accu land 0x3FFFFFFF in
+    h
 
-  let share a = (hcons a, hash a)
-
-  let empty = hcons empty
+  let empty = snd @@ hcons empty
 
   let is_empty (x,y) = CArray.is_empty x && CArray.is_empty y
 
@@ -313,7 +297,11 @@ struct
       h (Instance.pr prq prl ?variance univs ++ str " |= ") ++ h (v 0 (Constraints.pr prl csts))
 
   let hcons ((qnames, unames), (univs, csts)) =
-    ((Array.map Names.Name.hcons qnames, Array.map Names.Name.hcons unames), (Instance.hcons univs, hcons_constraints csts))
+    let hqnames, qnames = Hashcons.hashcons_array Names.Name.hcons qnames in
+    let hunames, unames = Hashcons.hashcons_array Names.Name.hcons unames in
+    let hunivs, univs = Instance.hcons univs in
+    let hcsts, csts = Constraints.hcons csts in
+    Hashset.Combine.combine4 hqnames hunames hunivs hcsts, ((qnames, unames), (univs, csts))
 
   let names ((names, _) : t) = names
   let instance (_, (univs, _csts)) = univs
@@ -344,8 +332,15 @@ struct
     (f inst, (inst, csts))
 
   let to_context_set (_, (inst, csts)) =
-    let qctx, levels = Instance.levels inst in
-    qctx, (levels, csts)
+    let qs, us = Instance.to_array inst in
+    let us = Array.fold_left (fun acc x -> Level.Set.add x acc) Level.Set.empty us in
+    let qs = Array.fold_left (fun acc -> function
+        | Sorts.Quality.QVar x -> Sorts.QVar.Set.add x acc
+        | Sorts.Quality.QConstant _ -> assert false)
+        Sorts.QVar.Set.empty
+        qs
+    in
+    qs, (us, csts)
 
 end
 
@@ -368,9 +363,10 @@ struct
   let names (nas, _) = nas
 
   let hcons ((qnames,unames), cst) =
-    let qnames = Array.map Names.Name.hcons qnames in
-    let unames = Array.map Names.Name.hcons unames in
-    ((qnames, unames), hcons_constraints cst)
+    let hqnames, qnames = Hashcons.hashcons_array Names.Name.hcons qnames in
+    let hunames, unames = Hashcons.hashcons_array Names.Name.hcons unames in
+    let hcst, cst = Constraints.hcons cst in
+    Hashset.Combine.combine3 hqnames hunames hcst, ((qnames, unames), cst)
 
   let empty = (([||],[||]), Constraints.empty)
 

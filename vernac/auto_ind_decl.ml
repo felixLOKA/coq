@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -47,22 +47,22 @@ let name_context env ctxt =
        (env,[]) (List.rev ctxt))
 
 (* Some pre declaration of constant we are going to use *)
-let andb_prop = fun _ -> UnivGen.constr_of_monomorphic_global (Global.env ()) (Coqlib.lib_ref "core.bool.andb_prop")
+let andb_prop = fun _ -> UnivGen.constr_of_monomorphic_global (Global.env ()) (Rocqlib.lib_ref "core.bool.andb_prop")
 
 let andb_true_intro = fun _ ->
   UnivGen.constr_of_monomorphic_global (Global.env ())
-    (Coqlib.lib_ref "core.bool.andb_true_intro")
+    (Rocqlib.lib_ref "core.bool.andb_true_intro")
 
 (* We avoid to use lazy as the binding of constants can change *)
-let bb () = UnivGen.constr_of_monomorphic_global (Global.env ()) (Coqlib.lib_ref "core.bool.type")
-let tt () = UnivGen.constr_of_monomorphic_global (Global.env ()) (Coqlib.lib_ref "core.bool.true")
-let ff () = UnivGen.constr_of_monomorphic_global (Global.env ()) (Coqlib.lib_ref "core.bool.false")
-let eq () = UnivGen.constr_of_monomorphic_global (Global.env ()) (Coqlib.lib_ref "core.eq.type")
-let int63_eqb () = UnivGen.constr_of_monomorphic_global (Global.env ()) (Coqlib.lib_ref "num.int63.eqb")
-let float64_eqb () = UnivGen.constr_of_monomorphic_global (Global.env ()) (Coqlib.lib_ref "num.float.leibniz.eqb")
+let bb () = UnivGen.constr_of_monomorphic_global (Global.env ()) (Rocqlib.lib_ref "core.bool.type")
+let tt () = UnivGen.constr_of_monomorphic_global (Global.env ()) (Rocqlib.lib_ref "core.bool.true")
+let ff () = UnivGen.constr_of_monomorphic_global (Global.env ()) (Rocqlib.lib_ref "core.bool.false")
+let eq () = UnivGen.constr_of_monomorphic_global (Global.env ()) (Rocqlib.lib_ref "core.eq.type")
+let int63_eqb () = UnivGen.constr_of_monomorphic_global (Global.env ()) (Rocqlib.lib_ref "num.int63.eqb")
+let float64_eqb () = UnivGen.constr_of_monomorphic_global (Global.env ()) (Rocqlib.lib_ref "num.float.leibniz.eqb")
 
-let sumbool () = UnivGen.constr_of_monomorphic_global (Global.env ()) (Coqlib.lib_ref "core.sumbool.type")
-let andb = fun _ -> UnivGen.constr_of_monomorphic_global (Global.env ()) (Coqlib.lib_ref "core.bool.andb")
+let sumbool () = UnivGen.constr_of_monomorphic_global (Global.env ()) (Rocqlib.lib_ref "core.sumbool.type")
+let andb = fun _ -> UnivGen.constr_of_monomorphic_global (Global.env ()) (Rocqlib.lib_ref "core.bool.andb")
 
 let induct_on  c = Induction.induction false None c None None
 let destruct_on c = Induction.destruct false None c None None
@@ -100,7 +100,7 @@ let name_Y = Context.make_annot (Name (Id.of_string "Y")) Sorts.Relevant
 let mk_eqb_over u = mkProd (name_X, u, (mkProd (name_Y, lift 1 u, bb ())))
 
 let check_bool_is_defined () =
-  if not (Coqlib.has_ref "core.bool.type")
+  if not (Rocqlib.has_ref "core.bool.type")
   then raise (UndefinedCst "bool")
 
 let check_no_indices mib =
@@ -142,8 +142,9 @@ let get_inductive_deps ~noprop env kn =
             List.fold_left (aux env) accu a
           else
             let _,mip = Inductive.lookup_mind_specif env ind in
-            (* Types in SProp have trivial equality and are skipped *)
-            if match mip.mind_arity with RegularArity {mind_sort = SProp} -> true | _ -> false then
+            (* Types in SProp have trivial equality and are skipped
+               XXX should be substituting polymorphic universes *)
+            if Sorts.is_sprop mip.mind_sort then
               List.fold_left (aux env) accu a
             else
               List.fold_left (aux env) (kn' :: accu) a
@@ -288,7 +289,8 @@ let pred_context env ci params u nas =
     let inst = UVars.Instance.(abstract_instance (length u)) in
     mkApp (mkIndU (ci.ci_ind, inst), args)
   in
-  let realdecls = RelDecl.LocalAssum (Context.anonR, self) :: realdecls in
+  let na = Context.make_annot Anonymous mip.mind_relevance in
+  let realdecls = RelDecl.LocalAssum (na, self) :: realdecls in
   Inductive.instantiate_context u paramsubst nas realdecls
 
 let branch_context env ci params u nas i =
@@ -667,8 +669,9 @@ let build_beq_scheme env handle kn =
 
   (* Setting universes *)
   let auctx = Declareops.universes_context mib.mind_universes in
-  let u, uctx = UnivGen.fresh_instance_from auctx None in
-  let uctx = UState.of_context_set uctx in
+  let u, ctx = UnivGen.fresh_instance_from auctx None in
+  let uctx = UState.from_env env in
+  let uctx = UState.merge_sort_context ~sideff:false UState.univ_rigid uctx ctx in
 
   (* number of inductives in the mutual *)
   let nb_ind = Array.length mib.mind_packets in
@@ -852,6 +855,21 @@ let build_beq_scheme env handle kn =
          if not (Sorts.family_leq InSet kelim) then raise (NonSingletonProp (kn,0));
          [|Term.it_mkLambda_or_LetIn (make_one_eq 0) recparams_ctx_with_eqs|]
   in
+
+  let uctx =
+    (* infer univ constraints
+       For instance template poly inductive produces a univ monomorphic scheme
+       which when applied needs to constrain the universe of its argument
+    *)
+    let sigma = Evd.from_ctx uctx in
+    let sigma = Array.fold_left (fun sigma c ->
+        fst @@ Typing.type_of env sigma (EConstr.of_constr c))
+        sigma
+        res
+    in
+    Evd.ustate sigma
+  in
+
   res, uctx
 
 (* ======================================================================================== *)
@@ -1208,7 +1226,7 @@ repeat ( apply andb_prop in z;let z1:= fresh "Z" in destruct z as [z1 z]).
                 | App (c,ca) -> (
                   match EConstr.kind sigma c with
                   | Ind (indeq, u) ->
-                     if Environ.QGlobRef.equal env (GlobRef.IndRef indeq) Coqlib.(lib_ref "core.eq.type")
+                     if Environ.QGlobRef.equal env (GlobRef.IndRef indeq) Rocqlib.(lib_ref "core.eq.type")
                      then
                        Tacticals.tclTHEN
                          (do_replace_bl handle ind
@@ -1405,7 +1423,7 @@ let _ = lb_scheme_kind_aux := fun () -> lb_scheme_kind
 (* Decidable equality *)
 
 let check_not_is_defined () =
-  if not (Coqlib.has_ref "core.not.type")
+  if not (Rocqlib.has_ref "core.not.type")
   then raise (UndefinedCst "not")
 
 (* {n=m}+{n<>m}  part  *)
@@ -1462,7 +1480,7 @@ let compute_dec_goal env ind lnamesparrec nparrec =
         create_input (
           mkNamedProd (Context.make_annot x Sorts.Relevant) (mkFullInd env ind (3*nparrec)) (
             mkNamedProd (Context.make_annot y Sorts.Relevant) (mkFullInd env ind (3*nparrec+1)) (
-              mkApp(sumbool(),[|eqnm;mkApp (UnivGen.constr_of_monomorphic_global (Global.env ()) @@ Coqlib.lib_ref "core.not.type",[|eqnm|])|])
+              mkApp(sumbool(),[|eqnm;mkApp (UnivGen.constr_of_monomorphic_global (Global.env ()) @@ Rocqlib.lib_ref "core.not.type",[|eqnm|])|])
           )
         )
       )
@@ -1534,7 +1552,7 @@ let compute_dec_tact handle (ind,u) lnamesparrec nparrec =
                       let freshH3 = fresh_id (Id.of_string "H") gl in
                       Tacticals.tclTHENLIST [
                           simplest_right ;
-                          unfold_constr (Coqlib.lib_ref "core.not.type");
+                          unfold_constr (Rocqlib.lib_ref "core.not.type");
                           intro;
                           Equality.subst_all ();
                           assert_by (Name freshH3)

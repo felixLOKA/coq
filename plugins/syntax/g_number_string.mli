@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -14,21 +14,21 @@ val wit_number_string_mapping :
   (bool * Libnames.qualid * Libnames.qualid) Genarg.vernac_genarg_type
 
 val number_string_mapping :
-  (bool * Libnames.qualid * Libnames.qualid) Pcoq.Entry.t
+  (bool * Libnames.qualid * Libnames.qualid) Procq.Entry.t
 
 val wit_number_string_via : number_string_via Genarg.vernac_genarg_type
 
-val number_string_via : number_string_via Pcoq.Entry.t
+val number_string_via : number_string_via Procq.Entry.t
 
 val wit_number_modifier : number_option Genarg.vernac_genarg_type
 
-val number_modifier : number_option Pcoq.Entry.t
+val number_modifier : number_option Procq.Entry.t
 
 val wit_number_options : number_option list Genarg.vernac_genarg_type
 
 val number_options :
-  number_option list Pcoq.Entry.t
+  number_option list Procq.Entry.t
 
 val wit_string_option : number_string_via Genarg.vernac_genarg_type
 
-val string_option : number_string_via Pcoq.Entry.t
+val string_option : number_string_via Procq.Entry.t

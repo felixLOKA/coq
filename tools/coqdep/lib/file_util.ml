@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -8,10 +8,12 @@
 (*         *     (see LICENSE file for the text of the license)         *)
 (************************************************************************)
 
+let re_delim = Str.regexp (if Sys.win32 then "[/\\]+" else "/+" )
+
 let to_relative_path : string -> string = fun full_path ->
   if Filename.is_relative full_path then full_path else
-  let cwd  = String.split_on_char '/' (Sys.getcwd ()) in
-  let path = String.split_on_char '/' full_path in
+  let cwd = Str.split_delim re_delim (Sys.getcwd ()) in
+  let path = Str.split_delim re_delim full_path in
   let rec remove_common_prefix l1 l2 =
     match (l1, l2) with
     | (x1 :: l1, x2 :: l2) when x1 = x2 -> remove_common_prefix l1 l2
@@ -22,8 +24,7 @@ let to_relative_path : string -> string = fun full_path ->
   List.fold_left add_parent path cwd
 
 let normalize_path : string -> string = fun path ->
-  let re_delim = if Sys.win32 then "[/\\]" else "/" in
-  let path = Str.split_delim  (Str.regexp re_delim) path in
+  let path = Str.split_delim re_delim path in
   let rec normalize acc path =
     match (path, acc) with
     | ([]          , _          ) -> List.rev acc

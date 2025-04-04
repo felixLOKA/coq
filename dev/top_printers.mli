@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -29,6 +29,8 @@ val ppkn : Names.KerName.t -> unit
 val ppmind : Names.MutInd.t -> unit
 val ppind : Names.inductive -> unit
 
+val ppseff : Safe_typing.private_constants -> unit
+
 val ppuint63 :  Uint63.t -> unit
 
 val ppsp : Libnames.full_path -> unit
@@ -57,6 +59,7 @@ val ppconstr_expr : Constrexpr.constr_expr -> unit
 val ppglob_constr : 'a Glob_term.glob_constr_g -> unit
 val pppattern : Pattern.constr_pattern -> unit
 val ppfconstr : CClosure.fconstr -> unit
+val pphconstr : HConstr.t -> unit
 val ppfsubst : CClosure.fconstr Esubst.subs -> unit
 
 val ppnumtokunsigned : NumTok.Unsigned.t -> unit
@@ -78,9 +81,6 @@ val ppmpmapgen : 'a Names.MPmap.t -> unit
 val ppdpmapgen : 'a Names.DPmap.t -> unit
 val ppconmapenvgen : 'a Names.Cmap_env.t -> unit
 val ppmindmapenvgen : 'a Names.Mindmap_env.t -> unit
-
-val prmodidmapgen : 'a Names.ModIdmap.t -> Pp.t
-val ppmodidmapgen : 'a Names.ModIdmap.t -> unit
 
 val prididmap : Names.Id.t Names.Id.Map.t -> Pp.t
 val ppididmap : Names.Id.t Names.Id.Map.t -> unit
@@ -124,7 +124,8 @@ val pp_transparent_state : TransparentState.t -> unit
 val pp_estack_t : Reductionops.Stack.t -> unit
 val pp_state_t : Reductionops.state -> unit
 
-val ppmetas : Evd.Metaset.t -> unit
+val ppmetas : Unification.Metaset.t -> unit
+val ppmetamap : Unification.Meta.t -> unit
 val ppevm : Evd.evar_map -> unit
 val ppevmall : Evd.evar_map -> unit
 
@@ -149,6 +150,7 @@ val ppuni : Univ.Universe.t -> unit
 val ppuni_level : Univ.Level.t -> unit (* raw *)
 val ppqvar : Sorts.QVar.t -> unit
 val ppesorts : EConstr.ESorts.t -> unit
+val pperelevance : EConstr.ERelevance.t -> unit
 val prlev : Univ.Level.t -> Pp.t (* with global names (does this work?) *)
 val ppqvarset : Sorts.QVar.Set.t -> unit
 val ppuniverse_set : Univ.Level.Set.t -> unit

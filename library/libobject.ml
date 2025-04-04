@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -10,7 +10,7 @@
 
 module Dyn = Dyn.Make ()
 
-type substitutivity = Dispose | Substitute | Keep | Anticipate
+type substitutivity = Dispose | Substitute | Keep | Escape | Anticipate
 
 type object_name = Libnames.full_path * Names.KerName.t
 
@@ -87,7 +87,7 @@ let default_object ?(stage=Summary.Stage.Interp) s = {
   subst_function = (fun _ ->
     CErrors.anomaly Pp.(str "The object " ++ str s
       ++ str " does not know how to substitute!"));
-  classify_function = (fun _ -> Keep);
+  classify_function = (fun _ -> CErrors.anomaly Pp.(str "no classify function for " ++ str s));
   discharge_function = (fun _ -> None);
   rebuild_function = (fun x -> x);
 }
@@ -123,21 +123,37 @@ module ExportObj = struct
   type t = { mpl : (open_filter * Names.ModPath.t) list } [@@unboxed]
 end
 
-type algebraic_objects =
-  | Objs of t list
-  | Ref of Names.ModPath.t * Mod_subst.substitution
+type ('subs, 'alg, 'keep, 'escape) object_view =
+| ModuleObject of Names.Id.t * 'subs
+| ModuleTypeObject of Names.Id.t * 'subs
+| IncludeObject of 'alg
+| KeepObject of Names.Id.t * 'keep
+| EscapeObject of Names.Id.t * 'escape
+| ExportObject of ExportObj.t
+| AtomicObject of obj
 
-and t =
-  | ModuleObject of Names.Id.t * substitutive_objects
-  | ModuleTypeObject of Names.Id.t * substitutive_objects
-  | IncludeObject of algebraic_objects
-  | KeepObject of Names.Id.t * t list
-  | ExportObject of ExportObj.t
-  | AtomicObject of obj
+type t = (substitutive_objects, algebraic_objects, keep_objects, escape_objects) object_view
+
+and algebraic_objects =
+| Objs of t list
+| Ref of Names.ModPath.t * Mod_subst.substitution
 
 and substitutive_objects = Names.MBId.t list * algebraic_objects
 
-type 'a stored_decl = O : ('a, Nametab.object_prefix * 'a, 'd) object_declaration -> 'a stored_decl
+and keep_objects = { keep_objects : t list }
+
+and escape_objects = { escape_objects : t list }
+
+type object_prefix = {
+  obj_path : Libnames.full_path;
+  obj_mp  : Names.ModPath.t;
+}
+
+let eq_object_prefix op1 op2 =
+  Libnames.eq_full_path op1.obj_path op2.obj_path &&
+  Names.ModPath.equal op1.obj_mp  op2.obj_mp
+
+type 'a stored_decl = O : ('a, object_prefix * 'a, 'd) object_declaration -> 'a stored_decl
 
 module DynMap = Dyn.Map (struct type 'a t = 'a stored_decl end)
 
@@ -149,8 +165,8 @@ let declare_object_gen odecl =
   let () = cache_tab := DynMap.add tag (O odecl) !cache_tab in
   tag
 
-let make_oname Nametab.{ obj_dir; obj_mp } id =
-  Libnames.make_path obj_dir id, Names.KerName.make obj_mp (Names.Label.of_id id)
+let make_oname { obj_path; obj_mp } id =
+  Libnames.add_path_suffix obj_path id, Names.KerName.make obj_mp (Names.Label.of_id id)
 
 let declare_named_object_full odecl =
   let odecl =
@@ -211,11 +227,7 @@ let subst_object (subs, Dyn.Dyn (tag, v)) =
 
 let classify_object (Dyn.Dyn (tag, v)) =
   let O decl = DynMap.find tag !cache_tab in
-  match decl.classify_function v with
-  | Dispose -> Dispose
-  | Substitute -> Substitute
-  | Keep -> Keep
-  | Anticipate -> Anticipate
+  decl.classify_function v
 
 type discharged_obj = Discharged : 'a Dyn.tag * 'd * ('d -> 'a) -> discharged_obj
 

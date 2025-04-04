@@ -1,5 +1,5 @@
-From Coq Require BinNat.
-From Coq Require Extraction.
+From Corelib Require NatDef.
+From Corelib Require Extraction.
 
 (* Define axiomatic functions. *)
 Axiom ax_fun : nat -> nat.

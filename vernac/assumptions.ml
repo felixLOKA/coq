@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -19,6 +19,7 @@
 open Util
 open Names
 open Declarations
+open Mod_declarations
 
 module NamedDecl = Context.Named.Declaration
 
@@ -59,7 +60,7 @@ let rec fields_of_functor f subs mp0 args = function
     match args with
     | [] -> assert false (* we should only encounter applied functors *)
     | mpa :: args ->
-      let subs = join (map_mbid mbid mpa empty_delta_resolver (*TODO*)) subs in
+      let subs = join (map_mbid mbid mpa (empty_delta_resolver mpa) (*TODO*)) subs in
       fields_of_functor f subs mp0 args e
 
 let rec lookup_module_in_impl mp =
@@ -83,19 +84,27 @@ and memoize_fields_of_mp mp =
 and fields_of_mp mp =
   let open Mod_subst in
   let mb = lookup_module_in_impl mp in
-  let fields,inner_mp,subs = fields_of_mb empty_subst mb [] in
+  let fields,inner_mp,subs = fields_of_mb empty_subst mp mb [] in
+  let delta_mb = mod_delta mb in
   let subs =
+    (* XXX this code makes little sense, adding a delta_mb to subs if the root
+       does not coincide with mp used to be equivalent to a no-op and now fails
+       with an assertion failure. More likely than not, this means that we have
+       no idea about what we are doing. *)
     if ModPath.equal inner_mp mp then subs
-    else add_mp inner_mp mp mb.mod_delta subs
+    else if has_root_delta_resolver mp delta_mb then
+      add_mp inner_mp mp delta_mb subs
+    else
+      add_mp inner_mp mp (empty_delta_resolver mp) subs
   in
-  Modops.subst_structure subs fields
+  Modops.subst_structure subs mp fields
 
-and fields_of_mb subs mb args = match mb.mod_expr with
-  | Algebraic expr -> fields_of_expression subs mb.mod_mp args mb.mod_type expr
+and fields_of_mb subs mp mb args = match Mod_declarations.mod_expr mb with
+  | Algebraic expr -> fields_of_expression subs mp args (mod_type mb) expr
   | Struct sign ->
-    let sign = Modops.annotate_struct_body sign mb.mod_type in
-    fields_of_signature subs mb.mod_mp args sign
-  | Abstract|FullStruct -> fields_of_signature subs mb.mod_mp args mb.mod_type
+    let sign = Modops.annotate_struct_body sign (mod_type mb) in
+    fields_of_signature subs mp args sign
+  | Abstract|FullStruct -> fields_of_signature subs mp args (mod_type mb)
 
 (** The Abstract case above corresponds to [Declare Module] *)
 
@@ -107,8 +116,9 @@ and fields_of_signature x =
 
 and fields_of_expr subs mp0 args = function
   | MEident mp ->
-    let mb = lookup_module_in_impl (Mod_subst.subst_mp subs mp) in
-    fields_of_mb subs mb args
+    let mp = Mod_subst.subst_mp subs mp in
+    let mb = lookup_module_in_impl mp in
+    fields_of_mb subs mp mb args
   | MEapply (me1,mp2) -> fields_of_expr subs mp0 (mp2::args) me1
   | MEwith _ -> assert false (* no 'with' in [mod_expr] *)
 

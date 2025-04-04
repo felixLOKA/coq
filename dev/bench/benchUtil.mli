@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -23,6 +23,17 @@ type source_loc = {
 type measure = { str: string; q: Q.t; }
 
 val dummy_measure : measure
+
+type memory = {
+  major_words : string;
+  minor_words : string;
+  major_collect : int;
+  minor_collect : int;
+}
+
+type data = { time : measure; memory : memory option }
+
+val dummy_data : data
 
 val combine_related_data : (string * (char_loc * 'a) array) array -> (char_loc * 'a array) array
 (** Combine data from multiple files about the same source, ensuring

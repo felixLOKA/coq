@@ -3,7 +3,7 @@
 Syntax extensions and notation scopes
 =====================================
 
-In this chapter, we introduce advanced commands to modify the way Coq
+In this chapter, we introduce advanced commands to modify the way Rocq
 parses and prints objects, i.e. the translations between the concrete
 and internal representations of terms and commands.
 
@@ -13,11 +13,11 @@ The main commands to provide custom symbolic notations for terms are
 variant of :cmd:`Notation` which does not modify the parser; this provides a
 form of :ref:`abbreviation <Abbreviations>`. It is
 sometimes expected that the same symbolic notation has different meanings in
-different contexts; to achieve this form of overloading, Coq offers a notion
+different contexts; to achieve this form of overloading, Rocq offers a notion
 of :ref:`notation scopes <Scopes>`.
 The main command to provide custom notations for tactics is :cmd:`Tactic Notation`.
 
-.. coqtop:: none
+.. rocqtop:: none
 
    Set Printing Depth 50.
 
@@ -53,7 +53,7 @@ Basic notations
 For example, the following definition permits using the infix expression :g:`A /\ B`
 to represent :g:`(and A B)`:
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "A /\ B" := (and A B).
 
@@ -71,7 +71,7 @@ literally when the notation is used.
 Identifiers enclosed in single quotes are treated as symbols and thus
 lose their role as parameters. For example:
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "'IF' c1 'then' c2 'else' c3" := (c1 /\ c2 \/ ~ c1 /\ c3) (at level 200, right associativity).
 
@@ -92,7 +92,7 @@ symbol starts with a double quote, it must be surrounded with single
 quotes to prevent confusion with the beginning of a string symbol.
 
 A notation binds a syntactic expression to a term, called its :gdef:`interpretation`. Unless the parser
-and pretty-printer of Coq already know how to deal with the syntactic
+and pretty-printer of Rocq already know how to deal with the syntactic
 expression (such as through :cmd:`Reserved Notation` or for notations
 that contain only literals), explicit precedences and
 associativity rules have to be given.
@@ -123,18 +123,18 @@ Precedences and associativity
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Mixing different symbolic notations in the same text may cause serious
-parsing ambiguity. To deal with the ambiguity of notations, Coq uses
+parsing ambiguity. To deal with the ambiguity of notations, Rocq uses
 precedence levels ranging from 0 to 100 (plus one extra level numbered
 200) and associativity rules.
 
 Consider for example the new notation
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "A \/ B" := (or A B).
 
 Clearly, an expression such as :g:`forall A:Prop, True /\ A \/ A \/ False`
-is ambiguous. To tell the Coq parser how to interpret the
+is ambiguous. To tell the Rocq parser how to interpret the
 expression, a priority between the symbols ``/\`` and ``\/`` has to be
 given. Assume for instance that we want conjunction to bind more than
 disjunction. This is expressed by assigning a precedence level to each
@@ -152,12 +152,12 @@ defaults to :g:`True /\ (False /\ False)` (right associativity) or to
 expression is not well-formed and that parentheses are mandatory (this is a “no
 associativity”) [#no_associativity]_. We do not know of a special convention for
 the associativity of disjunction and conjunction, so let us apply
-right associativity (which is the choice of Coq).
+right associativity (which is the choice of Rocq).
 
 Precedence levels and associativity rules of notations are specified with a list of
 parenthesized :n:`@syntax_modifier`\s.  Here is how the previous examples refine:
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "A /\ B" := (and A B) (at level 80, right associativity).
    Notation "A \/ B" := (or A B) (at level 85, right associativity).
@@ -177,14 +177,14 @@ Complex notations
 Notations can be made from arbitrarily complex symbols. One can for
 instance define prefix notations.
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "~ x" := (not x) (at level 75, right associativity).
 
 One can also define notations for incomplete terms, with the hole
 expected to be inferred during type checking.
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "x = y" := (@eq _ x y) (at level 70, no associativity).
 
@@ -192,13 +192,13 @@ One can define *closed* notations whose both sides are symbols. In this case,
 the default precedence level for the inner sub-expression is 200, and the default
 level for the notation itself is 0.
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "( x , y )" := (@pair _ _ x y).
 
 One can also define notations for binders.
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "{ x : A | P }" := (sig A (fun x => P)).
 
@@ -208,7 +208,7 @@ Grammar` `constr` is at level 100. To avoid ``x : A`` being parsed as a type cas
 it is necessary to put ``x`` at a level below 100, typically 99. Hence, a correct
 definition is the following:
 
-.. coqtop:: reset all
+.. rocqtop:: reset all
 
    Notation "{ x : A | P }" := (sig A (fun x => P)) (x at level 99).
 
@@ -220,7 +220,7 @@ left. See the next section for more about factorization.
 Simple factorization rules
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Coq extensible parsing is performed by *Camlp5* which is essentially a LL1
+Rocq extensible parsing is performed by *Camlp5* which is essentially a LL1
 parser: it decides which notation to parse by looking at tokens from left to right.
 Hence, some care has to be taken not to hide already existing rules by new
 rules. Indeed notations with a common prefix but different levels can
@@ -230,7 +230,7 @@ and ``y`` at level 69 would be broken by another rule that puts
 at level 200. To avoid such issues, you should left factorize rules, that is ensure
 that common prefixes use the samel levels.
 
-.. coqtop:: all
+.. rocqtop:: all
 
    Reserved Notation "x << y" (at level 70).
    Fail Reserved Notation "x << y << z" (at level 70, y at level 200).
@@ -241,23 +241,23 @@ default behavior puts ``y`` at the next level below 70 in the first rule
 (``no associativity`` is the default). To fix this, we
 need to force the parsing level of ``y``, as follows.
 
-.. coqtop:: reset all
+.. rocqtop:: reset all
 
    Reserved Notation "x << y" (at level 70).
    Reserved Notation "x << y << z" (at level 70, y at next level).
 
 Or better yet, simply let the defaults ensure the best factorization.
 
-.. coqtop:: reset all
+.. rocqtop:: reset all
 
    Reserved Notation "x << y" (at level 70).
    Reserved Notation "x << y << z".
    Print Notation "_ << _ << _".
 
-For the sake of factorization with Coq predefined rules, simple rules
+For the sake of factorization with Rocq predefined rules, simple rules
 have to be observed for notations starting with a symbol, e.g., rules
 starting with “\ ``{``\ ” or “\ ``(``\ ” should be put at level 0. The list
-of Coq predefined notations can be found in the chapter on :ref:`thecoqlibrary`.
+of Rocq predefined notations can be found in the chapter on :ref:`thecoqlibrary`.
 
 .. warn:: Closed notations (i.e. starting and ending with a terminal symbol) should usually be at level 0 (default).
    :name: closed-notation-not-level-0
@@ -274,16 +274,16 @@ of Coq predefined notations can be found in the chapter on :ref:`thecoqlibrary`.
 Use of notations for printing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The command :cmd:`Notation` has an effect both on the Coq parser and on the
-Coq printer. For example:
+The command :cmd:`Notation` has an effect both on the Rocq parser and on the
+Rocq printer. For example:
 
-.. coqtop:: all
+.. rocqtop:: all
 
    Check (and True True).
 
 However, printing, especially pretty-printing, also requires some
 care. We may want specific indentations, line breaks, alignment if on
-several lines, etc. For pretty-printing, Coq relies on OCaml
+several lines, etc. For pretty-printing, Rocq relies on OCaml
 formatting library, which provides indentation and automatic line
 breaks depending on page width by means of *formatting boxes*.
 
@@ -301,27 +301,27 @@ separate the components) is interpreted as a space to be inserted by
 the printer. Here is an example showing how to add spaces next to the
 curly braces.
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "{{  x : A | P  }}" := (sig (fun x : A => P)) (at level 0, x at level 99).
 
-.. coqtop:: all
+.. rocqtop:: all
 
    Check (sig (fun x : nat => x=x)).
 
 The second, more powerful control on printing is by using :n:`@syntax_modifier`\s. Here is an example
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Definition IF_then_else (P Q R:Prop) := P /\ Q \/ ~ P /\ R.
 
-.. coqtop:: all
+.. rocqtop:: all
 
    Notation "'If' c1 'then' c2 'else' c3" := (IF_then_else c1 c2 c3)
    (at level 200, right associativity, format
    "'[v   ' 'If'  c1 '/' '[' 'then'  c2  ']' '/' '[' 'else'  c3 ']' ']'").
 
-.. coqtop:: all
+.. rocqtop:: all
 
    Check
      (IF_then_else (IF_then_else True False True)
@@ -389,7 +389,7 @@ at the time of use of the notation.
    notations which capture the largest subterm of the term are used
    preferentially. Here is an example:
 
-   .. coqtop:: in
+   .. rocqtop:: in
 
      Notation "x < y" := (lt x y) (at level 70).
      Notation "x < y < z" := (lt x y /\ lt y z) (at level 70, y at next level).
@@ -422,7 +422,7 @@ symbols.
    where ``x`` and ``y`` are fresh names and omitting the quotes around :n:`@string`.
    Here is an example:
 
-   .. coqtop:: in
+   .. rocqtop:: in
 
       Infix "/\" := and (at level 80, right associativity).
 
@@ -433,14 +433,14 @@ Reserving notations
 
 .. cmd:: Reserved Notation @string {? ( {+, @syntax_modifier } ) }
 
-   A given notation may be used in different contexts. Coq expects all
+   A given notation may be used in different contexts. Rocq expects all
    uses of the notation to be defined at the same precedence and with the
    same associativity. To avoid giving the precedence and associativity
    every time, this command declares a parsing rule (:token:`string`) in advance
    without giving its interpretation. Here is an example from the initial
-   state of Coq.
+   state of Rocq.
 
-   .. coqtop:: in
+   .. rocqtop:: in
 
       Reserved Notation "x = y" (at level 70, no associativity).
 
@@ -485,21 +485,21 @@ changing a parsing rule are accepted.
 
 Here are examples:
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Reserved Notation "A & B" (at level 80).
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Inductive and' (A B : Prop) : Prop := conj' : A -> B -> A & B
    where "A & B" := (and' A B).
 
 .. without this we get "not a truly recursive fixpoint"
-.. coqtop:: none
+.. rocqtop:: none
 
    Arguments S _ : clear scopes.
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Fixpoint plus (n m : nat) {struct n} : nat :=
    match n with
@@ -618,7 +618,7 @@ Enabling and disabling notations
 
    .. example:: Enabling and disabling notations
 
-      .. coqtop:: all
+      .. rocqtop:: all
 
          Disable Notation "+" (all).
          Enable Notation "_ + _" (all) : type_scope.
@@ -653,7 +653,7 @@ Displaying information about notations
    :token:`string`. :token:`ident`, if specified, is the name of the associated
    custom entry. See :cmd:`Declare Custom Entry`.
 
-   .. coqtop:: all
+   .. rocqtop:: all
 
       Reserved Notation "x # y" (at level 123, right associativity).
       Print Notation "_ # _".
@@ -668,7 +668,7 @@ Displaying information about notations
 
    .. example:: :cmd:`Print Notation`
 
-      .. coqtop:: all
+      .. rocqtop:: all
 
          Reserved Notation "x 'mod' y" (at level 40, no associativity).
          Print Notation "_ mod _".
@@ -734,7 +734,7 @@ Displaying information about notations
    definition where the nonterminal was referenced.  This command shows the original grammar,
    so it won't exactly match the documentation.
 
-   The Coq parser is based on Camlp5.  The documentation for
+   The Rocq parser is based on Camlp5.  The documentation for
    `Extensible grammars <http://camlp5.github.io/doc/htmlc/grammars.html>`_ is the
    most relevant but it assumes considerable knowledge.  Here are the essentials:
 
@@ -800,7 +800,7 @@ Displaying information about notations
    The file
    `doc/tools/docgram/fullGrammar <http://github.com/coq/coq/blob/master/doc/tools/docgram/fullGrammar>`_
    in the source tree extracts the full grammar for
-   Coq (not including notations and tactic notations defined in `*.v` files nor some optionally-loaded plugins)
+   Rocq (not including notations and tactic notations defined in `*.v` files nor some optionally-loaded plugins)
    in a single file with minor changes to handle nonterminals using multiple levels (described in
    `doc/tools/docgram/README.md <http://github.com/coq/coq/blob/master/doc/tools/docgram/README.md>`_).
    This is complete and much easier to read than the grammar source files.
@@ -821,7 +821,7 @@ To locate a particular notation, use a string where the variables of the
 notation are replaced by “``_``” and where possible single quotes inserted around
 identifiers or tokens starting with a single quote are dropped.
 
-.. coqtop:: all
+.. rocqtop:: all
 
    Locate "exists".
    Locate "exists _ .. _ , _".
@@ -834,12 +834,12 @@ the notation inherits the implicit arguments (see
 :ref:`ImplicitArguments`) and notation scopes (see
 :ref:`Scopes`) of the constant. For instance:
 
-.. coqtop:: in reset
+.. rocqtop:: in reset
 
    Record R := {dom : Type; op : forall {A}, A -> dom}.
    Notation "# x" := (@op x) (at level 8).
 
-.. coqtop:: all
+.. rocqtop:: all
 
    Check fun x:R => # x 3.
 
@@ -861,7 +861,7 @@ Binders bound in the notation and parsed as identifiers
 
 Here is the basic example of a notation using a binder:
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "'sigma' x : A , B" := (sigT (fun x : A => B))
      (at level 200, x name, A at level 200, right associativity).
@@ -873,7 +873,7 @@ parameters of the notation. This means that the term bound to :g:`B` can
 refer to the variable name bound to :g:`x` as shown in the following
 application of the notation:
 
-.. coqtop:: all
+.. rocqtop:: all
 
    Check sigma z : nat, z = 0.
 
@@ -889,12 +889,12 @@ In the same way as patterns can be used as binders, as in
 defined so that any :n:`@pattern` can be used in place of the
 binder. Here is an example:
 
-.. coqtop:: in reset
+.. rocqtop:: in reset
 
    Notation "'subset' ' p , P " := (sig (fun p => P))
      (at level 200, p pattern, format "'subset'  ' p ,  P").
 
-.. coqtop:: all
+.. rocqtop:: all
 
    Check subset '(x,y), x+y=0.
 
@@ -902,7 +902,7 @@ The :n:`@syntax_modifier p pattern` in the declaration of the notation tells to 
 :g:`p` as a pattern. Note that a single variable is both an identifier and a
 pattern, so, e.g., the following also works:
 
-.. coqtop:: all
+.. rocqtop:: all
 
    Check subset 'x, x=0.
 
@@ -912,14 +912,14 @@ the :n:`@syntax_modifier p strict pattern`. For parsing, however, a
 ``strict pattern`` will continue to include the case of a
 variable. Here is an example showing the difference:
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "'subset_bis' ' p , P" := (sig (fun p => P))
      (at level 200, p strict pattern).
    Notation "'subset_bis' p , P " := (sig (fun p => P))
      (at level 200, p name).
 
-.. coqtop:: all
+.. rocqtop:: all
 
    Check subset_bis 'x, x=0.
 
@@ -934,7 +934,7 @@ Sometimes, for the sake of factorization of rules, a binder has to be
 parsed as a term. This is typically the case for a notation such as
 the following:
 
-.. coqdoc::
+.. rocqdoc::
 
    Notation "{ x : A | P }" := (sig (fun x : A => P))
        (at level 0, x at level 99 as name).
@@ -953,14 +953,14 @@ library with the ``as name`` :n:`@syntax_modifier`. We cannot redefine it but
 one can define an alternative notation, say :g:`{ p such that P }`,
 using instead ``as pattern``.
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "{ p 'such' 'that' P }" := (sig (fun p => P))
      (at level 0, p at level 99 as pattern).
 
 Then, the following works:
 
-.. coqtop:: all
+.. rocqtop:: all
 
    Check {(x,y) such that x+y=0}.
 
@@ -975,10 +975,10 @@ in binding position and parsed as terms to be ``as name``.
 Binders bound in the notation and parsed as general binders
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-It is also possible to rely on Coq's syntax of binders using the
+It is also possible to rely on Rocq's syntax of binders using the
 `binder` modifier as follows:
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "'myforall' p , [ P , Q ] " := (forall p, P -> Q)
      (at level 200, p binder).
@@ -988,7 +988,7 @@ In this case, all of :n:`@ident`, :n:`{@ident}`, :n:`[@ident]`, :n:`@ident:@type
 the corresponding notation variable. In particular, the binder can
 declare implicit arguments:
 
-.. coqtop:: all
+.. rocqtop:: all
 
    Check fun (f : myforall {a}, [a=0, Prop]) => f eq_refl.
    Check myforall '((x,y):nat*nat), [ x = y, True ].
@@ -1006,17 +1006,17 @@ are not themselves bound in the notation. In this case, the binders
 are considered up to renaming of the internal binder. E.g., for the
 notation
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "'exists_different' n" := (exists p:nat, p<>n) (at level 200).
 
 the next command fails because p does not bind in the instance of n.
 
-.. coqtop:: all
+.. rocqtop:: all
 
    Fail Check (exists_different p).
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "[> a , .. , b <]" :=
      (cons a .. (cons b nil) .., cons b .. (cons a nil) ..).
@@ -1027,20 +1027,20 @@ Notations with expressions used both as binder and term
 It is possible to use parameters of the notation both in term and
 binding position. Here is an example:
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Definition force n (P:nat -> Prop) := forall n', n' >= n -> P n'.
    Notation "▢_ n P" := (force n (fun n => P))
      (at level 0, n name, P at level 9, format "▢_ n  P").
 
-.. coqtop:: all
+.. rocqtop:: all
 
    Check exists p, ▢_p (p >= 1).
 
 More generally, the parameter can be a pattern, as in the following
 variant:
 
-.. coqtop:: in reset
+.. rocqtop:: in reset
 
    Definition force2 q (P:nat*nat -> Prop) :=
      (forall n', n' >= fst q -> forall p', p' >= snd q -> P q).
@@ -1048,7 +1048,7 @@ variant:
    Notation "▢_ p P" := (force2 p (fun p => P))
      (at level 0, p pattern at level 0, P at level 9, format "▢_ p  P").
 
-.. coqtop:: all
+.. rocqtop:: all
 
    Check exists x y, ▢_(x,y) (x >= 1 /\ y >= 2).
 
@@ -1064,12 +1064,12 @@ Notations with recursive patterns
 A mechanism is provided for declaring elementary notations with
 recursive patterns. The basic example is:
 
-.. coqtop:: all
+.. rocqtop:: all
 
    Notation "[ x ; .. ; y ]" := (cons x .. (cons y nil) ..).
 
 On the right-hand side, an extra construction of the form ``.. t ..`` can
-be used. Notice that ``..`` is part of the Coq syntax and it must not be
+be used. Notice that ``..`` is part of the Rocq syntax and it must not be
 confused with the three-dots notation “``…``” used in this manual to denote
 a sequence of arbitrary size.
 
@@ -1098,13 +1098,13 @@ and the terminating expression is ``nil``.
 
 Here is another example with the pattern associating on the left:
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "( x , y , .. , z )" := (pair .. (pair x y) .. z) (at level 0).
 
 Here is an example with more involved recursive patterns:
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "[| t * ( x , y , .. , z ) ; ( a , b , .. , c )  * u |]" :=
      (pair (pair .. (pair (pair t x) (pair t y)) .. (pair t z))
@@ -1119,7 +1119,7 @@ beta-redexes are contracted, the notations stops to be used for
 printing. Support for notations defined in this way should be considered
 experimental.
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "x  ⪯ y  ⪯ ..  ⪯ z  ⪯ t" :=
      ((fun b A a => a <= b /\ A b) y .. ((fun b A a => a <= b /\ A b) z (fun b => b <= t)) .. x)
@@ -1137,7 +1137,7 @@ Notations with recursive patterns involving binders
 Recursive notations can also be used with binders. The basic example
 is:
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "'exists' x .. y , p" :=
      (ex (fun x => .. (ex (fun y => p)) ..))
@@ -1170,7 +1170,7 @@ be of the more general form ``x s .. s y`` where ``s`` is an arbitrary sequence 
 tokens. With open binders though, ``s`` has to be empty. Here is an
 example of recursive notation with closed binders:
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "'mylet' f x .. y :=  t 'in' u":=
      (let f := fun x => .. (fun y => t) .. in u)
@@ -1179,7 +1179,7 @@ example of recursive notation with closed binders:
 A recursive pattern for binders can be used in position of a recursive
 pattern for terms. Here is an example:
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "'FUNAPP' x .. y , f" :=
      (fun x => .. (fun y => (.. (f x) ..) y ) ..)
@@ -1189,7 +1189,7 @@ If an occurrence of the :math:`[~]_E` is not in position of a binding
 variable but of a term, it is the name used in the binding which is
 used. Here is an example:
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "'exists_non_null' x .. y  , P" :=
      (ex (fun x => x <> 0 /\ .. (ex (fun y => y <> 0 /\ P)) ..))
@@ -1204,7 +1204,7 @@ to restrict the syntax of terms in a notation. For instance, the
 following notation will accept to parse only global reference in
 position of :g:`x`:
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "'apply' f a1 .. an" := (.. (f a1) .. an)
      (at level 10, f global, a1, an at level 9).
@@ -1215,7 +1215,7 @@ already seen in :ref:`NotationsWithBinders`, even when the
 corresponding expression is not used as a binder in the right-hand
 side. E.g.:
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "'apply_id' f a1 .. an" := (.. (f a1) .. an)
      (at level 10, f ident, a1, an at level 9).
@@ -1242,7 +1242,7 @@ Custom entries
    For instance, we may want to define an ad hoc
    parser for arithmetical operations and proceed as follows:
 
-   .. coqtop:: reset all
+   .. rocqtop:: reset all
 
       Inductive Expr :=
       | One : Expr
@@ -1272,7 +1272,7 @@ Custom entries
 Custom entries have levels, like the main grammar of terms and grammar
 of patterns have. The lower level is 0 and this is the level used by
 default to put rules delimited with tokens on both ends. The level is
-left to be inferred by Coq when using :n:`in custom @ident`. The
+left to be inferred by Rocq when using :n:`in custom @ident`. The
 level is otherwise given explicitly by using the syntax
 :n:`in custom @ident at level @natural`, where :n:`@natural` refers to the level.
 
@@ -1288,7 +1288,7 @@ associative and rules at level less or equal than ``n`` if the rule is
 declared right associative. This is what happens for instance in the
 rule
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "x + y" := (Add x y) (in custom expr at level 2, left associativity).
 
@@ -1301,7 +1301,7 @@ Rules associated with an entry can refer different sub-entries. The
 grammar entry name ``constr`` can be used to refer to the main grammar
 of term as in the rule
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "{ x }" := x (in custom expr at level 0, x constr).
 
@@ -1315,18 +1315,18 @@ level``.
 Conversely, custom entries can be used to parse sub-expressions of the
 main grammar, or from another custom entry as is the case in
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "[ e ]" := e (e custom expr at level 2).
 
 to indicate that ``e`` has to be parsed at level ``2`` of the grammar
 associated with the custom entry ``expr``. The level can be omitted, as in
 
-.. coqdoc::
+.. rocqdoc::
 
    Notation "[ e ]" := e (e custom expr).
 
-in which case Coq infer it. If the sub-expression is at a border of
+in which case Rocq infer it. If the sub-expression is at a border of
 the notation (as e.g. ``x`` and ``y`` in ``x + y``), the level is
 determined by the associativity. If the sub-expression is not at the
 border of the notation (as e.g. ``e`` in ``"[ e ]``), the level is
@@ -1347,13 +1347,13 @@ side, i.e. that they are bound to an expression which is not
 reduced to a single variable. If the rule is not productive on the
 right-hand side, as it is the case above for
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "( x )" := x (in custom expr at level 0, x at level 2).
 
 and
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "{ x }" := x (in custom expr at level 0, x constr).
 
@@ -1362,7 +1362,7 @@ print an expression which is not available in the current grammar at the
 current level of parsing or printing for this grammar but which is available
 in another grammar or in another level of the current grammar. For instance,
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "( x )" := x (in custom expr at level 0, x at level 2).
 
@@ -1372,7 +1372,7 @@ expected to be used as a subterm at level 0 or 1.  This allows for
 instance to parse and print :g:`Add x y` as a subterm of :g:`Mul (Add
 x y) z` using the syntax ``(x + y) z``. Similarly,
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "{ x }" := x (in custom expr at level 0, x constr).
 
@@ -1384,22 +1384,22 @@ Another special situation is when parsing global references or
 identifiers. To indicate that a custom entry should parse identifiers,
 use the following form:
 
-.. coqtop:: reset none
+.. rocqtop:: reset none
 
    Declare Custom Entry expr.
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "x" := x (in custom expr at level 0, x ident).
 
 Similarly, to indicate that a custom entry should parse global references
 (i.e. qualified or unqualified identifiers), use the following form:
 
-.. coqtop:: reset none
+.. rocqtop:: reset none
 
    Declare Custom Entry expr.
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Notation "x" := x (in custom expr at level 0, x global).
 
@@ -1453,7 +1453,7 @@ Note that `_` by itself is a valid :n:`@name` but is not a valid :n:`@ident`.
           time. Type checking is done only at the time of use of the notation.
 
 .. note:: Some examples of Notation may be found in the files composing
-          the initial state of Coq (see directory :file:`$COQLIB/theories/Init`).
+          the initial state of Rocq (see directory :file:`$ROCQLIB/theories/Init`).
 
 .. note:: The notation ``"{ x }"`` has a special status in the main grammars of
           terms and patterns so that
@@ -1478,7 +1478,7 @@ Note that `_` by itself is a valid :n:`@name` but is not a valid :n:`@ident`.
           .. warn:: Use of @string Notation is deprecated as it is inconsistent with pattern syntax.
 
              This warning is disabled by default to avoid spurious diagnostics
-             due to legacy notation in the Coq standard library.
+             due to legacy notation in the Rocq standard library.
              It can be turned on with the ``-w disj-pattern-notation`` flag.
 
 .. exn:: Unknown custom entry: @ident.
@@ -1516,7 +1516,7 @@ Most commands use :token:`scope_name`; :token:`scope_key`\s are used within :tok
 .. cmd:: Declare Scope @scope_name
 
    Declares a new notation scope. Note that the initial
-   state of Coq declares the following notation scopes:
+   state of Rocq declares the following notation scopes:
 
    ``bool_scope``, ``byte_scope``, ``core_scope``, ``dec_int_scope``,
    ``dec_uint_scope``, ``function_scope``, ``hex_int_scope``, ``hex_nat_scope``,
@@ -1533,7 +1533,7 @@ Global interpretation rules for notations
 
 At any time, the interpretation of a notation for a term is done within
 a *stack* of notation scopes and :term:`lonely notations <lonely notation>`. If a
-notation is defined in multiple scopes, Coq uses the interpretation from
+notation is defined in multiple scopes, Rocq uses the interpretation from
 the most recently opened notation scope or declared lonely notation.
 
 Note that "stack" is a misleading name.  Each scope or lonely notation can only appear in
@@ -1544,7 +1544,7 @@ stack, rather than through "pop" operations.
 
 Use the :cmd:`Print Visibility` command to display the current notation scope stack.
 
-The initial state of Coq has the following scopes opened: ``core_scope``,
+The initial state of Rocq has the following scopes opened: ``core_scope``,
 ``function_scope``, ``type_scope`` and ``nat_scope``, ``nat_scope`` being the
 top of the scopes stack.
 
@@ -1660,7 +1660,7 @@ Binding types or coercion classes to notation scopes
       Let's declare two scopes with a notation in each and an arbitrary
       function on type ``bool``.
 
-      .. coqtop:: in reset
+      .. rocqtop:: in reset
 
          Declare Scope T_scope.
          Declare Scope F_scope.
@@ -1672,7 +1672,7 @@ Binding types or coercion classes to notation scopes
       By default, the argument of ``f`` is interpreted in the
       currently opened scopes.
 
-      .. coqtop:: all
+      .. rocqtop:: all
 
          Open Scope T_scope.
          Check f #.
@@ -1681,7 +1681,7 @@ Binding types or coercion classes to notation scopes
 
       This can be changed by binding scopes to the type ``bool``.
 
-      .. coqtop:: all
+      .. rocqtop:: all
 
          Bind Scope T_scope with bool.
          Check f #.
@@ -1690,7 +1690,7 @@ Binding types or coercion classes to notation scopes
       interpreted in the first scope containing them, from the top of
       the stack.
 
-      .. coqtop:: all
+      .. rocqtop:: all
 
          #[add_top] Bind Scope F_scope with bool.
          Check f #.
@@ -1701,13 +1701,13 @@ Binding types or coercion classes to notation scopes
       Bindings for functions can be displayed with the
       :cmd:`About` command.
 
-      .. coqtop:: all
+      .. rocqtop:: all
 
          About f.
 
       Bindings are also used in casts.
 
-      .. coqtop:: all
+      .. rocqtop:: all
 
          Close Scope F_scope.
          Check #.
@@ -1759,10 +1759,10 @@ recognized to be a ``Funclass`` instance, i.e., of type :g:`forall x:A, B` or
 
 .. _notation-scopes:
 
-Notation scopes used in the standard library of Coq
+Notation scopes used in the standard library of Rocq
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-We give an overview of the scopes used in the standard library of Coq.
+We give an overview of the scopes used in the standard library of Rocq.
 For a complete list of notations in each scope, use the commands :cmd:`Print
 Scopes` or :cmd:`Print Scope`.
 
@@ -1828,7 +1828,7 @@ Scopes` or :cmd:`Print Scope`.
 
 ``string_scope``
   This scope includes notation for strings as elements of the type string.
-  Special characters and escaping follow Coq conventions on strings (see
+  Special characters and escaping follow Rocq conventions on strings (see
   :ref:`lexical-conventions`). Especially, there is no convention to visualize non
   printable characters of a string. The file :file:`String.v` shows an example
   that contains quotes, a newline and a beep (i.e. the ASCII character
@@ -1900,40 +1900,39 @@ Abbreviations
    An *abbreviation* is a name, possibly applied to arguments, that
    denotes a (presumably) more complex expression. Here are examples:
 
-   .. coqtop:: none
+   .. rocqtop:: none
 
-      Require Import List.
-      Require Import Relations.
+      Require Import ListDef.
       Set Printing Notations.
 
-   .. coqtop:: in
+   .. rocqtop:: in
 
       Notation Nlist := (list nat).
 
-   .. coqtop:: all
+   .. rocqtop:: all
 
       Check 1 :: 2 :: 3 :: nil.
 
-   .. coqtop:: in
+   .. rocqtop:: in
 
       Notation reflexive R := (forall x, R x x).
 
-   .. coqtop:: all
+   .. rocqtop:: all
 
       Check forall A:Prop, A <-> A.
       Check reflexive iff.
 
-   .. coqtop:: in
+   .. rocqtop:: in
 
       Notation Plus1 B := (Nat.add B 1).
 
-   .. coqtop:: all
+   .. rocqtop:: all
 
       Compute (Plus1 3).
 
    An abbreviation expects no precedence nor associativity, since it
    is parsed as an usual application. Abbreviations are used as
-   much as possible by the Coq printers unless the modifier ``(only
+   much as possible by the Rocq printers unless the modifier ``(only
    parsing)`` is given.
 
    An abbreviation is bound to an absolute name as an ordinary definition is
@@ -1944,20 +1943,20 @@ Abbreviations
    abbreviation but at the time they are used. Especially, abbreviations
    can be bound to terms with holes (i.e. with “``_``”). For example:
 
-   .. coqtop:: none reset
+   .. rocqtop:: none reset
 
       Set Strict Implicit.
       Set Printing Depth 50.
 
-   .. coqtop:: in
+   .. rocqtop:: in
 
       Definition explicit_id (A:Set) (a:A) := a.
 
-   .. coqtop:: in
+   .. rocqtop:: in
 
       Notation id := (explicit_id _).
 
-   .. coqtop:: all
+   .. rocqtop:: all
 
       Check (id 0).
 
@@ -1974,7 +1973,7 @@ Abbreviations
    Like for notations, it is possible to bind binders in
    abbreviations. Here is an example:
 
-   .. coqtop:: in reset
+   .. rocqtop:: in reset
 
       Definition force2 q (P:nat*nat -> Prop) :=
         (forall n', n' >= fst q -> forall p', p' >= snd q -> P q).
@@ -2344,7 +2343,7 @@ The following errors apply to both string and number notations:
    whose digits are :g:`0`, :g:`1` or :g:`2` as terms of the following
    inductive type encoding radix 3 numbers.
 
-   .. coqtop:: in reset
+   .. rocqtop:: in reset
 
       Inductive radix3 : Set :=
         | x0 : radix3
@@ -2354,7 +2353,7 @@ The following errors apply to both string and number notations:
 
    We first define a parsing function
 
-   .. coqtop:: in
+   .. rocqtop:: in
 
       Definition of_uint_dec (u : Decimal.uint) : option radix3 :=
         let fix f u := match u with
@@ -2369,7 +2368,7 @@ The following errors apply to both string and number notations:
 
    and a printing function
 
-   .. coqtop:: in
+   .. rocqtop:: in
 
       Definition to_uint_dec (x : radix3) : Decimal.uint :=
         let fix f x := match x with
@@ -2382,7 +2381,7 @@ The following errors apply to both string and number notations:
 
    before declaring the notation
 
-   .. coqtop:: in
+   .. rocqtop:: in
 
       Declare Scope radix3_scope.
       Open Scope radix3_scope.
@@ -2390,20 +2389,20 @@ The following errors apply to both string and number notations:
 
    We can check the printer
 
-   .. coqtop:: all
+   .. rocqtop:: all
 
       Check x3p2 (x3p1 x0).
 
    and the parser
 
-   .. coqtop:: all
+   .. rocqtop:: all
 
       Set Printing All.
       Check 120.
 
    Digits other than :g:`0`, :g:`1` and :g:`2` are rejected.
 
-   .. coqtop:: all fail
+   .. rocqtop:: all fail
 
       Check 3.
 
@@ -2416,7 +2415,7 @@ The following errors apply to both string and number notations:
    parsing and printing of primitive integers are actually implemented
    in `PrimInt63.v`.
 
-   .. coqtop:: in reset
+   .. rocqtop:: in reset
 
       Require Import PrimInt63.
       Definition parser (x : pos_neg_int63) : option int :=
@@ -2433,13 +2432,13 @@ The following errors apply to both string and number notations:
    is encoded as :g:`3` while :g:`unit` is :g:`1` and :g:`0` stands for :g:`Empty_set`.
    The inductive :g:`I` will be used as :n:`@qualid__ind`.
 
-   .. coqtop:: in reset
+   .. rocqtop:: in reset
 
       Inductive I := Iempty : I | Iunit : I | Isum : I -> I -> I.
 
    We then define :n:`@qualid__parse` and :n:`@qualid__print`
 
-   .. coqtop:: in
+   .. rocqtop:: in
 
       Definition of_uint (x : Number.uint) : I :=
         let fix f n := match n with
@@ -2457,7 +2456,7 @@ The following errors apply to both string and number notations:
 
    the number notation itself
 
-   .. coqtop:: in
+   .. rocqtop:: in
 
       Notation nSet := Set (only parsing).
       Number Notation nSet of_uint to_uint (via I
@@ -2465,14 +2464,14 @@ The following errors apply to both string and number notations:
 
    and check the printer
 
-   .. coqtop:: all
+   .. rocqtop:: all
 
       Local Open Scope type_scope.
       Check sum unit (sum unit unit).
 
    and the parser
 
-   .. coqtop:: all
+   .. rocqtop:: all
 
       Set Printing All.
       Check 3.
@@ -2484,15 +2483,18 @@ The following errors apply to both string and number notations:
    The following example parses and prints natural numbers between
    :g:`0` and :g:`n-1` as terms of type :g:`Fin.t n`.
 
-   .. coqtop:: all reset warn
+   .. rocqtop:: all reset warn
 
-      Require Import Vector.
-      Print Fin.t.
+      Module Fin.
+      Inductive t : nat -> Set :=  F1 : forall n, t (S n) | FS : forall n, t n -> t (S n).
+      End Fin.
+      Arguments Fin.F1 {_}.
+      Arguments Fin.FS {_}.
 
    Note the implicit arguments of :g:`Fin.F1` and :g:`Fin.FS`,
    which won't appear in the corresponding inductive type.
 
-   .. coqtop:: in
+   .. rocqtop:: in
 
       Inductive I := I1 : I | IS : I -> I.
 
@@ -2513,19 +2515,19 @@ The following errors apply to both string and number notations:
    Now :g:`2` is parsed as :g:`Fin.FS (Fin.FS Fin.F1)`, that is
    :g:`@Fin.FS _ (@Fin.FS _ (@Fin.F1 _))`.
 
-   .. coqtop:: all
+   .. rocqtop:: all
 
       Check 2.
 
    which can be of type :g:`Fin.t 3` (numbers :g:`0`, :g:`1` and :g:`2`)
 
-   .. coqtop:: all
+   .. rocqtop:: all
 
       Check 2 : Fin.t 3.
 
    but cannot be of type :g:`Fin.t 2` (only :g:`0` and :g:`1`)
 
-   .. coqtop:: all fail
+   .. rocqtop:: all fail
 
       Check 2 : Fin.t 2.
 
@@ -2536,14 +2538,14 @@ The following errors apply to both string and number notations:
    The parameter :g:`Byte.byte` for the parameterized inductive type
    :g:`list` is given through an :ref:`abbreviation <Abbreviations>`.
 
-   .. coqtop:: in reset
+   .. rocqtop:: in reset
 
       Notation string := (list Byte.byte) (only parsing).
       Definition id_string := @id string.
 
       String Notation string id_string id_string : list_scope.
 
-   .. coqtop:: all
+   .. rocqtop:: all
 
       Check "abc"%list.
 
@@ -2605,12 +2607,12 @@ Tactic notations allow customizing the syntax of tactics.
 
    For example, the following command defines a notation with a single parameter `x`.
 
-   .. coqtop:: in
+   .. rocqtop:: in
 
       Tactic Notation "destruct_with_eqn" constr(x) := destruct x eqn:?.
 
    For a complex example, examine the 16 `Tactic Notation "setoid_replace"`\s
-   defined in :file:`$COQLIB/theories/Classes/SetoidTactics.v`, which are designed
+   defined in :file:`$ROCQLIB/theories/Classes/SetoidTactics.v`, which are designed
    to accept any subset of 4 optional parameters.
 
    The nonterminals that can specified in the tactic notation are:
@@ -2743,9 +2745,9 @@ Tactic notations allow customizing the syntax of tactics.
 .. rubric:: Footnotes
 
 .. [#and_or_levels] which are the levels effectively chosen in the current
-   implementation of Coq
+   implementation of Rocq
 
-.. [#no_associativity] Coq accepts notations declared as nonassociative but the parser on
-   which Coq is built, namely Camlp5, currently does not implement ``no associativity`` and
-   replaces it with ``left associativity``; hence it is the same for Coq: ``no associativity``
+.. [#no_associativity] Rocq accepts notations declared as nonassociative but the parser on
+   which Rocq is built, namely Camlp5, currently does not implement ``no associativity`` and
+   replaces it with ``left associativity``; hence it is the same for Rocq: ``no associativity``
    is in fact ``left associativity`` for the purposes of parsing

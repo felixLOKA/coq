@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -82,7 +82,6 @@ let update_bpt fname offset opt =
 let upd_bpts updates =
   List.iter (fun op ->
     let ((file, offset), opt) = op in
-(*    Printf.printf "Coq upd_bpts %s %d %b\n%!" file offset opt;*)
     update_bpt file offset opt;
   ) updates
 
@@ -164,20 +163,20 @@ let cvt_loc loc =
          let file = String.sub dp (lastdot+1) (dplen - (lastdot + 1)) in
          let module_name = String.sub dp 0 lastdot in
          let routine =
-           try
-             (* try text as a kername *)
-             assert (CString.is_prefix dp text);
-             let knlen = String.length text in
-             let lastdot = String.rindex text '.' in
-             String.sub text (lastdot+1) (knlen - (lastdot + 1))
-           with exn when CErrors.noncritical exn -> text
+           (* try text as a kername *)
+           if not (CString.is_prefix dp text) then text else
+             try
+               let knlen = String.length text in
+               let lastdot = String.rindex text '.' in
+               String.sub text (lastdot+1) (knlen - (lastdot + 1))
+             with Not_found -> text
          in
          Printf.sprintf "%s:%d, %s  (%s)" routine line_nb file module_name;
        | Some { fname=ToplevelInput; line_nb } ->
          let items = String.split_on_char '.' text in
          Printf.sprintf "%s:%d, %s" (List.nth items 1) line_nb (List.hd items);
        | _ -> text
-   with exn when CErrors.noncritical exn -> text
+   with Not_found -> text
 
 let format_stack s =
   List.map (fun (tac, loc) ->

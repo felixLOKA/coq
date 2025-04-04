@@ -8,10 +8,10 @@ set -o pipefail
 set -x
 
 CI_NAME="$1"
-CI_SCRIPT="ci-${CI_NAME}.sh"
+CI_SCRIPT="scripts/ci-${CI_NAME}.sh"
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-# assume this script is in dev/ci/, cd to the root Coq directory
+# assume this script is in dev/ci/, cd to the root Rocq directory
 cd "${DIR}/../.." || exit 1
 
 export TIMED=1
@@ -46,9 +46,16 @@ else
   bash "${DIR}/${CI_SCRIPT}" 2>&1 | tee "$CI_NAME.log"
 fi
 code=$?
-echo 'Aggregating timing log...'
-echo
-tools/make-one-time-file.py --real "$CI_NAME.log"
+
+printf "\n%s exit code: %s\n" "$CI_NAME" "$code" >> "$CI_NAME.log"
+
+# the test suite already prints a timing table
+if [ "$CI_NAME" != stdlib_test ]; then
+  echo 'Aggregating timing log...'
+  echo
+  tools/make-one-time-file.py --real "$CI_NAME.log"
+fi
+
 if [ "$CI" ] && ! [ $code = 0 ]; then
   set +x
 
@@ -66,7 +73,7 @@ if [ "$CI" ] && ! [ $code = 0 ]; then
   # heuristic: if the line ends with ":" or ",", also print the next
   # (typically if the start of the message got moved to the next line,
   #  the first line is just "Error:",
-  #  also note that OCaml colors just "Error" but Coq colors the whole "Error:")
+  #  also note that OCaml colors just "Error" but Rocq colors the whole "Error:")
   error_re="($escape_re)?Error(.*[:,]($escape_re)?\n)*.*\n"
 
   # for some reason when testing with colors on

@@ -13,12 +13,12 @@ User-defined rewrite rules
    and manipulating these will most often result in inconsistencies and anomalies.
 
 
-This section describes the extension of Coq's reduction mechanisms with user-defined rewrite rules,
+This section describes the extension of Rocq's reduction mechanisms with user-defined rewrite rules,
 as a means to extend definitional equality. It should not be confused with the :ref:`rewrite tactic <rewritingexpressions>`
-or :ref:`setoid rewriting <generalizedrewriting>` which operate on propositional equality and other relations which are defined in Coq.
+or :ref:`setoid rewriting <generalizedrewriting>` which operate on propositional equality and other relations which are defined in Rocq.
 
 Rewrite rules need to be enabled by passing the option ``-allow-rewrite-rules``
-to the Coq program.
+to the Rocq program.
 
    .. exn:: Rewrite rule declaration requires passing the flag "-allow-rewrite-rules".
       :undocumented:
@@ -36,7 +36,7 @@ but they may still reduce using the provided rules, unlike axioms.
 
    Binds an :n:`@ident` to a :n:`@type` as a symbol.
 
-   .. coqtop:: in
+   .. rocqtop:: in
 
       Symbol pplus : nat -> nat -> nat.
       Notation "a ++ b" := (pplus a b).
@@ -61,7 +61,7 @@ When a rule is applied, the term is matched against the pattern,
 subterms aligned with pattern variables are collected
 and then substituted into the replacement, which is returned.
 
-  .. coqtop:: all
+  .. rocqtop:: all
 
      Rewrite Rule pplus_rewrite :=
      | ?n ++ 0 => ?n
@@ -112,7 +112,7 @@ Note that if in the replacement, the context was extended with a variable bearin
 this explicit substitution is inferred automatically (like for existential variable instantiations).
 
 
-   .. coqtop:: all warn
+   .. rocqtop:: all warn
 
       Symbol raise : forall (A : Type), A.
       Rewrite Rule raise_nat :=
@@ -139,7 +139,7 @@ which in turn must imply the constraints needed for the replacement.
 You can make the declared constraints extensible
 so all inferred constraints from the left-hand side are used for the replacement.
 
-   .. coqtop:: reset all warn
+   .. rocqtop:: reset all warn
 
       #[universes(polymorphic)] Symbol raise@{q|u|} : forall (A : Type@{q|u}), A.
       Rewrite Rule raise_nat :=

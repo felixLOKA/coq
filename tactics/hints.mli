@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -38,7 +38,7 @@ type 'a hint_ast =
   | Give_exact of 'a
   | Res_pf_THEN_trivial_fail of 'a (* Hint Immediate *)
   | Unfold_nth of Evaluable.t (* Hint Unfold *)
-  | Extern     of Pattern.constr_pattern option * Genarg.glob_generic_argument       (* Hint Extern *)
+  | Extern of Pattern.constr_pattern option * Gentactic.glob_generic_tactic (* Hint Extern *)
 
 type hint
 
@@ -93,7 +93,7 @@ type pre_hints_path = Libnames.qualid hints_path_gen
 type hints_path = GlobRef.t hints_path_gen
 
 val path_matches_epsilon : hints_path -> bool
-val path_derivate : hints_path -> GlobRef.t option -> hints_path
+val path_derivate : env -> hints_path -> GlobRef.t option -> hints_path
 val pp_hints_path_gen : ('a -> Pp.t) -> 'a hints_path_gen -> Pp.t
 
 val parse_mode : string -> hint_mode
@@ -109,6 +109,13 @@ type mode_match =
 type 'a with_mode =
   | ModeMatch of mode_match * 'a
   | ModeMismatch
+
+module Modes :
+sig
+  type t
+  val empty : t
+  val union : t -> t -> t
+end
 
 module Hint_db :
   sig
@@ -145,13 +152,14 @@ module Hint_db :
     val transparent_state : t -> TransparentState.t
     val set_transparent_state : t -> TransparentState.t -> t
 
-    val add_cut : hints_path -> t -> t
+    val add_cut : env -> hints_path -> t -> t
     val cut : t -> hints_path
 
     val unfolds : t -> Id.Set.t * Cset.t * PRset.t
 
-    val add_modes : hint_mode array list GlobRef.Map.t -> t -> t
-    val modes : t -> hint_mode array list GlobRef.Map.t
+    val add_modes : Modes.t -> t -> t
+    val modes : t -> Modes.t
+    val find_mode : env -> GlobRef.t -> t -> hint_mode array list
   end
 
 type hint_db = Hint_db.t
@@ -167,7 +175,7 @@ type hints_entry =
   | HintsUnfoldEntry of Evaluable.t list
   | HintsTransparencyEntry of Evaluable.t hints_transparency_target * bool
   | HintsModeEntry of GlobRef.t * hint_mode list
-  | HintsExternEntry of hint_info * Genarg.glob_generic_argument
+  | HintsExternEntry of hint_info * Gentactic.glob_generic_tactic
 
 val searchtable_map : hint_db_name -> hint_db
 

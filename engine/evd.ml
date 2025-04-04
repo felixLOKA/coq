@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -336,83 +336,6 @@ let make_evar_instance_array info args =
 
 type 'a in_ustate = 'a * UState.t
 
-(*******************************************************************)
-(* Metamaps *)
-
-(*******************************************************************)
-(*            Constraints for existential variables                *)
-(*******************************************************************)
-
-type 'a freelisted = {
-  rebus : 'a;
-  freemetas : Int.Set.t }
-
-(* Collects all metavars appearing in a constr *)
-let metavars_of c =
-  let rec collrec acc c =
-    match kind c with
-      | Meta mv -> Int.Set.add mv acc
-      | _         -> Constr.fold collrec acc c
-  in
-  collrec Int.Set.empty c
-
-let mk_freelisted c =
-  { rebus = c; freemetas = metavars_of c }
-
-let map_fl f cfl = { cfl with rebus=f cfl.rebus }
-
-(* Status of an instance found by unification wrt to the meta it solves:
-  - a supertype of the meta (e.g. the solution to ?X <= T is a supertype of ?X)
-  - a subtype of the meta (e.g. the solution to T <= ?X is a supertype of ?X)
-  - a term that can be eta-expanded n times while still being a solution
-    (e.g. the solution [P] to [?X u v = P u v] can be eta-expanded twice)
-*)
-
-type instance_constraint = IsSuperType | IsSubType | Conv
-
-let eq_instance_constraint c1 c2 = c1 == c2
-
-(* Status of the unification of the type of an instance against the type of
-     the meta it instantiates:
-   - CoerceToType means that the unification of types has not been done
-     and that a coercion can still be inserted: the meta should not be
-     substituted freely (this happens for instance given via the
-     "with" binding clause).
-   - TypeProcessed means that the information obtainable from the
-     unification of types has been extracted.
-   - TypeNotProcessed means that the unification of types has not been
-     done but it is known that no coercion may be inserted: the meta
-     can be substituted freely.
-*)
-
-type instance_typing_status =
-    CoerceToType | TypeNotProcessed | TypeProcessed
-
-(* Status of an instance together with the status of its type unification *)
-
-type instance_status = instance_constraint * instance_typing_status
-
-(* Clausal environments *)
-
-type clbinding =
-  | Cltyp of Name.t * constr freelisted
-  | Clval of Name.t * (constr freelisted * instance_status) * constr freelisted
-
-let map_clb f = function
-  | Cltyp (na,cfl) -> Cltyp (na,map_fl f cfl)
-  | Clval (na,(cfl1,pb),cfl2) -> Clval (na,(map_fl f cfl1,pb),map_fl f cfl2)
-
-(* name of defined is erased (but it is pretty-printed) *)
-let clb_name = function
-    Cltyp(na,_) -> (na,false)
-  | Clval (na,_,_) -> (na,true)
-
-(***********************)
-
-module Metaset = Int.Set
-
-module Metamap = Int.Map
-
 (*************************)
 (* Unification state *)
 
@@ -646,8 +569,6 @@ type evar_map = {
   (** Conversion problems *)
   conv_pbs   : evar_constraint list;
   last_mods  : Evar.Set.t;
-  (** Metas *)
-  metas      : clbinding Metamap.t;
   evar_flags : evar_flags;
   (** Interactive proofs *)
   effects    : side_effects;
@@ -732,20 +653,16 @@ let expand_existential sigma (evk, args) =
 
 let expand_existential0 = expand_existential
 
-let get_is_maybe_typeclass, (is_maybe_typeclass_hook : (evar_map -> constr -> bool) Hook.t) = Hook.make ()
-
-let is_maybe_typeclass sigma c = Hook.get get_is_maybe_typeclass sigma c
-
 (*** Lifting primitive from Evar.Map. ***)
 
 let rename evk id evd =
   { evd with evar_names = EvNames.rename evk id evd.evar_names }
 
-let add_with_name (type a) ?name ?(typeclass_candidate = true) d e (i : a evar_info) = match i.evar_body with
+let add_with_name (type a) ?name ~typeclass_candidate d e (i : a evar_info) = match i.evar_body with
 | Evar_empty ->
   let evar_names = EvNames.add_name_undefined name e i d.evar_names in
   let evar_flags =
-    if typeclass_candidate && is_maybe_typeclass d (evar_concl i) then
+    if typeclass_candidate then
       let flags = d.evar_flags in
       { flags with typeclass_evars = Evar.Set.add e flags.typeclass_evars }
     else d.evar_flags
@@ -774,6 +691,7 @@ let get_typeclass_evars evd = evd.evar_flags.typeclass_evars
 
 let set_typeclass_evars evd tcs =
   let flags = evd.evar_flags in
+  let tcs = Evar.Set.filter (fun evk -> Evar.Map.mem evk evd.undf_evars) tcs in
   { evd with evar_flags = { flags with typeclass_evars = tcs } }
 
 let is_typeclass_evar evd evk =
@@ -906,8 +824,6 @@ let existential_value d ev = match existential_opt_value d ev with
   | None -> raise NotInstantiatedEvar
   | Some v -> v
 
-let existential_value0 = existential_value
-
 let existential_opt_value0 = existential_opt_value
 
 let existential_expand_value0 sigma (evk, args) = match existential_opt_value sigma (evk, args) with
@@ -950,8 +866,6 @@ let existential_type d n = match existential_type_opt d n with
   | Some t -> t
   | None -> anomaly (str "Evar " ++ str (string_of_existential (fst n)) ++ str " was not declared.")
 
-let existential_type0 = existential_type
-
 let add_constraints d c =
   { d with universes = UState.add_constraints d.universes c }
 
@@ -967,19 +881,17 @@ let add_universe_constraints d c =
 let is_empty d =
   EvMap.is_empty d.defn_evars &&
   EvMap.is_empty d.undf_evars &&
-  List.is_empty d.conv_pbs &&
-  Metamap.is_empty d.metas
+  List.is_empty d.conv_pbs
 
 let cmap f evd =
   { evd with
-      metas = Metamap.map (map_clb f) evd.metas;
       defn_evars = EvMap.map (map_evar_info f) evd.defn_evars;
       undf_evars = EvMap.map (map_evar_info f) evd.undf_evars
   }
 
 (* spiwack: deprecated *)
 let create_evar_defs sigma = { sigma with
-  conv_pbs=[]; last_mods=Evar.Set.empty; metas=Metamap.empty }
+  conv_pbs=[]; last_mods=Evar.Set.empty }
 
 let empty_evar_flags =
   { obligation_evars = Evar.Set.empty;
@@ -1001,7 +913,6 @@ let empty = {
   last_mods  = Evar.Set.empty;
   evar_flags = empty_evar_flags;
   candidate_evars = Evar.Set.empty;
-  metas      = Metamap.empty;
   effects    = empty_side_effects;
   evar_names = EvNames.empty; (* id<->key for undefined evars *)
   future_goals = FutureGoals.empty_stack;
@@ -1148,8 +1059,8 @@ let check_univ_decl_early ~poly ~with_obls sigma udecl terms =
   let uctx = UState.restrict uctx vars in
   ignore (UState.check_univ_decl ~poly uctx udecl)
 
-let restrict_universe_context ?lbound evd vars =
-  { evd with universes = UState.restrict ?lbound evd.universes vars }
+let restrict_universe_context evd vars =
+  { evd with universes = UState.restrict evd.universes vars }
 
 let universe_subst evd =
   UState.subst evd.universes
@@ -1237,16 +1148,16 @@ let normalize_sort evars s =
   UState.nf_sort evars.universes s
 
 (* FIXME inefficient *)
-let set_eq_sort env d s1 s2 =
-  let s1 = normalize_sort d s1 and s2 = normalize_sort d s2 in
+let set_eq_sort evd s1 s2 =
+  let s1 = normalize_sort evd s1 and s2 = normalize_sort evd s2 in
   match is_eq_sort s1 s2 with
-  | None -> d
+  | None -> evd
   | Some (u1, u2) ->
-    if not (type_in_type env) then
-      add_universe_constraints d
+    if not (UGraph.type_in_type (UState.ugraph evd.universes)) then
+      add_universe_constraints evd
         (UnivProblem.Set.singleton (UnivProblem.UEq (u1,u2)))
     else
-      d
+      evd
 
 let set_eq_level d u1 u2 =
   add_constraints d (Univ.enforce_eq_level u1 u2 Univ.Constraints.empty)
@@ -1258,15 +1169,21 @@ let set_eq_instances ?(flex=false) d u1 u2 =
   add_universe_constraints d
     (UnivProblem.enforce_eq_instances_univs flex u1 u2 UnivProblem.Set.empty)
 
-let set_leq_sort env evd s1 s2 =
+let set_leq_sort evd s1 s2 =
   let s1 = normalize_sort evd s1
   and s2 = normalize_sort evd s2 in
   match is_eq_sort s1 s2 with
   | None -> evd
   | Some (u1, u2) ->
-     if not (type_in_type env) then
+    if not (UGraph.type_in_type (UState.ugraph evd.universes)) then
        add_universe_constraints evd (UnivProblem.Set.singleton (UnivProblem.ULe (u1,u2)))
      else evd
+
+let set_eq_qualities evd q1 q2 =
+  add_universe_constraints evd (UnivProblem.Set.singleton (QEq (q1, q2)))
+
+let set_above_prop evd q =
+  add_universe_constraints evd (UnivProblem.Set.singleton (QLeq (Sorts.Quality.qprop, q)))
 
 let check_eq evd s s' =
   let ustate = evd.universes in
@@ -1292,19 +1209,24 @@ let nf_univ_variables evd =
   let uctx = UState.normalize_variables evd.universes in
   {evd with universes = uctx}
 
-let collapse_sort_variables evd =
-  let universes = UState.collapse_sort_variables evd.universes in
+let collapse_sort_variables ?except evd =
+  let universes = UState.collapse_sort_variables ?except evd.universes in
   { evd with universes }
 
-let minimize_universes ?lbound evd =
-  let uctx' = UState.collapse_sort_variables evd.universes in
+let minimize_universes ?(collapse_sort_variables=true) evd =
+  let uctx' = if collapse_sort_variables
+    then UState.collapse_sort_variables evd.universes
+    else evd.universes
+  in
   let uctx' = UState.normalize_variables uctx' in
-  let uctx' = UState.minimize ?lbound uctx' in
+  let uctx' = UState.minimize uctx' in
   {evd with universes = uctx'}
 
 let universe_of_name evd s = UState.universe_of_name evd.universes s
 
 let quality_of_name evd s = UState.quality_of_name evd.universes s
+
+let is_rigid_qvar evd q = UState.is_rigid_qvar evd.universes q
 
 let universe_binders evd = UState.universe_binders evd.universes
 
@@ -1381,14 +1303,16 @@ let given_up evd = evd.given_up
 
 let shelf evd = List.flatten evd.shelf
 
+let mem_shelf e evd = List.exists (List.exists (fun e' -> Evar.equal e e')) evd.shelf
+
 let pr_shelf evd =
   let open Pp in
   if List.is_empty evd.shelf then str"(empty stack)"
   else prlist_with_sep (fun () -> str"||") (prlist_with_sep spc Evar.print) evd.shelf
 
-let new_pure_evar ?(src=default_source) ?(filter = Filter.identity) ?(relevance = Sorts.Relevant)
+let new_pure_evar ?(src=default_source) ?(filter = Filter.identity) ~relevance
   ?(abstract_arguments = Abstraction.identity) ?candidates
-  ?name ?typeclass_candidate sign evd typ =
+  ?name ?(typeclass_candidate = false) sign evd typ =
   let evi = {
     evar_hyps = sign;
     evar_concl = Undefined typ;
@@ -1401,7 +1325,7 @@ let new_pure_evar ?(src=default_source) ?(filter = Filter.identity) ?(relevance 
   }
   in
   let newevk = new_untyped_evar () in
-  let evd = add_with_name evd ?name ?typeclass_candidate newevk evi in
+  let evd = add_with_name evd ?name ~typeclass_candidate newevk evi in
   let evd = declare_future_goal newevk evd in
   (evd, newevk)
 
@@ -1492,116 +1416,6 @@ let update_source evd evk src =
   let modify _ info = { info with evar_source = src } in
   { evd with undf_evars = EvMap.modify evk modify evd.undf_evars }
 
-(**********************************************************)
-(* Accessing metas *)
-
-(** We use this function to overcome OCaml compiler limitations and to prevent
-    the use of costly in-place modifications. *)
-let set_metas evd metas = {
-  defn_evars = evd.defn_evars;
-  undf_evars = evd.undf_evars;
-  universes  = evd.universes;
-  conv_pbs = evd.conv_pbs;
-  last_mods = evd.last_mods;
-  evar_flags = evd.evar_flags;
-  candidate_evars = evd.candidate_evars;
-  metas;
-  effects = evd.effects;
-  evar_names = evd.evar_names;
-  future_goals = evd.future_goals;
-  given_up = evd.given_up;
-  shelf = evd.shelf;
-  extras = evd.extras;
-}
-
-let meta_list evd = evd.metas
-
-let map_metas_fvalue f evd =
-  let map = function
-  | Clval(id,(c,s),typ) -> Clval(id,(mk_freelisted (f c.rebus),s),typ)
-  | x -> x
-  in
-  set_metas evd (Metamap.Smart.map map evd.metas)
-
-let map_metas f evd =
-  let map cl = map_clb f cl in
-  set_metas evd (Metamap.Smart.map map evd.metas)
-
-let meta_opt_fvalue evd mv =
-  match Metamap.find mv evd.metas with
-    | Clval(_,b,_) -> Some b
-    | Cltyp _ -> None
-
-let meta_value evd mv = match meta_opt_fvalue evd mv with
-| Some (body, _) -> body.rebus
-| None -> raise Not_found
-
-let meta_ftype evd mv =
-  match Metamap.find mv evd.metas with
-    | Cltyp (_,b) -> b
-    | Clval(_,_,b) -> b
-
-let meta_declare mv v ?(name=Anonymous) evd =
-  let metas = Metamap.add mv (Cltyp(name,mk_freelisted v)) evd.metas in
-  set_metas evd metas
-
-(* If the meta is defined then forget its name *)
-let meta_name evd mv =
-  try fst (clb_name (Metamap.find mv evd.metas)) with Not_found -> Anonymous
-
-let evar_source_of_meta mv evd =
-  match meta_name evd mv with
-  | Anonymous -> Loc.tag Evar_kinds.GoalEvar
-  | Name id   -> Loc.tag @@ Evar_kinds.VarInstance id
-
-let use_meta_source evd mv v =
-  match Constr.kind v with
-  | Evar (evk,_) ->
-    let f = function
-    | None -> None
-    | Some evi as x ->
-      match evi.evar_source with
-      | None, Evar_kinds.GoalEvar -> Some { evi with evar_source = evar_source_of_meta mv evd }
-      | _ -> x in
-    { evd with undf_evars = EvMap.update evk f evd.undf_evars }
-  | _ -> evd
-
-let meta_assign mv (v, pb) evd =
-  let modify _ = function
-  | Cltyp (na, ty) -> Clval (na, (mk_freelisted v, pb), ty)
-  | _ -> anomaly ~label:"meta_assign" (Pp.str "already defined.")
-  in
-  let metas = Metamap.modify mv modify evd.metas in
-  let evd = use_meta_source evd mv v in
-  set_metas evd metas
-
-let meta_reassign mv (v, pb) evd =
-  let modify _ = function
-  | Clval(na, _, ty) -> Clval (na, (mk_freelisted v, pb), ty)
-  | _ -> anomaly ~label:"meta_reassign" (Pp.str "not yet defined.")
-  in
-  let metas = Metamap.modify mv modify evd.metas in
-  set_metas evd metas
-
-let clear_metas evd = {evd with metas = Metamap.empty}
-
-let meta_merge metas sigma =
-  let metas = Metamap.fold Metamap.add metas sigma.metas in
-  { sigma with metas }
-
-type metabinding = metavariable * constr * instance_status
-
-let retract_coercible_metas evd =
-  let mc = ref [] in
-  let map n v = match v with
-  | Clval (na, (b, (Conv, CoerceToType as s)), typ) ->
-    let () = mc := (n, b.rebus, s) :: !mc in
-    Cltyp (na, typ)
-  | v -> v
-  in
-  let metas = Metamap.Smart.mapi map evd.metas in
-  !mc, set_metas evd metas
-
 let dependent_evar_ident ev evd =
   let EvarInfo evi = find evd ev in
   match evi.evar_source with
@@ -1670,10 +1484,11 @@ module Expand :
 sig
   type handle
   val empty_handle : handle
-(*   val liftn_handle : int -> handle -> handle *)
+  val liftn_handle : int -> handle -> handle
   val kind : evar_map -> handle -> constr ->
     handle * (constr, constr, Sorts.t, UVars.Instance.t, Sorts.relevance) kind_of_term
   val expand : evar_map -> handle -> constr -> constr
+  val expand_instance : skip: bool -> undefined evar_info -> handle -> econstr SList.t -> econstr SList.t
 end =
 struct
 
@@ -1807,6 +1622,29 @@ let expand sigma h c =
   if Esubst.is_lift_id h.h_lift && Id.Map.is_empty h.h_clos.evc_map then c
   else expand0 sigma h c
 
+let expand_instance ~skip (evi : undefined evar_info) h (args : Constr.t SList.t) =
+  if skip && Id.Map.is_empty h.h_clos.evc_map then args
+  else
+    let rec expand ctx args = match ctx, SList.view args with
+    | [], None -> SList.empty
+    | decl :: ctx, Some (None, args) ->
+      let args = expand ctx args in
+      let id = NamedDecl.get_id decl in
+      if Id.Map.mem id h.h_clos.evc_map then
+        (* Keep the non-default representation as kind will expand it *)
+        SList.cons (mkVar id) args
+      else if skip then SList.default args
+      else SList.cons (mkVar id) args
+    | decl :: ctx, Some (Some c, args) ->
+      let args = expand ctx args in
+      let id = NamedDecl.get_id decl in
+      (* Same as above *)
+      if skip && isVarId id c && not (Id.Map.mem id h.h_clos.evc_map) then SList.default args
+      else SList.cons c args
+    | [], Some _ | _ :: _, None -> instance_mismatch ()
+    in
+    expand (evar_filtered_context evi) args
+
 end
 
 module MiniEConstr = struct
@@ -1888,6 +1726,7 @@ module MiniEConstr = struct
     let univ_value l =
       UnivFlex.normalize_univ_variable lsubst l
     in
+    let relevance_value r = UState.nf_relevance sigma.universes r in
     let qvar_value q = UState.nf_qvar sigma.universes q in
     let next s = { s with evc_lift = s.evc_lift + 1 } in
     let find clos id = match Id.Map.find_opt id clos.evc_map with
@@ -1960,7 +1799,7 @@ module MiniEConstr = struct
         self nclos c
       end
     | _ ->
-      UnivSubst.map_universes_opt_subst_with_binders next self qvar_value univ_value clos c
+      UnivSubst.map_universes_opt_subst_with_binders next self relevance_value qvar_value univ_value clos c
     in
     let clos = {
       evc_lift = 0;
@@ -2040,13 +1879,13 @@ let evars_of_filtered_evar_info (type a) evd (evi : a evar_info) =
        (evars_of_named_context evd (evar_filtered_context evi)))
 
 let drop_new_defined ~original sigma =
+  NewProfile.profile "drop_new_defined" (fun () ->
   let to_keep, to_drop = Evar.Map.partition (fun ev _ ->
       Evar.Map.mem ev original.defn_evars || Evar.Map.mem ev original.undf_evars)
       sigma.defn_evars
   in
   let dummy = { empty with defn_evars = to_drop } in
   let nfc c = snd @@ MiniEConstr.to_constr_gen ~expand:true ~ignore_missing:false dummy c in (* FIXME: do we really need to expand? *)
-  assert (Metamap.is_empty sigma.metas);
   assert (List.is_empty sigma.conv_pbs);
   let normalize_changed _ev orig evi =
     match orig, evi with
@@ -2060,4 +1899,5 @@ let drop_new_defined ~original sigma =
   in
   let to_keep = normalize_against original.defn_evars to_keep in
   let undf_evars = normalize_against original.undf_evars sigma.undf_evars in
-  { sigma with defn_evars = to_keep; undf_evars }
+  { sigma with defn_evars = to_keep; undf_evars })
+    ()

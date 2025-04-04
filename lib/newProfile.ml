@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -70,19 +70,24 @@ module MiniJson = struct
     `Assoc l
 end
 
+type sums = (float * int) CString.Map.t
+
+let empty_sums : sums = CString.Map.empty
+
+let sums_union a b =
+  CString.Map.union (fun _name (l,cnt) (r,cnt') ->
+      Some (l +. r, cnt + cnt'))
+    a b
+
 type accu = {
-  ch : Format.formatter;
-  mutable sums : (float * (float * int) CString.Map.t) list;
-  fname : string;
+  output : Format.formatter option;
+  accumulate : MiniJson.t list ref option;
+  mutable sums : (float * sums) list;
 }
 
 let accu = ref None
 
 let is_profiling () = Option.has_some !accu
-
-let f fmt = match !accu with
-  | None -> assert false
-  | Some { ch } -> Format.fprintf ch fmt
 
 let gettime = Unix.gettimeofday
 
@@ -104,6 +109,14 @@ module Counters = struct
     instr : System.instruction_count;
   }
 
+  let zero = {
+    major_words = 0.;
+    minor_words = 0.;
+    major_collections = 0;
+    minor_collections = 0;
+    instr = Ok 0L;
+  }
+
   let get () =
     let gc = Gc.quick_stat() in
     {
@@ -116,6 +129,14 @@ module Counters = struct
 
   let global_start = get ()
 
+  let (+) a b = {
+    major_words = a.major_words +. b.major_words;
+    minor_words = a.minor_words +. b.minor_words;
+    major_collections = a.major_collections + b.major_collections;
+    minor_collections = a.minor_collections + b.minor_collections;
+    instr = System.instruction_count_add a.instr b.instr;
+  }
+
   let (-) b a = {
     major_words = b.major_words -. a.major_words;
     minor_words = b.minor_words -. a.minor_words;
@@ -124,15 +145,28 @@ module Counters = struct
     instr = System.instructions_between ~c_start:a.instr ~c_end:b.instr;
   }
 
+  let print x =
+    let open Pp in
+    let ppw diff = str (Format.sprintf "%.3G words" diff) in
+    v 0 @@
+    prlist_with_sep spc (fun x -> hov 0 x)
+      ((str "major words:" ++ spc() ++ ppw x.major_words) ::
+       (str "minor words:" ++ spc() ++ ppw x.minor_words) ::
+       (str "major collections:" ++ spc() ++ int x.major_collections) ::
+       (str "minor collections:" ++ spc() ++ int x.minor_collections) ::
+       match x.instr with
+       | Ok count -> [str "instructions:" ++ spc() ++ str (Int64.to_string count)]
+       | Error _ -> [])
+
   let format x =
-    let ppf tdiff = `String (Format.sprintf "%.3G w" tdiff) in
+    let ppw diff = `String (Format.sprintf "%.3G w" diff) in
     let ppi i = `Intlit (string_of_int i) in
     let instr = match x.instr with
       | Ok count -> [("instr", `Intlit (Int64.to_string count))]
       | Error _ -> []
     in
-    ("major_words",ppf x.major_words) ::
-    ("minor_words", ppf x.minor_words) ::
+    ("major_words",ppw x.major_words) ::
+    ("minor_words", ppw x.minor_words) ::
     ("major_collect", ppi x.major_collections) ::
     ("minor_collect", ppi x.minor_collections) ::
     instr
@@ -143,8 +177,16 @@ end
 
 let global_start_time = gettime ()
 
-let duration ~time name ph ?args ?(last=",") () =
-  f "%a%s\n" MiniJson.pr (MiniJson.duration ~name ~ph ~ts:(prtime time) ?args ()) last
+let output_event json ?(last=",") () =
+  let accu = Option.get !accu in
+  accu.output |> Option.iter (fun ch ->
+      Format.fprintf ch "%a%s\n" MiniJson.pr json last);
+  accu.accumulate |> Option.iter (fun out ->
+      out := json :: !out)
+
+let duration ~time name ph ?args ?last () =
+  let duration = MiniJson.duration ~name ~ph ~ts:(prtime time) ?args () in
+  output_event duration ?last ()
 
 let enter_sums ?time () =
   let accu = Option.get !accu in
@@ -204,17 +246,11 @@ let leave ?time name ?(args=[]) ?last () =
 
 (* NB: "process" and "init" are unconditional because they don't go
    through [profile] and I'm too lazy to make them conditional *)
-let components =
-  match Sys.getenv_opt "COQ_PROFILE_COMPONENTS" with
-  | None -> CString.Pred.(full |> remove "unification" |> remove "Conversion")
-  | Some s ->
-    List.fold_left (fun cs c -> CString.Pred.add c cs)
-      CString.Pred.empty
-      (String.split_on_char ',' s)
+let components = ref CString.Pred.empty
 
 let profile name ?args f () =
   if not (is_profiling ()) then f ()
-  else if CString.Pred.mem name components then begin
+  else if CString.Pred.mem name !components then begin
     let args = Option.map (fun f -> f()) args in
     enter name ?args ();
     let start = Counters.get () in
@@ -241,16 +277,38 @@ let profile name ?args f () =
     v
   end
 
+let format_header ch =
+  Format.fprintf ch "{ \"traceEvents\": [\n"
+
+let format_footer ch =
+  Format.fprintf ch "],\n\"displayTimeUnit\": \"us\" }@."
+
 type settings =
   { output : Format.formatter;
     fname : string;
   }
 
+let init_components () =
+  let s = Envars.getenv_rocq "_PROFILE_COMPONENTS" in
+  let s = Option.default "-unification,Conversion" s in
+  let v =
+    if CString.is_prefix "-" s then
+    List.fold_left (fun cs c -> CString.Pred.remove c cs)
+      CString.Pred.full
+      (String.split_on_char ',' (CString.sub s 1 (String.length s - 1)))
+  else
+    List.fold_left (fun cs c -> CString.Pred.add c cs)
+      CString.Pred.empty
+      (String.split_on_char ',' s)
+  in
+  components := v
+
 let init { output; fname; } =
   let () = assert (not (is_profiling())) in
-  accu := Some { ch = output; sums = []; fname; };
-  f "{ \"traceEvents\": [\n";
-  enter ~time:global_start_time "process" ();
+  init_components();
+  accu := Some { output = Some output; accumulate = None; sums = []; };
+  format_header output;
+  enter ~time:global_start_time ~args:["fname", `String fname] "process" ();
   enter ~time:global_start_time "init" ();
   let args = Counters.(make_diffs ~start:global_start ~stop:(get())) in
   leave "init" ~args ()
@@ -265,9 +323,66 @@ let resume v =
   accu := Some v
 
 let finish () = match !accu with
-  | None -> assert false
-  | Some { ch; fname } ->
-    let args = ("fname", `String fname) :: Counters.(make_diffs ~start:global_start ~stop:(get())) in
+  | None | Some { output = None } -> assert false
+  | Some { output = Some ch } ->
+    let args = Counters.(make_diffs ~start:global_start ~stop:(get())) in
     leave "process" ~last:"" ~args ();
-    Format.fprintf ch "],\n\"displayTimeUnit\": \"us\" }@.";
+    format_footer ch;
     accu := None
+
+let insert_sums sums =
+  let accu = Option.get !accu in
+  match accu.sums with
+  | [] -> assert false
+  | (start, sums') :: rest ->
+    let sums = sums_union sums sums' in
+    accu.sums <- (start, sums) :: rest
+
+let insert_results events sums =
+  List.iter (fun e -> output_event e ()) events;
+  insert_sums sums
+
+let with_profiling f =
+  let out = ref [] in
+  let this_accu, old_accu = match !accu with
+    | None ->
+      init_components();
+      { output = None;
+        accumulate = Some out;
+        sums = [0., empty_sums];
+      }
+    , None
+    | Some accu ->
+      { output = accu.output;
+        accumulate = Some out;
+        sums = [0., empty_sums];
+      }
+      , Some accu
+  in
+  let finally () =
+    let out = List.rev !out in
+    let sums = match this_accu.sums with
+      | [_, x] -> x
+      | _ -> assert false
+    in
+    accu := old_accu;
+    let () = match old_accu with
+      | None -> ()
+      | Some accu ->
+        (* events have already been output to the formatter if there is one *)
+        accu.accumulate |> Option.iter (fun accumulate ->
+            accumulate := List.rev_append out !accumulate);
+        insert_sums sums
+    in
+    out, sums
+  in
+  accu := Some this_accu;
+  let v = try f () with e ->
+    let e = Exninfo.capture e in
+    ignore (finally() : _ * _);
+    Exninfo.iraise e
+  in
+
+  let out, sums = finally () in
+
+  out, sums, v

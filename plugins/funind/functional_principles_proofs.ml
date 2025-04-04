@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -335,17 +335,17 @@ let rewrite_until_var arg_num eq_ids : unit Proofview.tactic =
 let rec_pte_id = Id.of_string "Hrec"
 
 let clean_hyp_with_heq ptes_infos eq_hyps hyp_id env sigma =
-  let coq_False =
+  let rocq_False =
     EConstr.of_constr
-      (UnivGen.constr_of_monomorphic_global env @@ Coqlib.lib_ref "core.False.type")
+      (UnivGen.constr_of_monomorphic_global env @@ Rocqlib.lib_ref "core.False.type")
   in
-  let coq_True =
+  let rocq_True =
     EConstr.of_constr
-      (UnivGen.constr_of_monomorphic_global env @@ Coqlib.lib_ref "core.True.type")
+      (UnivGen.constr_of_monomorphic_global env @@ Rocqlib.lib_ref "core.True.type")
   in
-  let coq_I =
+  let rocq_I =
     EConstr.of_constr
-      (UnivGen.constr_of_monomorphic_global env @@ Coqlib.lib_ref "core.True.I")
+      (UnivGen.constr_of_monomorphic_global env @@ Rocqlib.lib_ref "core.True.I")
   in
   let open Tacticals in
   let rec scan_type context type_of_hyp : unit Proofview.tactic =
@@ -401,7 +401,7 @@ let clean_hyp_with_heq ptes_infos eq_hyps hyp_id env sigma =
             change_hyp_with_using "rec_hyp_tac" hyp_id real_type_of_hyp
               prove_new_type_of_hyp
           ; scan_type context popped_t' ]
-      else if eq_constr sigma t_x coq_False then
+      else if eq_constr sigma t_x rocq_False then
         (*          observe (str "Removing : "++ Ppconstr.pr_id hyp_id++  *)
         (*                     str " since it has False in its preconds " *)
         (*                  ); *)
@@ -409,7 +409,7 @@ let clean_hyp_with_heq ptes_infos eq_hyps hyp_id env sigma =
       else if is_incompatible_eq env sigma t_x then raise TOREMOVE
         (* t_x := C1 ... =  C2 ... *)
       else if
-        eq_constr sigma t_x coq_True (* Trivial => we remove this precons *)
+        eq_constr sigma t_x rocq_True (* Trivial => we remove this precons *)
       then
         (*          observe (str "In "++Ppconstr.pr_id hyp_id++  *)
         (*                     str " removing useless precond True" *)
@@ -430,7 +430,7 @@ let clean_hyp_with_heq ptes_infos eq_hyps hyp_id env sigma =
                   let to_refine =
                     applist
                       ( mkVar hyp_id
-                      , List.rev (coq_I :: List.map mkVar context_hyps) )
+                      , List.rev (rocq_I :: List.map mkVar context_hyps) )
                   in
                   Tactics.exact_check to_refine) ]
         in
@@ -879,7 +879,6 @@ let generate_equation_lemma env evd fnames f fun_num nb_params nb_args rec_args_
                  ; observe_tac "h_case" (simplest_case (mkVar rec_id))
                  ; intros_reflexivity ])) ]
   in
-  (* Pp.msgnl (str "lemma type (2) " ++ Printer.pr_lconstr_env (Global.env ()) evd lemma_type); *)
 
   (*i The next call to mk_equation_id is valid since we are
      constructing the lemma Ensures by: obvious i*)
@@ -936,14 +935,15 @@ let do_replace (evd : Evd.evar_map ref) params rec_arg_num rev_args_id f fun_num
             | _ -> ()
           in
           (* let res = Constrintern.construct_reference (pf_hyps g) equation_lemma_id in *)
+          let env = Global.env () in
           let evd', res =
-            Evd.fresh_global (Global.env ()) !evd
+            Evd.fresh_global env !evd
               (Option.get (Constrintern.locate_reference
                  (qualid_of_ident equation_lemma_id)))
           in
           evd := evd';
           let sigma, _ =
-            Typing.type_of ~refresh:true (Global.env ()) !evd res
+            Typing.type_of ~refresh:true env !evd res
           in
           evd := sigma;
           res
@@ -1504,7 +1504,7 @@ let prove_principle_for_gen (f_ref, functional_ref, eq_ref) tcc_lemma_ref is_mes
         | Not_needed ->
           EConstr.of_constr
             ( UnivGen.constr_of_monomorphic_global (Global.env ())
-            @@ Coqlib.lib_ref "core.True.I" )
+            @@ Rocqlib.lib_ref "core.True.I" )
       in
       (*   let rec list_diff del_list check_list = *)
       (*     match del_list with *)

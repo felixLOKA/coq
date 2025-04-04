@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -576,6 +576,7 @@ let pretype_ref ?loc sigma env ref us =
         | Some (qs,us) ->
             let open UnivGen in
             Loc.raise ?loc (UniverseLengthMismatch {
+              gref = ref;
               actual = List.length qs, List.length us;
               expect = 0, 0;
             }));
@@ -917,6 +918,151 @@ struct
     let sigma, j = pretype_sort ?loc ~flags sigma s in
     discard_trace @@ inh_conv_coerce_to_tycon ?loc ~flags env sigma j tycon
 
+  let enforce_template_csts sigma (qbound,ubound) csts =
+    let max_quality_opt a b = match a with
+      | None -> None
+      | Some a ->
+        let open Sorts.Quality in
+        match a, b with
+        | QConstant QSProp, _ | _, QConstant QSProp -> assert false
+        | QConstant QProp, q | q, QConstant QProp -> Some q
+        | (QConstant QType as q), _ | _, (QConstant QType as q) -> Some q
+        | QVar a', QVar b' ->
+          if Sorts.QVar.equal a' b' then Some a
+          else None
+    in
+    let sigma = ref sigma in
+    let gen_max_quality qs =
+      let qs = List.map (UState.nf_quality (Evd.ustate !sigma)) qs in
+      match List.fold_left max_quality_opt (Some Sorts.Quality.qprop) qs with
+      | Some q -> q
+      | None -> match qs with
+        | [] -> assert false
+        | q :: rest ->
+          (* all qvars or qprop with at least 2 different qvars, unify the qvars
+             (alternatively: return qtype?) *)
+          let mk q = ESorts.make @@ Sorts.make q Univ.Universe.type0 in
+          let unify sigma q' =
+            if Sorts.Quality.(equal qprop q') then sigma
+            else Evd.set_eq_sort sigma (mk q) (mk q')
+          in
+          let sigma' = List.fold_left unify !sigma rest in
+          sigma := sigma';
+          q
+    in
+    let qbound = Int.Map.map gen_max_quality qbound in
+    let sigma = !sigma in
+    let bound = qbound, ubound in
+    let csts = Inductive.instantiate_template_constraints bound csts in
+    let sigma = Evd.add_constraints sigma csts in
+    sigma, bound
+
+  let template_sort boundus (s:Sorts.t) =
+    let s = Inductive.Template.template_subst_sort boundus s in
+    ESorts.make s
+
+  let bind_template bind_sort s (qsubst,usubst) =
+    let qbind, ubind = Inductive.Template.bind_kind bind_sort in
+    let qsubst = match qbind with
+      | None -> qsubst
+      | Some qbind ->
+        let sq = Sorts.quality s in
+        Int.Map.update qbind (function
+            | None -> Some [sq]
+            | Some q0 -> Some (sq::q0))
+          qsubst
+    in
+    let usubst = match ubind with
+      | None -> usubst
+      | Some ubind ->
+        let u = match s with
+          | SProp | Prop | Set -> Univ.Universe.type0
+          | Type u | QSort (_,u) -> u
+        in
+        Int.Map.update ubind (function
+            | None -> Some u
+            | Some _ ->
+              CErrors.anomaly Pp.(str "Retyping.bind_template found non linear template level."))
+          usubst
+    in
+    qsubst, usubst
+
+  let rec finish_template sigma boundus = let open TemplateArity in function
+    | CtorType (csts, typ) ->
+      let sigma, boundus = enforce_template_csts sigma boundus csts in
+      sigma, typ
+    | IndType (csts, ctx, s) ->
+      let sigma, boundus = enforce_template_csts sigma boundus csts in
+      let s = template_sort boundus s in
+      sigma, mkArity (ctx, s)
+    | DefParam (na, v, t, codom) ->
+      let sigma, codom = finish_template sigma boundus codom in
+      sigma, mkLetIn (na,v,t,codom)
+    | NonTemplateArg (na,dom,codom) ->
+      let sigma, codom = finish_template sigma boundus codom in
+      sigma, mkProd (na,dom,codom)
+    | TemplateArg (na,ctx,binder,codom) ->
+      let boundus = bind_template binder.bind_sort binder.default boundus in
+      let sigma, codom = finish_template sigma boundus codom in
+      let s = ESorts.make @@ binder.default in
+      sigma, mkProd (na,mkArity (ctx,s),codom)
+
+  let freshen_template sigma = let open Sorts in function
+    | SProp | Prop | Set -> assert false
+    | Type _ ->
+      let sigma, u = Evd.new_univ_level_variable UState.univ_flexible_alg sigma in
+      sigma, ESorts.make (Sorts.sort_of_univ (Univ.Universe.make u))
+    | QSort (q,u) ->
+      let sigma, q = match Sorts.QVar.var_index q with
+        | None -> sigma, q
+        | Some _ ->
+          let sigma, q = Evd.new_quality_variable sigma in
+          let sigma = Evd.set_above_prop sigma (QVar q) in
+          sigma, q
+      in
+      let sigma, u = match Option.bind (Univ.Universe.level u) Univ.Level.var_index with
+        | None -> sigma, u
+        | Some _ ->
+          let sigma, u = Evd.new_univ_level_variable UState.univ_flexible_alg sigma in
+          sigma, Univ.Universe.make u
+      in
+      sigma, ESorts.make @@ Sorts.qsort q u
+
+  let rec apply_template pretype_arg arg_state env sigma body subst boundus todoargs typ =
+    let open TemplateArity in
+    match todoargs, typ with
+    | [], _
+    | _, (CtorType _ | IndType _) ->
+      let sigma, typ = finish_template sigma boundus typ in
+      sigma, body, subst, typ, arg_state, todoargs
+    | _, DefParam (_, v, _, codom) ->
+      (* eager subst may be inefficient but template inductives with
+         letin params are hopefully rare enough that it doesn't
+         matter *)
+      let v = Vars.esubst Vars.lift_substituend subst v in
+      let subst = Esubst.subs_cons (Vars.make_substituend v) subst in
+      apply_template pretype_arg arg_state env sigma body subst boundus todoargs codom
+    | arg :: todoargs, NonTemplateArg (na, dom, codom) ->
+      let dom = Vars.esubst Vars.lift_substituend subst dom in
+      let sigma, arg_state, body, arg = pretype_arg env sigma arg_state body arg na.binder_name dom in
+      let subst = Esubst.subs_cons (Vars.make_substituend arg) subst in
+      apply_template pretype_arg arg_state env sigma body subst boundus todoargs codom
+    | arg :: todoargs, TemplateArg (na, ctx, binder, codom) ->
+      let sigma, s = freshen_template sigma binder.bind_sort in
+      let dom = Vars.esubst Vars.lift_substituend subst (mkArity (ctx, s)) in
+      let sigma, arg_state, body, arg = pretype_arg env sigma arg_state body arg na.binder_name dom in
+      let s =
+        (* get an algebraic instead of the generated variable *)
+        try
+          snd @@ Reductionops.dest_arity !!env sigma @@ Retyping.get_type_of !!env sigma arg
+        with Reduction.NotArity ->
+          (* delayed constraints prevent getting the sort from retyping *)
+          s
+      in
+      let boundus = bind_template binder.bind_sort (ESorts.kind sigma s) boundus in
+      let subst = Esubst.subs_cons (Vars.make_substituend arg) subst in
+      apply_template pretype_arg arg_state env sigma body subst boundus todoargs codom
+
   let pretype_app self (f, args) =
     fun ?loc ~flags tycon env sigma ->
     let pretype tycon env sigma c = eval_pretyper self ~flags tycon env sigma c in
@@ -958,27 +1104,44 @@ struct
             with Not_found -> []
       else []
     in
-    let refresh_template env sigma resj =
-      (* Special case for inductive type applications that must be
-         refreshed right away. *)
-      match EConstr.kind sigma resj.uj_val with
-      | App (f,args) ->
-        if Termops.is_template_polymorphic_ind !!env sigma f then
-          let c = mkApp (f, args) in
-          let sigma, c = Evarsolve.refresh_universes (Some true) !!env sigma c in
-          let t = Retyping.get_type_of !!env sigma c in
-          sigma, make_judge c (* use this for keeping evars: resj.uj_val *) t
-        else sigma, resj
-      | _ -> sigma, resj
+    let pretype_arg ?(trace=Coercion.empty_coercion_trace) env sigma (n, val_before_bidi, bidiargs, candargs) body arg na tycon =
+      (* trace is the coercion trace from coercing the body to funclass *)
+      let bidi = n >= nargs_before_bidi in
+      let sigma, c, bidiargs =
+        if bidi then
+          (* We want to get some typing information from the context
+             before typing the argument, so we replace it by an
+             existential variable *)
+          let sigma, c_hole = new_evar env sigma ~src:(loc,Evar_kinds.InternalHole) tycon in
+          sigma, c_hole, (c_hole, tycon, arg, trace) :: bidiargs
+        else
+          let sigma, j = pretype (Some tycon) env sigma arg in
+          sigma, j_val j, bidiargs
+      in
+      let sigma, candargs, c =
+        match candargs with
+        | [] -> sigma, [], c
+        | arg :: args ->
+          begin match Evarconv.unify_delay !!env sigma c arg with
+          | exception Evarconv.UnableToUnify (sigma,e) ->
+            raise (PretypeError (!!env,sigma,CannotUnify (c, arg, Some e)))
+          | sigma ->
+            sigma, args, nf_evar sigma c
+          end
+      in
+      let sigma, c = adjust_evar_source sigma na c in
+      let body = Coercion.push_arg body c in
+      let val_before_bidi = if bidi then val_before_bidi else body in
+      sigma, (n+1,val_before_bidi,bidiargs,candargs), body, c
     in
-    let rec apply_rec env sigma n body (subs, typ) val_before_bidi candargs bidiargs = function
+    let rec apply_rec env sigma arg_state body (subs, typ) = function
       | [] ->
         let typ = Vars.esubst Vars.lift_substituend subs typ in
         let body = Coercion.force_app_body body in
         let resj = { uj_val = body; uj_type = typ } in
+        let _,val_before_bidi, bidiargs,_ = arg_state in
         sigma, resj, val_before_bidi, List.rev bidiargs
       | c::rest ->
-        let bidi = n >= nargs_before_bidi in
         let argloc = loc_of_glob_constr c in
         let sigma, body, na, c1, subs, c2, trace = match EConstr.kind sigma typ with
         | Prod (na, c1, c2) ->
@@ -999,42 +1162,42 @@ struct
           in
           sigma, body, na, c1, Esubst.subs_id 0, c2, trace
         in
-        let (sigma, hj), bidiargs =
-          if bidi then
-            (* We want to get some typing information from the context before
-               typing the argument, so we replace it by an existential
-               variable *)
-            let sigma, c_hole = new_evar env sigma ~src:(loc,Evar_kinds.InternalHole) c1 in
-            (sigma, make_judge c_hole c1), (c_hole, c1, c, trace) :: bidiargs
-          else
-            let tycon = Some c1 in
-            pretype tycon env sigma c, bidiargs
+        let sigma, arg_state, body, arg =
+          pretype_arg env sigma arg_state ~trace body c na.binder_name c1
         in
-        let sigma, candargs, ujval =
-          match candargs with
-          | [] -> sigma, [], j_val hj
-          | arg :: args ->
-            begin match Evarconv.unify_delay !!env sigma (j_val hj) arg with
-              | exception Evarconv.UnableToUnify (sigma,e) ->
-                raise (PretypeError (!!env,sigma,CannotUnify (j_val hj, arg, Some e)))
-              | sigma ->
-                sigma, args, nf_evar sigma (j_val hj)
-            end
-        in
-        let sigma, ujval = adjust_evar_source sigma na.binder_name ujval in
-        let subs = Esubst.subs_cons (Vars.make_substituend ujval) subs in
-        let body = Coercion.push_arg body ujval in
-        let val_before_bidi = if bidi then val_before_bidi else body in
-        apply_rec env sigma (n+1) body (subs, c2) val_before_bidi candargs bidiargs rest
+        let subs = Esubst.subs_cons (Vars.make_substituend arg) subs in
+        apply_rec env sigma arg_state body (subs, c2) rest
     in
-    let typ = (Esubst.subs_id 0, fj.uj_type) in
     let body = (Coercion.start_app_body sigma fj.uj_val) in
-    let sigma, resj, val_before_bidi, bidiargs =
-      apply_rec env sigma 0 body typ body candargs [] args
+    let sigma, template_arity = match EConstr.kind sigma fj.uj_val with
+      | Ind (ind,u) | Construct ((ind,_),u) as k
+        when EInstance.is_empty u && Environ.template_polymorphic_ind ind !!env ->
+        let ctoropt = match k with
+          | Ind _ -> None
+          | Construct ((_,ctor),_) -> Some ctor
+          | _ -> assert false
+        in
+        let arity = TemplateArity.get_template_arity !!env ind ~ctoropt in
+        sigma, Some arity
+      | _ -> sigma, None
     in
-    let sigma, resj = refresh_template env sigma resj in
+    let arg_state = (0,body,[],candargs) in
+    let subst =  Esubst.subs_id 0 in
+    let typ = fj.uj_type in
+    let sigma, body, subst, typ, arg_state, args =
+      match template_arity with
+      | None -> sigma, body, subst, typ, arg_state, args
+      | Some typ ->
+        let pretype_arg env sigma arg_state body arg na tycon =
+          pretype_arg env sigma arg_state body arg na tycon
+        in
+        apply_template pretype_arg arg_state env sigma body subst (Int.Map.empty,Int.Map.empty) args typ
+    in
+    let sigma, resj, val_before_bidi, bidiargs =
+      apply_rec env sigma arg_state body (subst,typ) args
+    in
     let sigma, resj, otrace = inh_conv_coerce_to_tycon ?loc ~flags env sigma resj tycon in
-    let refine_arg n (sigma,t) (newarg,ty,origarg,trace) =
+    let refine_arg (sigma,t) (newarg,ty,origarg,trace) =
       (* Refine an argument (originally `origarg`) represented by an evar
          (`newarg`) to use typing information from the context *)
       (* Type the argument using the expected type *)
@@ -1050,7 +1213,7 @@ struct
     (* We now refine any arguments whose typing was delayed for
        bidirectionality *)
     let t = val_before_bidi in
-    let sigma, t = List.fold_left_i refine_arg nargs_before_bidi (sigma,t) bidiargs in
+    let sigma, t = List.fold_left refine_arg (sigma,t) bidiargs in
     let t = Coercion.force_app_body t in
     (* If we did not get a coercion trace (e.g. with `Program` coercions, we
        replaced user-provided arguments with inferred ones. Otherwise, we apply
@@ -1060,7 +1223,6 @@ struct
       | None -> resj
       | Some trace ->
         let resj = { resj with uj_val = t } in
-        let sigma, resj = refresh_template env sigma resj in
         { resj with uj_val = Coercion.reapply_coercions sigma trace t }
     in
     (sigma, resj)
@@ -1450,14 +1612,19 @@ let pretype_type self c ?loc ~flags valcon (env : GlobEnv.t) sigma = match DAst.
 
   let pretype_array self (u,t,def,ty) =
     fun ?loc ~flags tycon env sigma ->
+    let array_kn = match (Environ.retroknowledge !!env).Retroknowledge.retro_array with
+  | Some c -> c
+  | None -> CErrors.user_err Pp.(str"The type array must be registered before this construction can be typechecked.")
+    in
     let sigma, u = match u with
       | None -> sigma, None
       | Some ([],[u]) ->
         let sigma, u = glob_level ?loc sigma u in
         sigma, Some u
       | Some (qs,us) ->
-          let open UnivGen in
+        let open UnivGen in
           Loc.raise ?loc (UniverseLengthMismatch {
+            gref = ConstRef array_kn;
             actual = List.length qs, List.length us;
             expect = 0, 1;
           })
@@ -1471,14 +1638,14 @@ let pretype_type self c ?loc ~flags valcon (env : GlobEnv.t) sigma = match DAst.
       | Some u -> sigma, u
       | None -> Evd.new_univ_level_variable UState.univ_flexible sigma
     in
-    let sigma = Evd.set_leq_sort !!env sigma
+    let sigma = Evd.set_leq_sort sigma
         (* we retype because it may be an evar which has been defined, resulting in a lower sort
            cf #18480 *)
         (Retyping.get_sort_of !!env sigma jty.utj_val)
         (ESorts.make (Sorts.sort_of_univ (Univ.Universe.make u)))
     in
     let u = UVars.Instance.of_array ([||],[| u |]) in
-    let ta = EConstr.of_constr @@ Typeops.type_of_array !!env u in
+    let ta = EConstr.mkConstU (array_kn, EInstance.make u) in
     let j = {
       uj_val = EConstr.mkArray(EInstance.make u, Array.map (fun j -> j.uj_val) jt, jdef.uj_val, jty.utj_val);
       uj_type = EConstr.mkApp(ta,[|jdef.uj_type|])

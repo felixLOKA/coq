@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -136,7 +136,7 @@ let rewrite_except h =
   end
 
 
-let refl_equal () = Coqlib.lib_ref "core.eq.type"
+let refl_equal () = Rocqlib.lib_ref "core.eq.type"
 
 (* This is simply an implementation of the case_eq tactic.  this code
   should be replaced by a call to the tactic but I don't know how to
@@ -152,8 +152,10 @@ let  mkCaseEq a  : unit Proofview.tactic =
             let env = Proofview.Goal.env gl in
             (* FIXME: this looks really wrong. Does anybody really use
                this tactic? *)
-            let (_, c) = Tacred.pattern_occs [Locus.OnlyOccurrences [1], a] env (Evd.from_env env) concl in
-            change_concl c
+            let ans = Tacred.pattern_occs [Locus.OnlyOccurrences [1], a] env (Evd.from_env env) concl in
+            match ans with
+            | NoChange -> Proofview.tclUNIT ()
+            | Changed (_, c) -> change_concl c
           end;
           simplest_case a]
   end

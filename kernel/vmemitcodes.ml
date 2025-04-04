@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -21,7 +21,7 @@ open CPrimitives
 
 type emitcodes = String.t
 
-external tcode_of_code : Bytes.t -> Vmvalues.tcode = "coq_tcode_of_code"
+external tcode_of_code : Bytes.t -> Vmvalues.tcode = "rocq_tcode_of_code"
 
 (* Relocation information *)
 type reloc_info =
@@ -658,7 +658,7 @@ let to_memory fv code =
   } in
   emit env code [];
   let code = compress_code env.out_buffer env.out_position in
-  let code = CString.hcons code in
+  let _, code = CString.hcons code in
   let fold reloc id accu = (id, reloc) :: accu in
   let reloc = RelocTable.fold fold env.reloc_info [] in
   let reloc = List.sort (fun (id1, _) (id2, _) -> Int.compare id1 id2) reloc in

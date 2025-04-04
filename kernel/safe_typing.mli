@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -34,9 +34,9 @@ val env_of_safe_env : safe_environment -> Environ.env
 
 val sections_of_safe_env : safe_environment -> section_data Section.t option
 
-val structure_body_of_safe_env : safe_environment -> Declarations.structure_body
+val structure_body_of_safe_env : safe_environment -> Mod_declarations.structure_body
 
-val flatten_env : safe_environment -> ModPath.t * Declarations.structure_body
+val flatten_env : safe_environment -> ModPath.t * Mod_declarations.structure_body
 
 (** The safe_environment state monad *)
 
@@ -47,6 +47,8 @@ type 'a safe_transformer = safe_environment -> 'a * safe_environment
 (** {6 Stm machinery } *)
 
 type private_constants
+
+val debug_print_private_constants : private_constants -> Pp.t
 
 val empty_private_constants : private_constants
 val is_empty_private_constants : private_constants -> bool
@@ -63,6 +65,8 @@ val push_private_constants : Environ.env -> private_constants -> Environ.env
 (** Push the constants in the environment if not already there. *)
 
 val universes_of_private : private_constants -> Univ.ContextSet.t
+
+val constants_of_private : private_constants -> Constant.t list
 
 val is_curmod_library : safe_environment -> bool
 
@@ -133,7 +137,7 @@ val add_rewrite_rules : Label.t -> Declarations.rewrite_rules_body -> safe_envir
 val add_mind :
   ?typing_flags:Declarations.typing_flags ->
   Label.t -> Entries.mutual_inductive_entry ->
-    MutInd.t safe_transformer
+  (MutInd.t * IndTyping.NotPrimRecordReason.t option) safe_transformer
 
 (** Adding a module or a module type *)
 
@@ -229,7 +233,8 @@ val current_dirpath : safe_environment -> DirPath.t
 
 type compiled_library
 
-val module_of_library : compiled_library -> Declarations.module_body
+val dirpath_of_library : compiled_library -> DirPath.t
+val module_of_library : compiled_library -> Mod_declarations.module_body
 val univs_of_library : compiled_library -> Univ.ContextSet.t
 val check_flags_for_library : compiled_library -> safe_transformer0
 
@@ -258,8 +263,7 @@ val typing : safe_environment -> Constr.constr -> judgment
 
 val exists_objlabel : Label.t -> safe_environment -> bool
 
-val delta_of_senv :
-  safe_environment -> Mod_subst.delta_resolver * Mod_subst.delta_resolver
+val delta_of_senv : safe_environment -> Mod_subst.delta_resolver
 
 val constant_of_delta_kn_senv : safe_environment -> KerName.t -> Constant.t
 val mind_of_delta_kn_senv : safe_environment -> KerName.t -> MutInd.t

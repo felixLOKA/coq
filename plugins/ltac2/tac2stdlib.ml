@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -247,7 +247,7 @@ let generalize_arg = make_to_repr to_generalize_arg
 open Tac2externals
 
 let define s =
-  define { mltac_plugin = "coq-core.plugins.ltac2"; mltac_tactic = s }
+  define { mltac_plugin = "rocq-runtime.plugins.ltac2"; mltac_tactic = s }
 
 (** Tactics from Tacexpr *)
 
@@ -466,6 +466,9 @@ let () =
   define "tac_assumption" (unit @-> tac unit) (fun _ -> Tactics.assumption)
 
 let () =
+  define "tac_eassumption" (unit @-> tac unit) (fun _ -> Eauto.e_assumption)
+
+let () =
   define "tac_transitivity" (constr @-> tac unit)
     (fun c -> Tactics.intros_transitivity (Some c))
 
@@ -599,8 +602,6 @@ let () =
 
 (** Tactics for [Ltac2/TransparentState.v]. *)
 
-let transparent_state = Tac2ffi.repr_ext Tac2ffi.val_transparent_state
-
 let () =
   define "current_transparent_state"
     (unit @-> tac transparent_state)
@@ -628,3 +629,6 @@ let () =
   define "simple_congruence"
   (option int @-> option (list constr) @-> tac unit)
   Tac2tactics.simple_congruence
+
+let () = define "f_equal" (unit @-> tac unit) @@ fun () ->
+    Tac2tactics.f_equal

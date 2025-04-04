@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -24,6 +24,17 @@ type goal_reference =
   | OpenSubgoals
   | NthGoal of int
   | GoalId of Id.t
+
+type debug_univ_name =
+  | NamedUniv of qualid
+  | RawUniv of lstring
+
+type print_universes = {
+  sort : bool;
+  subgraph : debug_univ_name list option;
+  with_sources : bool option;
+  file : string option;
+}
 
 type printable =
   | PrintTypingFlags
@@ -50,7 +61,7 @@ type printable =
   | PrintCoercions
   | PrintCoercionPaths of coercion_class * coercion_class
   | PrintCanonicalConversions of qualid or_by_notation list
-  | PrintUniverses of bool * qualid list option * string option
+  | PrintUniverses of print_universes
   | PrintHint of qualid or_by_notation
   | PrintHintGoal
   | PrintHintDbName of string
@@ -110,10 +121,7 @@ type 'a search_restriction =
 
 type verbose_flag   = bool (* true = Verbose;       false = Silent         *)
 type coercion_flag  = AddCoercion | NoCoercion
-(* Remove BackInstanceWarning at end of deprecation phase
-   (this is just to print a warning when :> is used instead of ::
-   to declare instances in classes) *)
-type instance_flag  = BackInstance | BackInstanceWarning | NoInstance
+type instance_flag  = BackInstance | NoInstance
 
 type export_flag = Lib.export_flag = Export | Import
 
@@ -363,7 +371,7 @@ type hints_expr =
   | HintsTransparency of Libnames.qualid Hints.hints_transparency_target * bool
   | HintsMode of Libnames.qualid * Hints.hint_mode list
   | HintsConstructors of Libnames.qualid list
-  | HintsExtern of int * Constrexpr.constr_expr option * Genarg.raw_generic_argument
+  | HintsExtern of int * Constrexpr.constr_expr option * Gentactic.raw_generic_tactic
 
 (** [synterp_vernac_expr] describes the AST of commands which have effects on
     parsing or parsing extensions *)
@@ -504,7 +512,7 @@ type nonrec synpure_vernac_expr =
   | VernacShow of showable
   | VernacCheckGuard
   | VernacValidateProof
-  | VernacProof of Genarg.raw_generic_argument option * section_subset_expr option
+  | VernacProof of Gentactic.raw_generic_tactic option * section_subset_expr option
 
   | VernacAddOption of Goptions.option_name * Goptions.table_value list
   | VernacRemoveOption of Goptions.option_name * Goptions.table_value list
@@ -521,6 +529,7 @@ type vernac_expr = synterp_vernac_expr vernac_expr_gen
 type control_flag =
   | ControlTime
   | ControlInstructions
+  | ControlProfile of string option
   | ControlRedirect of string
   | ControlTimeout of int
   | ControlFail

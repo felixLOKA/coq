@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -20,6 +20,6 @@ type t =
 val map : (Id.t -> Id.t) -> (Constant.t -> Constant.t) ->
   (Projection.Repr.t -> Projection.Repr.t) -> t -> t
 
-val equal : t -> t -> bool
+val equal : Environ.env -> t -> t -> bool
 
 val to_kevaluable : t -> Conv_oracle.evaluable

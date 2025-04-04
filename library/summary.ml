@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -34,7 +34,7 @@ module DynMap = Dyn.Map(Decl)
 
 module MarshMap = Dyn.Map(struct type 'a t = 'a -> 'a end)
 
-type ml_modules = (string option * string) list
+type ml_modules = string list
 
 let sum_mod : ml_modules summary_declaration option ref = ref None
 let sum_map_synterp = ref DynMap.empty
@@ -104,7 +104,7 @@ let make_marshallable marsh_map summaries =
 
 let warn_summary_out_of_scope =
   CWarnings.create ~name:"summary-out-of-scope" ~default:Disabled Pp.(fun name ->
-      str "A Coq plugin was loaded inside a local scope (such as a Section)." ++ spc() ++
+      str "A Rocq plugin was loaded inside a local scope (such as a Section)." ++ spc() ++
       str "It is recommended to load plugins at the start of the file." ++ spc() ++
       str "Summary entry: " ++ str name)
 
@@ -192,7 +192,7 @@ let empty_frozen = Frozen.empty
 
 end
 
-(** For global tables registered statically before the end of coqtop
+(** For global tables registered statically before the end of rocq repl
     launch, the following empty [init_function] could be used. *)
 
 let nop () = ()

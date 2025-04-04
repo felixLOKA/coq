@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -10,18 +10,16 @@
 
 (** Ltac parsing entries *)
 
-open Pcoq
+open Procq
 open Libnames
 open Constrexpr
 open Tacexpr
-open Genredexpr
 open Tactypes
 
 val open_constr : constr_expr Entry.t
 val constr_with_bindings : constr_expr with_bindings Entry.t
 val bindings : constr_expr bindings Entry.t
 val hypident : (Names.lident * Locus.hyp_location_flag) Entry.t
-val constr_may_eval : (constr_expr,qualid or_by_notation,constr_expr,int Locus.or_var) may_eval Entry.t
 val constr_eval : (constr_expr,qualid or_by_notation,constr_expr,int Locus.or_var) may_eval Entry.t
 val uconstr : constr_expr Entry.t
 val quantified_hypothesis : quantified_hypothesis Entry.t

@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -153,7 +153,7 @@ let newssrcongrtac arg ist =
   (* utils *)
   let fs sigma t = Reductionops.nf_evar sigma t in
   let ssr_congr lr = EConstr.mkApp (arr, lr) in
-  let sigma, eq = Evd.fresh_global env sigma Coqlib.(lib_ref "core.eq.type") in
+  let sigma, eq = Evd.fresh_global env sigma Rocqlib.(lib_ref "core.eq.type") in
   (* here the two cases: simple equality or arrow *)
   let equality, _, eq_args, sigma' = saturate env sigma eq 3 in
   Proofview.Unsafe.tclEVARS sigma <*>
@@ -355,7 +355,7 @@ let converse_dir = function L2R -> R2L | R2L -> L2R
 
 let rw_progress rhs lhs ise = not (EConstr.eq_constr ise lhs (Evarutil.nf_evar ise rhs))
 
-(* Coq has a more general form of "equation" (any type with a single *)
+(* Rocq has a more general form of "equation" (any type with a single *)
 (* constructor with no arguments with_rect_r elimination lemmas).    *)
 (* However there is no clear way of determining the LHS and RHS of   *)
 (* such a generic Leibniz equation -- short of inspecting the type   *)
@@ -404,7 +404,9 @@ let pirrel_rewrite ?(under=false) ?(map_redex=id_map_redex) pred rdx rdx_ty new_
       Evd.fresh_global env sigma (ConstRef c1')
   in
   (* The resulting goal *)
-  let sigma, p = Evarutil.new_evar env sigma (beta (EConstr.Vars.subst1 new_rdx pred)) in
+  let evty = beta (EConstr.Vars.subst1 new_rdx pred) in
+  let typeclass_candidate = Typeclasses.is_maybe_class_type sigma evty in
+  let sigma, p = Evarutil.new_evar ~typeclass_candidate env sigma evty in
   (* We check the proof is well typed. We assume that the type of [elim] is of
      the form [forall (A : Type) (x : A) (P : A -> Type@{s}), T] s.t. the only
      universes to unify are by checking the [A] and [P] arguments. *)
@@ -475,15 +477,15 @@ let rwcltac ?under ?map_redex cl rdx dir (sigma, r) =
   let sigma0 = Proofview.Goal.sigma gl in
   let sigma = resolve_typeclasses ~where:r ~fail:false env sigma in
   let r_n, evs, ucst = abs_evars env sigma0 (sigma, r) in
+  let sigma0 = Evd.set_universe_context sigma0 ucst in
   let n = List.length evs in
   let r_n' = abs_cterm env sigma0 n r_n in
   let r' = EConstr.Vars.subst_var sigma pattern_id r_n' in
-  let sigma0 = Evd.set_universe_context sigma0 ucst in
   let sigma, rdxt = Typing.type_of env sigma rdx in
   let () = debug_ssr (fun () -> Pp.(str"r@rwcltac=" ++ pr_econstr_env env sigma r)) in
   let cvtac, rwtac, sigma0 =
     if EConstr.Vars.closed0 sigma0 r' then
-      let c_eq = Coqlib.(lib_ref "core.eq.type") in
+      let c_eq = Rocqlib.(lib_ref "core.eq.type") in
       let sigma, c_ty = Typing.type_of env sigma r in
       let () = debug_ssr (fun () -> Pp.(str"c_ty@rwcltac=" ++ pr_econstr_env env sigma c_ty)) in
       let open EConstr in
@@ -537,14 +539,13 @@ let rwcltac ?under ?map_redex cl rdx dir (sigma, r) =
   end
 
 let lz_setoid_relation =
-  let sdir = ["Classes"; "RelationClasses"] in
   let last_srel = ref None in
   fun env -> match !last_srel with
   | Some (env', srel) when env' == env -> srel
   | _ ->
     let srel =
        try Some (UnivGen.constr_of_monomorphic_global (Global.env ()) @@
-                 Coqlib.find_reference "Class_setoid" ("Coq"::sdir) "RewriteRelation" [@ocaml.warning "-3"])
+                 Rocqlib.lib_ref "rewrite.prop.RewriteRelation")
        with e when CErrors.noncritical e -> None in
     last_srel := Some (env, srel); srel
 
@@ -564,10 +565,10 @@ let dir_org = function L2R -> 1 | R2L -> 2
 
 let rwprocess_rule env dir rule =
   let is_setoid = ssr_is_setoid env in
-  let prod_type = Coqlib.lib_ref "core.prod.type" in
-  let prod_intro = Coqlib.lib_ref "core.prod.intro" in
-  let prod_proj1 = Coqlib.lib_ref "core.prod.proj1" in
-  let prod_proj2 = Coqlib.lib_ref "core.prod.proj2" in
+  let prod_type = Rocqlib.lib_ref "core.prod.type" in
+  let prod_intro = Rocqlib.lib_ref "core.prod.intro" in
+  let prod_proj1 = Rocqlib.lib_ref "core.prod.proj1" in
+  let prod_proj2 = Rocqlib.lib_ref "core.prod.proj2" in
   let r_sigma, rules =
     let rec loop d sigma r t0 rs red =
       let t =
@@ -577,7 +578,8 @@ let rwprocess_rule env dir rule =
       match EConstr.kind sigma t with
       | Prod (_, xt, at) ->
         let sigma = Evd.create_evar_defs sigma in
-        let (sigma, x) = Evarutil.new_evar env sigma xt in
+        let typeclass_candidate = Typeclasses.is_maybe_class_type sigma xt in
+        let (sigma, x) = Evarutil.new_evar ~typeclass_candidate env sigma xt in
         loop d sigma EConstr.(mkApp (r, [|x|])) (EConstr.Vars.subst1 x at) rs 0
       | App (pr, a) when is_ind_ref env sigma pr prod_type ->
         let r0 = Reductionops.clos_whd_flags RedFlags.all env sigma r in

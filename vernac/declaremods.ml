@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -13,6 +13,7 @@ open CErrors
 open Util
 open Names
 open Declarations
+open Mod_declarations
 open Entries
 open Libnames
 open Libobject
@@ -48,16 +49,16 @@ let inl2intopt = function
 let consistency_checks exists dir =
   if exists then
     let _ =
-      try Nametab.locate_module (qualid_of_dirpath dir)
+      try Nametab.locate_module (qualid_of_path dir)
       with Not_found ->
         user_err
-          (DirPath.print dir ++ str " should already exist!")
+          (pr_path dir ++ str " should already exist!")
     in
     ()
   else
     if Nametab.exists_module dir then
       user_err
-        (DirPath.print dir ++ str " already exists.")
+        (pr_path dir ++ str " already exists.")
 
 let rec get_module_path = function
   | MEident mp -> mp
@@ -65,8 +66,8 @@ let rec get_module_path = function
   | MEapply (me,_) -> get_module_path me
 
 let type_of_mod mp env = function
-  | true -> (Environ.lookup_module mp env).mod_type
-  | false -> (Environ.lookup_modtype mp env).mod_type
+  | true -> mod_type (Environ.lookup_module mp env)
+  | false -> mod_type (Environ.lookup_modtype mp env)
 
 (** {6 Name management}
 
@@ -78,9 +79,22 @@ let mp_of_kn kn =
   let mp,l = KerName.repr kn in
   MPdot (mp,l)
 
-let dir_of_sp sp =
-  let dir,id = repr_path sp in
-  add_dirpath_suffix dir id
+let pop_path sp =
+  path_pop_suffix sp, basename sp
+
+let path_of_file dp =
+  match DirPath.repr dp with
+  | x :: dp -> make_path (DirPath.make dp) x
+  | [] -> CErrors.anomaly Pp.(str "Cannot start library with empty dirpath")
+
+(* Avoid generating a KeepObject for nothing *)
+let keep_objects id keep = match keep.keep_objects with
+  | [] -> []
+  | _ :: _ -> [KeepObject (id, keep)]
+
+let escape_objects id escape = match escape.escape_objects with
+  | [] -> []
+  | _ :: _ -> [EscapeObject (id, escape)]
 
 (** The [ModActions] abstraction represent operations on modules
     that are specific to a given stage. Two instances are defined below,
@@ -94,11 +108,11 @@ module type ModActions = sig
   val substobjs_table_name : string
   val modobjs_table_name : string
 
-  val enter_module : ModPath.t -> DirPath.t -> int -> unit
+  val enter_module : ModPath.t -> full_path -> int -> unit
 
   val enter_modtype : ModPath.t -> full_path -> int -> unit
 
-  val open_module : open_filter -> ModPath.t -> DirPath.t -> int -> unit
+  val open_module : open_filter -> ModPath.t -> full_path -> int -> unit
 
   module Lib : Lib.StagedLibS
 
@@ -118,18 +132,18 @@ struct
   let substobjs_table_name = "MODULE-SYNTAX-SUBSTOBJS"
   let modobjs_table_name = "MODULE-SYNTAX-OBJS"
 
-  let enter_module obj_mp obj_dir i =
-    consistency_checks false obj_dir;
-    Nametab.push_module (Until i) obj_dir obj_mp
+  let enter_module obj_mp obj_path i =
+    consistency_checks false obj_path;
+    Nametab.push_module (Until i) obj_path obj_mp
 
   let enter_modtype mp sp i =
     if Nametab.exists_modtype sp then
       anomaly (pr_path sp ++ str " already exists.");
     Nametab.push_modtype (Nametab.Until i) sp mp
 
-  let open_module f obj_mp obj_dir i =
-    consistency_checks true obj_dir;
-    if in_filter ~cat:None f then Nametab.push_module (Nametab.Exactly i) obj_dir obj_mp
+  let open_module f obj_mp obj_path i =
+    consistency_checks true obj_path;
+    if in_filter ~cat:None f then Nametab.push_module (Nametab.Exactly i) obj_path obj_mp
 
   module Lib = Lib.Synterp
 
@@ -139,7 +153,7 @@ struct
       | [],r -> user_err Pp.(str "Application of a functor with too few arguments.")
       | mbid::mbids,mp::mp_l ->
           let mbid_left,subst = compute_subst () mbids mp_l inl in
-          mbid_left,join (map_mbid mbid mp empty_delta_resolver) subst
+          mbid_left, join (map_mbid mbid mp (empty_delta_resolver mp)) subst
 
   let compute_subst ~is_mod () mbids mp1 mp_l inl =
     compute_subst () mbids mp_l inl
@@ -161,10 +175,10 @@ struct
     This information is stored by each [start_modtype] for use
     in a later [end_modtype]. *)
 
-  let enter_module obj_mp obj_dir i = ()
+  let enter_module obj_mp obj_path i = ()
   let enter_modtype mp sp i = ()
 
-  let open_module f obj_mp obj_dir i = ()
+  let open_module f obj_mp obj_path i = ()
 
   module Lib = Lib.Interp
 
@@ -176,10 +190,10 @@ struct
           let farg_id, farg_b, fbody_b = Modops.destr_functor sign in
           let mb = Environ.lookup_module mp env in
           let mbid_left,subst = compute_subst env mbids fbody_b mp_l inl in
-          let resolver =
-            if Modops.is_functor mb.mod_type then empty_delta_resolver
-            else
-              Modops.inline_delta_resolver env inl mp farg_id farg_b mb.mod_delta
+          let resolver = match mod_global_delta mb with
+          | None -> empty_delta_resolver mp
+          | Some delta ->
+            Modops.inline_delta_resolver env inl mp farg_id farg_b delta
           in
           mbid_left,join (map_mbid mbid mp resolver) subst
 
@@ -189,10 +203,17 @@ struct
 
 end
 
+type exp_substituted_object = (substitutive_objects, exp_algebraic_objects, Empty.t, Empty.t) object_view
+
+and exp_algebraic_objects = { exp_algebraic_objects : exp_substituted_object list }
+
+(* and exp_substitutive_objects = Names.MBId.t list * exp_algebraic_objects *)
+
 type module_objects =
-  { module_prefix : Nametab.object_prefix;
-    module_substituted_objects : Libobject.t list;
-    module_keep_objects : Libobject.t list;
+  { module_prefix : object_prefix;
+    module_substituted_objects : exp_substituted_object list;
+    module_keep_objects : keep_objects;
+    module_escape_objects : escape_objects;
   }
 
 (** The [StagedModS] abstraction describes module operations at a given stage. *)
@@ -203,7 +224,9 @@ module type StagedModS = sig
 
   val get_module_sobjs : bool -> env -> Entries.inline -> typexpr module_alg_expr -> substitutive_objects
 
-  val load_module : int -> DirPath.t -> ModPath.t -> substitutive_objects -> Libobject.t list -> unit
+  val load_keep : int -> full_path -> ModPath.t -> keep_objects -> unit
+  val load_escape : int -> full_path -> ModPath.t -> escape_objects -> unit
+  val load_module : int -> full_path -> ModPath.t -> substitutive_objects -> unit
   val import_modules : export:Lib.export_flag -> (open_filter * ModPath.t) list -> unit
 
   val add_leaf : Libobject.t -> unit
@@ -260,7 +283,7 @@ and subst_objects subst seg =
     | ExportObject { mpl } ->
       let mpl' = List.Smart.map (subst_filtered subst) mpl in
       if mpl'==mpl then node else ExportObject { mpl = mpl' }
-    | KeepObject _ -> assert false
+    | KeepObject _ | EscapeObject _ -> assert false
   in
   List.Smart.map subst_one seg
 
@@ -314,6 +337,42 @@ let expand_aobjs = function
 
 let expand_sobjs (_,aobjs) = expand_aobjs aobjs
 
+module Expand =
+struct
+
+type exp_object = (substitutive_objects, exp_algebraic_objects, keep_objects, escape_objects) object_view
+
+let exp_substituted_view (obj : exp_substituted_object) : exp_object = match obj with
+| (AtomicObject _ | ModuleObject _ | ModuleTypeObject _ | IncludeObject _ | ExportObject _) as o -> o
+| EscapeObject (_, o) | KeepObject (_, o) -> Empty.abort o
+
+let keep_view (obj : Libobject.t) : exp_object = match obj with
+| (AtomicObject _ | KeepObject _) as o -> o
+| ModuleObject _ | ModuleTypeObject _ | IncludeObject _ | ExportObject _ | EscapeObject _ ->
+  assert false (** keep objects only contain atomic / keep *)
+
+let escape_view (obj : Libobject.t) : exp_object = match obj with
+| (AtomicObject _ | EscapeObject _) as o -> o
+| ModuleObject _ | ModuleTypeObject _ | IncludeObject _ | ExportObject _ | KeepObject _ ->
+  assert false (** escape objects only contain atomic / escape *)
+
+let rec substituted_object_view (obj : Libobject.t) : exp_substituted_object = match obj with
+| (AtomicObject _ | ModuleObject _ | ModuleTypeObject _ | ExportObject _) as o -> o
+| IncludeObject aobjs ->
+  let aobjs = expand_aobjs aobjs in
+  IncludeObject { exp_algebraic_objects = List.map substituted_object_view aobjs }
+| EscapeObject _ | KeepObject _ ->
+  (* forbidden in substitutive objects *)
+  assert false
+
+let object_view (obj : Libobject.t) : exp_object = match obj with
+| (AtomicObject _ | EscapeObject _ | ModuleObject _ | ModuleTypeObject _ | ExportObject _ | KeepObject _) as o -> o
+| IncludeObject aobjs ->
+  let aobjs = expand_aobjs aobjs in
+  IncludeObject { exp_algebraic_objects = List.map substituted_object_view aobjs }
+
+end
+
 
 (** {6 ModObjs : a cache of module objects}
 
@@ -354,6 +413,8 @@ module ModObjs :
    let all () = !table
  end
 
+ open Expand
+
 (** {6 Declaration of module substitutive objects} *)
 
 (** Nota: Interactive modules and module types cannot be recached!
@@ -370,12 +431,12 @@ let load_modtype i sp mp sobjs =
 
 (** {6 Declaration of substitutive objects for Include} *)
 
-let rec load_object i (prefix, obj) =
-  match obj with
+let rec load_object : type a. (a -> exp_object) -> int -> object_prefix * a -> unit = fun view i (prefix, obj) ->
+  match view obj with
   | AtomicObject o -> Libobject.load_object i (prefix, o)
   | ModuleObject (id,sobjs) ->
-    let sp, kn as name = Lib.make_oname prefix id in
-    load_module i (dir_of_sp sp) (mp_of_kn kn) sobjs []
+    let sp, kn = Lib.make_oname prefix id in
+    load_module i sp (mp_of_kn kn) sobjs
   | ModuleTypeObject (id,sobjs) ->
     let name = Lib.make_oname prefix id in
     let (sp,kn) = name in
@@ -384,45 +445,65 @@ let rec load_object i (prefix, obj) =
     load_include i (prefix, aobjs)
   | ExportObject _ -> ()
   | KeepObject (id,objs) ->
-    let name = Lib.make_oname prefix id in
-    load_keep i (name, objs)
+    let sp, kn = Lib.make_oname prefix id in
+    load_keep i sp (mp_of_kn kn) objs
+  | EscapeObject (id,objs) ->
+    let sp, kn = Lib.make_oname prefix id in
+    load_escape i sp (mp_of_kn kn) objs
 
-and load_objects i prefix objs =
-  List.iter (fun obj -> load_object i (prefix, obj)) objs
+and load_objects : type a. (a -> exp_object) -> int -> object_prefix -> a list -> unit = fun view i prefix objs ->
+  List.iter (fun obj -> load_object view i (prefix, obj)) objs
 
 and load_include i (prefix, aobjs) =
-  let o = expand_aobjs aobjs in
-  load_objects i prefix o
+  load_objects exp_substituted_view i prefix aobjs.exp_algebraic_objects
 
-and load_keep i ((sp,kn),kobjs) =
+and load_keep i obj_path obj_mp kobjs =
   (* Invariant : seg isn't empty *)
-  let obj_dir = dir_of_sp sp and obj_mp  = mp_of_kn kn in
-  let prefix = Nametab.{ obj_dir ; obj_mp; } in
+  let prefix = { obj_path ; obj_mp; } in
   let modobjs =
     try ModObjs.get obj_mp
     with Not_found -> assert false (* a substobjs should already be loaded *)
   in
-  assert Nametab.(eq_op modobjs.module_prefix prefix);
-  assert (List.is_empty modobjs.module_keep_objects);
+  assert (eq_object_prefix modobjs.module_prefix prefix);
+  assert (List.is_empty modobjs.module_keep_objects.keep_objects);
   ModObjs.set obj_mp { modobjs with module_keep_objects = kobjs };
-  load_objects i prefix kobjs
+  load_objects keep_view (i+1) prefix kobjs.keep_objects
 
-and load_module i obj_dir obj_mp sobjs kobjs =
-  let prefix = Nametab.{ obj_dir ; obj_mp; } in
-  Actions.enter_module obj_mp obj_dir i;
+and load_escape i obj_path obj_mp eobjs =
+  (* Invariant : seg isn't empty *)
+  let prefix = { obj_path ; obj_mp; } in
+  let modobjs =
+    try ModObjs.get obj_mp
+    with Not_found ->
+      (* escape objects can exist even if there is no corresponding real module *)
+      { module_prefix = prefix;
+        module_substituted_objects = [];
+        module_keep_objects = { keep_objects = [] };
+        module_escape_objects = { escape_objects = [] };
+      }
+  in
+  assert (eq_object_prefix modobjs.module_prefix prefix);
+  assert (List.is_empty modobjs.module_escape_objects.escape_objects);
+  ModObjs.set obj_mp { modobjs with module_escape_objects = eobjs };
+  load_objects escape_view (i+1) prefix eobjs.escape_objects
+
+and load_module i obj_path obj_mp sobjs =
+  let prefix = { obj_path ; obj_mp; } in
+  Actions.enter_module obj_mp obj_path i;
   ModSubstObjs.set obj_mp sobjs;
   (* If we're not a functor, let's iter on the internal components *)
   if sobjs_no_functor sobjs then begin
     let objs = expand_sobjs sobjs in
+    let objs = List.map substituted_object_view objs in
     let module_objects =
       { module_prefix = prefix;
         module_substituted_objects = objs;
-        module_keep_objects = kobjs;
+        module_keep_objects = { keep_objects = [] };
+        module_escape_objects = { escape_objects = [] };
       }
     in
     ModObjs.set obj_mp module_objects;
-    load_objects (i+1) prefix objs;
-    load_objects (i+1) prefix kobjs
+    load_objects exp_substituted_view (i+1) prefix objs
   end
 
 (** {6 Implementation of Import and Export commands} *)
@@ -435,19 +516,20 @@ let rec collect_module (f,mp) acc =
     (* May raise Not_found for unknown module and for functors *)
     let modobjs = ModObjs.get mp in
     let prefix = modobjs.module_prefix in
-    let acc = collect_objects f 1 prefix modobjs.module_keep_objects acc in
-    collect_objects f 1 prefix modobjs.module_substituted_objects acc
+    let acc = collect_objects escape_view f 1 prefix modobjs.module_escape_objects.escape_objects acc in
+    let acc = collect_objects keep_view f 1 prefix modobjs.module_keep_objects.keep_objects acc in
+    collect_objects exp_substituted_view f 1 prefix modobjs.module_substituted_objects acc
   with Not_found when Actions.stage = Summary.Stage.Synterp ->
     acc
 
-and collect_object f i prefix obj acc =
-  match obj with
+and collect_object : type a. (a -> exp_object) -> _ -> _ -> _ -> a -> _ -> _ = fun view f i prefix obj acc ->
+  match view obj with
   | ExportObject { mpl } -> collect_exports f i mpl acc
-  | AtomicObject _ | IncludeObject _ | KeepObject _
-  | ModuleObject _ | ModuleTypeObject _ -> mark_object f (prefix,obj) acc
+  | (AtomicObject _ | IncludeObject _ | KeepObject _ | EscapeObject _
+  | ModuleObject _ | ModuleTypeObject _) as obj -> mark_object f (prefix,obj) acc
 
-and collect_objects f i prefix objs acc =
-  List.fold_left (fun acc obj -> collect_object f i prefix obj acc)
+and collect_objects : type a. (a -> exp_object) -> _ -> _ -> _ -> a list -> _ = fun view f i prefix objs acc ->
+  List.fold_left (fun acc obj -> collect_object view f i prefix obj acc)
     acc
     (List.rev objs)
 
@@ -486,14 +568,13 @@ let open_modtype i ((sp,kn),_) =
   assert (ModPath.equal mp mp');
   Nametab.push_modtype (Nametab.Exactly i) sp mp
 
-let rec open_object f i (prefix, obj) =
-  match obj with
+let rec open_object : type a. (a -> exp_object) -> _ -> _ -> _ * a -> _ = fun view f i (prefix, obj) ->
+  match view obj with
   | AtomicObject o -> Libobject.open_object f i (prefix, o)
   | ModuleObject (id,sobjs) ->
-    let name = Lib.make_oname prefix id in
-    let dir = dir_of_sp (fst name) in
-    let mp = mp_of_kn (snd name) in
-    open_module f i dir mp sobjs
+    let sp, kn = Lib.make_oname prefix id in
+    let mp = mp_of_kn kn in
+    open_module f i sp mp sobjs
   | ModuleTypeObject (id,sobjs) ->
     let name = Lib.make_oname prefix id in
     open_modtype i (name, sobjs)
@@ -503,44 +584,52 @@ let rec open_object f i (prefix, obj) =
   | KeepObject (id,objs) ->
     let name = Lib.make_oname prefix id in
     open_keep f i (name, objs)
+  | EscapeObject (id,objs) ->
+    let name = Lib.make_oname prefix id in
+    open_escape f i (name, objs)
 
-and open_module f i obj_dir obj_mp sobjs =
-  Actions.open_module f obj_mp obj_dir i;
+and open_module f i obj_path obj_mp sobjs =
+  Actions.open_module f obj_mp obj_path i;
   (* If we're not a functor, let's iter on the internal components *)
   if sobjs_no_functor sobjs then begin
     let modobjs = ModObjs.get obj_mp in
-    open_objects f (i+1) modobjs.module_prefix modobjs.module_substituted_objects
+    open_objects exp_substituted_view f (i+1) modobjs.module_prefix modobjs.module_substituted_objects
   end
 
-and open_objects f i prefix objs =
-  List.iter (fun obj -> open_object f i (prefix, obj)) objs
+and open_objects : type a. (a -> exp_object) -> _ -> _ -> _ -> a list -> _ = fun view f i prefix objs ->
+  List.iter (fun obj -> open_object view f i (prefix, obj)) objs
 
 and open_include f i (prefix, aobjs) =
-  let o = expand_aobjs aobjs in
-  open_objects f i prefix o
+  open_objects exp_substituted_view f i prefix aobjs.exp_algebraic_objects
 
 and open_export f i mpl =
   let _,objs = collect_exports f i mpl (MPmap.empty, []) in
-  List.iter (fun (f,o) -> open_object f 1 o) objs
+  List.iter (fun (f,o) -> open_object (fun x -> x) f 1 o) objs
 
 and open_keep f i ((sp,kn),kobjs) =
-  let obj_dir = dir_of_sp sp and obj_mp = mp_of_kn kn in
-  let prefix = Nametab.{ obj_dir; obj_mp; } in
-  open_objects f i prefix kobjs
+  let obj_mp = mp_of_kn kn in
+  let prefix = { obj_path=sp; obj_mp; } in
+  open_objects keep_view f (i+1) prefix kobjs.keep_objects
+
+and open_escape f i ((sp,kn),kobjs) =
+  let obj_mp = mp_of_kn kn in
+  let prefix = { obj_path=sp; obj_mp; } in
+  open_objects escape_view f (i+1) prefix kobjs.escape_objects
 
 let cache_include (prefix, aobjs) =
   let o = expand_aobjs aobjs in
-  load_objects 1 prefix o;
-  open_objects unfiltered 1 prefix o
+  let o = List.map substituted_object_view o in
+  load_objects exp_substituted_view 1 prefix o;
+  open_objects exp_substituted_view unfiltered 1 prefix o
 
 let cache_object (prefix, obj) =
   match obj with
   | AtomicObject o -> Libobject.cache_object (prefix, o)
-  | ModuleObject _ -> load_object 1 (prefix,obj)
-  | ModuleTypeObject _ -> load_object 0 (prefix,obj)
+  | ModuleObject _ -> load_object object_view 1 (prefix,obj)
+  | ModuleTypeObject _ -> load_object object_view 0 (prefix,obj)
   | IncludeObject aobjs -> cache_include (prefix, aobjs)
   | ExportObject { mpl } -> anomaly Pp.(str "Export should not be cached")
-  | KeepObject _ -> anomaly (Pp.str "This module should not be cached!")
+  | KeepObject _ | EscapeObject _ -> anomaly (Pp.str "This module should not be cached!")
 
 (* Adding operations with containers *)
 
@@ -556,13 +645,13 @@ let add_leaf obj =
 let add_leaves objs =
   let add_obj obj =
     add_leaf_entry obj;
-    load_object 1 (Lib.prefix (),obj)
+    load_object object_view 1 (Lib.prefix (),obj)
   in
   List.iter add_obj objs
 
 let import_modules ~export mpl =
   let _,objs = collect_modules mpl in
-  List.iter (fun (f,o) -> open_object f 1 o) objs;
+  List.iter (fun (f,o) -> open_object (fun x -> x) f 1 o) objs;
   match export with
   | Lib.Import -> ()
   | Lib.Export ->
@@ -619,7 +708,7 @@ let rec replace_module_object idl mp0 objs0 mp1 objs1 =
     begin
       let mp_id = MPdot(mp0, Label.of_id id) in
       let objs = match idl with
-        | [] -> subst_objects (map_mp mp1 mp_id empty_delta_resolver) objs1
+        | [] -> subst_objects (map_mp mp1 mp_id (empty_delta_resolver mp_id)) objs1
         | _ ->
           let objs_id = expand_sobjs sobjs in
           replace_module_object idl mp_id objs_id mp1 objs1
@@ -656,11 +745,11 @@ let rec get_module_sobjs is_mod env inl = function
 
 let debug_print_modtab () =
   let pr_seg = function
-    | [] -> str "[]"
-    | l -> str "[." ++ int (List.length l) ++ str ".]"
+    | 0 -> str "[]"
+    | l -> str "[." ++ int l ++ str ".]"
   in
   let pr_modinfo mp modobjs s =
-    let objs = modobjs.module_substituted_objects @ modobjs.module_keep_objects in
+    let objs = List.length modobjs.module_substituted_objects + List.length modobjs.module_keep_objects.keep_objects in
     s ++ str (ModPath.to_string mp) ++ spc () ++ pr_seg objs
   in
   let modules = MPmap.fold pr_modinfo (ModObjs.all ()) (mt ()) in
@@ -751,12 +840,12 @@ let intern_arg (idl,(typ,ann)) =
   let sobjs = SynterpVisitor.get_module_sobjs false () inl mty in
   let mp0 = get_module_path mty in
   let map {CAst.v=id} =
-    let dir = DirPath.make [id] in
+    let sp = Libnames.make_path DirPath.empty id in
     let mbid = MBId.make lib_dir id in
     let mp = MPbound mbid in
     (* We can use an empty delta resolver because we load only syntax objects *)
-    let sobjs = subst_sobjs (map_mp mp0 mp empty_delta_resolver) sobjs in
-    SynterpVisitor.load_module 1 dir mp sobjs [];
+    let sobjs = subst_sobjs (map_mp mp0 mp (empty_delta_resolver mp)) sobjs in
+    SynterpVisitor.load_module 1 sp mp sobjs;
     mbid
   in
   List.map map idl, (mty, base, kind, inl)
@@ -786,17 +875,17 @@ let start_module export id args res =
   let mp, res_entry_o, mbids, sign, args = start_module_core id args res in
   set_openmod_syntax_info { cur_mp = mp; cur_typ = res_entry_o; cur_mbids = mbids };
   let prefix = Lib.Synterp.start_module export id mp fs in
-  Nametab.(push_dir (Until 1) (prefix.obj_dir) (GlobDirRef.DirOpenModule prefix.obj_mp));
+  Nametab.(push_dir (Until 1) (prefix.obj_path) (GlobDirRef.DirOpenModule prefix.obj_mp));
   mp, args, sign
 
 let end_module_core id (m_info : current_module_syntax_info) objects fs =
-  let {Lib.Synterp.substobjs = substitute; keepobjs = keep; anticipateobjs = special; } = objects in
+  let {Lib.substobjs = substitute; keepobjs = keep; escapeobjs = escape; anticipateobjs = special; } = objects in
 
   (* For sealed modules, we use the substitutive objects of their signatures *)
   let sobjs0, keep = match m_info.cur_typ with
     | None -> ([], Objs substitute), keep
     | Some (mty, inline) ->
-      SynterpVisitor.get_module_sobjs false () inline mty, []
+      SynterpVisitor.get_module_sobjs false () inline mty, { keep_objects = [] }
   in
   Summary.Synterp.unfreeze_summaries fs;
   let sobjs = let (ms,objs) = sobjs0 in (m_info.cur_mbids@ms,objs) in
@@ -806,36 +895,25 @@ let end_module_core id (m_info : current_module_syntax_info) objects fs =
     match m_info.cur_typ with
       | None -> sobjs
       | Some (mty, _) ->
-        subst_sobjs (map_mp (get_module_path mty) m_info.cur_mp empty_delta_resolver) sobjs
+        subst_sobjs (map_mp (get_module_path mty) m_info.cur_mp (empty_delta_resolver m_info.cur_mp)) sobjs
   in
   let node = ModuleObject (id,sobjs) in
   (* We add the keep objects, if any, and if this isn't a functor *)
-  let objects = match keep, m_info.cur_mbids with
-    | [], _ | _, _ :: _ -> special@[node]
-    | _ -> special@[node;KeepObject (id,keep)]
-  in
-  (* Name consistency check : start_ vs. end_module *)
-  (*
-  Printf.eprintf "newoname=%s, oldoname=%s\n" (string_of_path (fst newoname)) (string_of_path (fst oldoname));
-  assert (DirPath.equal (Lib.prefix()).Nametab.obj_dir olddp);
-  assert (ModPath.equal oldprefix.Nametab.obj_mp mp);
-  *)
-  (* Printf.eprintf "newoname=%s, oldoname=%s\n" (string_of_path (fst newoname)) (string_of_path (fst oldoname)); *)
-  (* Printf.eprintf "newoname=%s, cur_mp=%s\n" (ModPath.debug_to_string (mp_of_kn (snd newoname))) (ModPath.debug_to_string m_info.cur_mp); *)
+  let keep = if not (CList.is_empty m_info.cur_mbids) then [] else keep_objects id keep in
+  let escape = escape_objects id escape in
+  let objects = special@[node]@keep@escape in
 
   m_info.cur_mp, objects
 
 let end_module () =
   let oldprefix,fs,objects = Lib.Synterp.end_module () in
   let m_info = openmod_syntax_info () in
-  let olddp, id = split_dirpath oldprefix.Nametab.obj_dir in
+  let olddp, id = pop_path oldprefix.obj_path in
   let mp,objects = end_module_core id m_info objects fs in
 
   let () = SynterpVisitor.add_leaves objects in
 
-  (* Name consistency check : kernel vs. library *)
-  (* CDebug.debug_synterp (fun () -> Pp.(str"prefix=" ++ DirPath.print ((Lib.prefix()).Nametab.obj_dir) ++ str", olddp=" ++ DirPath.print olddp)); *)
-  assert (DirPath.equal (Lib.prefix()).Nametab.obj_dir olddp);
+  assert (eq_full_path (Lib.prefix()).obj_path olddp);
   mp
 
 let get_functor_sobjs is_mod inl (mbids,mexpr) =
@@ -874,7 +952,7 @@ let declare_module id args res mexpr_o =
   Summary.Synterp.unfreeze_summaries fs;
 
   (* We can use an empty delta resolver on syntax objects *)
-  let sobjs = subst_sobjs (map_mp mp0 mp empty_delta_resolver) sobjs in
+  let sobjs = subst_sobjs (map_mp mp0 mp (empty_delta_resolver mp)) sobjs in
   ignore (SynterpVisitor.add_leaf (ModuleObject (id,sobjs)));
   mp, args, mexpr_entry_o, mty_entry_o
 
@@ -884,10 +962,10 @@ module Interp = struct
 
 (** {6 Auxiliary functions concerning subtyping checks} *)
 
-let check_sub mtb sub_mtb_l =
+let check_sub mp mtb sub_mtb_l =
   let fold sub_mtb (cst, env) =
     let state = ((Environ.universes env, cst), Reductionops.inferred_universes) in
-    let graph, cst = Subtyping.check_subtypes state env mtb sub_mtb in
+    let graph, cst = Subtyping.check_subtypes state env mp mtb mp sub_mtb in
     (cst, Environ.set_universes graph env)
   in
   let cst, _ = List.fold_right fold sub_mtb_l (Univ.Constraints.empty, Global.env ()) in
@@ -902,7 +980,7 @@ let check_subtypes mp sub_mtb_l =
     try Global.lookup_module mp with Not_found -> assert false
   in
   let mtb = Modops.module_type_of_module mb in
-  check_sub mtb sub_mtb_l
+  check_sub mp mtb sub_mtb_l
 
 (** Same for module type [mp] *)
 
@@ -910,10 +988,10 @@ let check_subtypes_mt mp sub_mtb_l =
   let mtb =
     try Global.lookup_modtype mp with Not_found -> assert false
   in
-  check_sub mtb sub_mtb_l
+  check_sub mp mtb sub_mtb_l
 
 let current_modresolver () =
-  fst @@ Safe_typing.delta_of_senv @@ Global.safe_env ()
+  Safe_typing.delta_of_senv @@ Global.safe_env ()
 
 let current_struct () =
   let struc = Safe_typing.structure_body_of_safe_env @@ Global.safe_env () in
@@ -944,7 +1022,7 @@ let build_subtypes env mp args mtys =
 let intern_arg (acc, cst) (mbidl,(mty, base, kind, inl)) =
   let env = Global.env() in
   let (mty, cst') = Modintern.interp_module_ast env kind base mty in
-  let () = Global.push_context_set ~strict:true cst' in
+  let () = Global.push_context_set cst' in
   let () =
     let state = ((Global.universes (), Univ.Constraints.empty), Reductionops.inferred_universes) in
     let _, (_, cst), _ = Mod_typing.translate_modtype state vm_state (Global.env ()) base inl ([], mty) in
@@ -955,11 +1033,11 @@ let intern_arg (acc, cst) (mbidl,(mty, base, kind, inl)) =
   let mp0 = get_module_path mty in
   let fold acc mbid =
     let id = MBId.to_id mbid in
-    let dir = DirPath.make [id] in
+    let sp = Libnames.make_path DirPath.empty id in
     let mp = MPbound mbid in
     let resolver = Global.add_module_parameter mbid mty inl in
     let sobjs = subst_sobjs (map_mp mp0 mp resolver) sobjs in
-    InterpVisitor.load_module 1 dir mp sobjs [];
+    InterpVisitor.load_module 1 sp mp sobjs;
     (mbid,mty,inl)::acc
   in
   let acc = List.fold_left fold acc mbidl in
@@ -984,12 +1062,12 @@ let intern_args params =
 let start_module_core id args res =
   let mp = Global.start_module id in
   let params, ctx = intern_args args in
-  let () = Global.push_context_set ~strict:true ctx in
+  let () = Global.push_context_set ctx in
   let env = Global.env () in
   let res_entry_o, subtyps, ctx' = match res with
     | Enforce (mte, base, kind, inl) ->
         let (mte, ctx) = Modintern.interp_module_ast env kind base mte in
-        let env = Environ.push_context_set ~strict:true ctx env in
+        let env = Environ.push_context_set ctx env in
         (* We check immediately that mte is well-formed *)
         let state = ((Environ.universes env, Univ.Constraints.empty), Reductionops.inferred_universes) in
         let _, (_, cst), _ = Mod_typing.translate_modtype state vm_state env mp inl ([], mte) in
@@ -999,24 +1077,24 @@ let start_module_core id args res =
       let typs, ctx = build_subtypes env mp params resl in
       None, typs, ctx
   in
-  let () = Global.push_context_set ~strict:true ctx' in
+  let () = Global.push_context_set ctx' in
   mp, res_entry_o, subtyps, params, Univ.ContextSet.union ctx ctx'
 
 let start_module export id args res =
   let fs = Summary.Interp.freeze_summaries () in
   let mp, res_entry_o, subtyps, _, _ = start_module_core id args res in
   openmod_info := { cur_typ = res_entry_o; cur_typs = subtyps };
-  let _ : Nametab.object_prefix = Lib.Interp.start_module export id mp fs in
+  let _ : object_prefix = Lib.Interp.start_module export id mp fs in
   mp
 
 let end_module_core id m_info objects fs =
-  let {Lib.Interp.substobjs = substitute; keepobjs = keep; anticipateobjs = special; } = objects in
+  let {Lib.substobjs = substitute; keepobjs = keep; escapeobjs = escape; anticipateobjs = special; } = objects in
 
   (* For sealed modules, we use the substitutive objects of their signatures *)
   let sobjs0, keep = match m_info.cur_typ with
     | None -> ([], Objs substitute), keep
     | Some (mty, inline) ->
-      InterpVisitor.get_module_sobjs false (Global.env()) inline mty, []
+      InterpVisitor.get_module_sobjs false (Global.env()) inline mty, { keep_objects = [] }
   in
 
   let struc = current_struct () in
@@ -1042,23 +1120,23 @@ let end_module_core id m_info objects fs =
   in
   let node = ModuleObject (id,sobjs) in
   (* We add the keep objects, if any, and if this isn't a functor *)
-  let objects = match keep, mbids with
-    | [], _ | _, _ :: _ -> special@[node]
-    | _ -> special@[node;KeepObject (id,keep)]
-  in
+  let keep = if not (CList.is_empty mbids) then [] else keep_objects id keep in
+  (* NB: escape objects are added even for sealed modules, not sure if want *)
+  let escape = escape_objects id escape in
+  let objects = special@[node]@keep@escape in
 
   mp, objects
 
 let end_module () =
   let oldprefix,fs,objects = Lib.Interp.end_module () in
   let m_info = !openmod_info in
-  let olddp, id = split_dirpath oldprefix.Nametab.obj_dir in
+  let _olddp, id = pop_path oldprefix.obj_path in
   let mp,objects = end_module_core id m_info objects fs in
 
   let () = InterpVisitor.add_leaves objects in
 
   (* Name consistency check : kernel vs. library *)
-  assert (ModPath.equal oldprefix.Nametab.obj_mp mp);
+  assert (ModPath.equal oldprefix.obj_mp mp);
 
   mp
 
@@ -1079,7 +1157,7 @@ let declare_module id args res mexpr_o =
       let (mte, ctx) = Modintern.interp_module_ast env kind base mte in
       Some mte, inl, ctx
   in
-  let env = Environ.push_context_set ~strict:true ctx' env in
+  let env = Environ.push_context_set ctx' env in
   let ctx = Univ.ContextSet.union ctx ctx' in
   let entry, inl_res = match mexpr_entry_o, mty_entry_o with
     | None, None -> assert false (* No body, no type ... *)
@@ -1099,7 +1177,7 @@ let declare_module id args res mexpr_o =
   | None -> None
   | _ -> inl_res
   in
-  let () = Global.push_context_set ~strict:true ctx in
+  let () = Global.push_context_set ctx in
   let state = ((Global.universes (), Univ.Constraints.empty), Reductionops.inferred_universes) in
   let _, (_, cst), _ = Mod_typing.translate_module state vm_state (Global.env ()) mp inl entry in
   let () = Global.add_constraints cst in
@@ -1137,18 +1215,18 @@ let start_modtype id args mtys =
   let mp, mbids, args, sub_mty_l = start_modtype_core id (openmod_syntax_info ()).cur_mp args mtys in
   set_openmod_syntax_info { cur_mp = mp; cur_typ = None; cur_mbids = mbids };
   let prefix = Lib.Synterp.start_modtype id mp fs in
-  Nametab.(push_dir (Until 1) (prefix.obj_dir) (GlobDirRef.DirOpenModtype prefix.obj_mp));
+  Nametab.(push_dir (Until 1) (prefix.obj_path) (GlobDirRef.DirOpenModtype prefix.obj_mp));
   mp, args, sub_mty_l
 
 let end_modtype_core id mbids objects fs =
-  let {Lib.Synterp.substobjs = substitute; keepobjs = _; anticipateobjs = special; } = objects in
+  let {Lib.substobjs = substitute; keepobjs = _; escapeobjs = escape; anticipateobjs = special; } = objects in
   Summary.Synterp.unfreeze_summaries fs;
   let modtypeobjs = (mbids, Objs substitute) in
-  (special@[ModuleTypeObject (id,modtypeobjs)])
+  special@[ModuleTypeObject (id,modtypeobjs)]@(escape_objects id escape)
 
 let end_modtype () =
   let oldprefix,fs,objects = Lib.Synterp.end_modtype () in
-  let olddp, id = split_dirpath oldprefix.Nametab.obj_dir in
+  let _olddp, id = pop_path oldprefix.obj_path in
   let objects = end_modtype_core id (openmod_syntax_info ()).cur_mbids objects fs in
   SynterpVisitor.add_leaves objects;
   (openmod_syntax_info ()).cur_mp
@@ -1162,7 +1240,7 @@ let declare_modtype id args mtys (mty,ann) =
   let mte, base, kind = Modintern.intern_module_ast Modintern.ModType mty in
   let entry = mbids, mte in
   let sobjs = RawModOps.Synterp.get_functor_sobjs false inl entry in
-  let subst = map_mp (get_module_path (snd entry)) mp empty_delta_resolver in
+  let subst = map_mp (get_module_path (snd entry)) mp (empty_delta_resolver mp) in
   let sobjs = subst_sobjs subst sobjs in
 
   (* Undo the simulated interactive building of the module type
@@ -1181,10 +1259,10 @@ let openmodtype_info =
 let start_modtype_core id args mtys =
   let mp = Global.start_modtype id in
   let params, params_ctx = RawModOps.Interp.intern_args args in
-  let () = Global.push_context_set ~strict:true params_ctx in
+  let () = Global.push_context_set params_ctx in
   let env = Global.env () in
   let sub_mty_l, sub_mty_ctx = RawModOps.Interp.build_subtypes env mp params mtys in
-  let () = Global.push_context_set ~strict:true sub_mty_ctx in
+  let () = Global.push_context_set sub_mty_ctx in
   mp, params, sub_mty_l, Univ.ContextSet.union params_ctx sub_mty_ctx
 
 let start_modtype id args mtys =
@@ -1192,26 +1270,26 @@ let start_modtype id args mtys =
   let mp, _, sub_mty_l, _ = start_modtype_core id args mtys in
   openmodtype_info := sub_mty_l;
   let prefix = Lib.Interp.start_modtype id mp fs in
-  Nametab.(push_dir (Until 1) (prefix.obj_dir) (GlobDirRef.DirOpenModtype mp));
+  Nametab.(push_dir (Until 1) (prefix.obj_path) (GlobDirRef.DirOpenModtype mp));
   mp
 
 let end_modtype_core id sub_mty_l objects fs =
-  let {Lib.Interp.substobjs = substitute; keepobjs = _; anticipateobjs = special; } = objects in
+  let {Lib.substobjs = substitute; keepobjs = _; escapeobjs = escape; anticipateobjs = special; } = objects in
   let mp, mbids = Global.end_modtype fs id in
   let () = RawModOps.Interp.check_subtypes_mt mp sub_mty_l in
   let modtypeobjs = (mbids, Objs substitute) in
-  let objects = special@[ModuleTypeObject (id,modtypeobjs)] in
+  let objects = special@[ModuleTypeObject (id,modtypeobjs)]@(escape_objects id escape) in
   mp, objects
 
 let end_modtype () =
   let oldprefix,fs,objects = Lib.Interp.end_modtype () in
-  let olddp, id = split_dirpath oldprefix.Nametab.obj_dir in
+  let olddp, id = pop_path oldprefix.obj_path in
   let sub_mty_l = !openmodtype_info in
   let mp, objects = end_modtype_core id sub_mty_l objects fs in
   let () = InterpVisitor.add_leaves objects in
   (* Check name consistence : start_ vs. end_modtype, kernel vs. library *)
-  assert (DirPath.equal (Lib.prefix()).Nametab.obj_dir olddp);
-  assert (ModPath.equal oldprefix.Nametab.obj_mp mp);
+  assert (eq_full_path (Lib.prefix()).obj_path olddp);
+  assert (ModPath.equal oldprefix.obj_mp mp);
   mp
 
 let declare_modtype id args mtys (mte,base,kind,inl) =
@@ -1221,16 +1299,16 @@ let declare_modtype id args mtys (mte,base,kind,inl) =
   let mp, params, sub_mty_l, ctx = start_modtype_core id args mtys in
   let env = Global.env () in
   let mte, mte_ctx = Modintern.interp_module_ast env kind base mte in
-  let () = Global.push_context_set ~strict:true mte_ctx in
+  let () = Global.push_context_set mte_ctx in
   let env = Global.env () in
   (* We check immediately that mte is well-formed *)
   let state = ((Global.universes (), Univ.Constraints.empty), Reductionops.inferred_universes) in
   let _, (_, mte_cst), _ = Mod_typing.translate_modtype state vm_state env mp inl ([], mte) in
-  let () = Global.push_context_set ~strict:true (Univ.Level.Set.empty,mte_cst) in
+  let () = Global.push_context_set (Univ.Level.Set.empty,mte_cst) in
   let entry = params, mte in
   let env = Global.env () in
   let sobjs = RawModOps.Interp.get_functor_sobjs false env inl entry in
-  let subst = map_mp (get_module_path (snd entry)) mp empty_delta_resolver in
+  let subst = map_mp (get_module_path (snd entry)) mp (empty_delta_resolver mp) in
   let sobjs = subst_sobjs subst sobjs in
 
   (* Undo the simulated interactive building of the module type
@@ -1238,9 +1316,9 @@ let declare_modtype id args mtys (mte,base,kind,inl) =
   Summary.Interp.unfreeze_summaries fs;
 
   (* We enrich the global environment *)
-  let () = Global.push_context_set ~strict:true ctx in
-  let () = Global.push_context_set ~strict:true mte_ctx in
-  let () = Global.push_context_set ~strict:true (Univ.Level.Set.empty,mte_cst) in
+  let () = Global.push_context_set ctx in
+  let () = Global.push_context_set mte_ctx in
+  let () = Global.push_context_set (Univ.Level.Set.empty,mte_cst) in
   let mp_env = Global.add_modtype id entry inl in
 
   (* Name consistency check : kernel vs. library *)
@@ -1268,7 +1346,7 @@ let rec include_subst mp mbids = match mbids with
   | [] -> empty_subst
   | mbid::mbids ->
     let subst = include_subst mp mbids in
-    join (map_mbid mbid mp empty_delta_resolver) subst
+    join (map_mbid mbid mp (empty_delta_resolver mp)) subst
 
 let declare_one_include_core cur_mp (me_ast,annot) =
   let me, base, kind = Modintern.intern_module_ast Modintern.ModAny me_ast in
@@ -1283,7 +1361,7 @@ let declare_one_include_core cur_mp (me_ast,annot) =
   in
   let base_mp = get_module_path me in
   (* We can use an empty delta resolver on syntax objects *)
-  let subst = join subst_self (map_mp base_mp cur_mp empty_delta_resolver) in
+  let subst = join subst_self (map_mp base_mp cur_mp (empty_delta_resolver cur_mp)) in
   let aobjs = subst_aobjs subst aobjs in
   (me, base, kind, inl), aobjs
 
@@ -1328,7 +1406,7 @@ let type_of_incl env is_mod = function
 let declare_one_include_core (me,base,kind,inl) =
   let env = Global.env() in
   let me, cst = Modintern.interp_module_ast env kind base me in
-  let () = Global.push_context_set ~strict:true cst in
+  let () = Global.push_context_set cst in
   let env = Global.env () in
   let is_mod = (kind == Modintern.Module) in
   let cur_mp = Global.current_modpath () in
@@ -1350,24 +1428,20 @@ let declare_one_include_core (me,base,kind,inl) =
   let () = Global.add_constraints cst in
   let () = assert (ModPath.equal cur_mp (Global.current_modpath ())) in
   (* Include Self support  *)
-  let mb = { mod_mp = cur_mp;
-  mod_expr = ();
-  mod_type = RawModOps.Interp.current_struct ();
-  mod_type_alg = None;
-  mod_delta = RawModOps.Interp.current_modresolver ();
-  mod_retroknowledge = ModTypeRK }
-  in
+  let mb = make_module_type (RawModOps.Interp.current_struct ()) (RawModOps.Interp.current_modresolver ()) in
   let rec compute_sign sign =
     match sign with
     | MoreFunctor(mbid,mtb,str) ->
       let state = ((Global.universes (), Univ.Constraints.empty), Reductionops.inferred_universes) in
-      let (_, cst) = Subtyping.check_subtypes state (Global.env ()) mb mtb in
+      let (_, cst) = Subtyping.check_subtypes state (Global.env ()) cur_mp mb (MPbound mbid) mtb in
       let () = Global.add_constraints cst in
-      let mpsup_delta =
-        Modops.inline_delta_resolver (Global.env ()) inl cur_mp mbid mtb mb.mod_delta
+      let mpsup_delta = match mod_global_delta mb with
+      | None -> assert false (* mb is guaranteed not to be a functor here *)
+      | Some delta ->
+        Modops.inline_delta_resolver (Global.env ()) inl cur_mp mbid mtb delta
       in
       let subst = Mod_subst.map_mbid mbid cur_mp mpsup_delta in
-      compute_sign (Modops.subst_signature subst str)
+      compute_sign (Modops.subst_signature subst cur_mp str)
     | NoFunctor str -> ()
   in
   let () = compute_sign sign in
@@ -1391,9 +1465,9 @@ end
 type library_name = DirPath.t
 
 (** A library object is made of some substitutive objects
-    and some "keep" objects. *)
+    and some "keep" and "escape" objects. *)
 
-type library_objects = Libobject.t list * Libobject.t list
+type library_objects = Libobject.t list * keep_objects * escape_objects
 
 module Synterp = struct
 
@@ -1412,9 +1486,10 @@ let declare_module_includes id args res mexpr_l =
   let includes = List.map_left (RawIncludeOps.Synterp.declare_one_include_core mp) mexpr_l in
   let bodies, incl_objs = List.split includes in
   let incl_objs = List.map (fun x -> IncludeObject x) incl_objs in
-  let objects = Lib.Synterp.{
-    substobjs = incl_objs;
-    keepobjs = [];
+  let objects = {
+    Lib.substobjs = incl_objs;
+    keepobjs = { keep_objects = [] };
+    escapeobjs = { escape_objects = [] };
     anticipateobjs = [];
   } in
   let mp, objects = RawModOps.Synterp.end_module_core id mod_info objects fs in
@@ -1430,9 +1505,10 @@ let declare_modtype_includes id args res mexpr_l =
   let includes = List.map_left (RawIncludeOps.Synterp.declare_one_include_core mp) mexpr_l in
   let bodies, incl_objs = List.split includes in
   let incl_objs = List.map (fun x -> IncludeObject x) incl_objs in
-  let objects = Lib.Synterp.{
-    substobjs = incl_objs;
-    keepobjs = [];
+  let objects = {
+    Lib.substobjs = incl_objs;
+    keepobjs = { keep_objects = [] };
+    escapeobjs = { escape_objects = [] };
     anticipateobjs = [];
   } in
   let objects = RawModTypeOps.Synterp.end_modtype_core id mbids objects fs in
@@ -1467,8 +1543,11 @@ let declare_include = RawIncludeOps.Synterp.declare_include
 
 let register_library dir (objs:library_objects) =
   let mp = MPfile dir in
-  let sobjs,keepobjs = objs in
-  SynterpVisitor.load_module 1 dir mp ([],Objs sobjs) keepobjs
+  let sp = path_of_file dir in
+  let sobjs,keepobjs,escapeobjs = objs in
+  SynterpVisitor.load_module 1 sp mp ([],Objs sobjs);
+  SynterpVisitor.load_escape 2 sp mp escapeobjs;
+  SynterpVisitor.load_keep 2 sp mp keepobjs
 
 let import_modules = SynterpVisitor.import_modules
 
@@ -1493,9 +1572,10 @@ let declare_module_includes id args res mexpr_l =
   let mp, res_entry_o, subtyps, _, _ = RawModOps.Interp.start_module_core id args res in
   let mod_info = { cur_typ = res_entry_o; cur_typs = subtyps } in
   let incl_objs = List.map_left (fun x -> IncludeObject (RawIncludeOps.Interp.declare_one_include_core x)) mexpr_l in
-  let objects = Lib.Interp.{
-    substobjs = incl_objs;
-    keepobjs = [];
+  let objects = {
+    Lib.substobjs = incl_objs;
+    keepobjs = { keep_objects = [] };
+    escapeobjs = { escape_objects = [] };
     anticipateobjs = [];
   } in
   let mp, objects = RawModOps.Interp.end_module_core id mod_info objects fs in
@@ -1509,9 +1589,10 @@ let declare_modtype_includes id args res mexpr_l =
   let fs = Summary.Interp.freeze_summaries () in
   let mp, _, subtyps, _ = RawModTypeOps.Interp.start_modtype_core id args res in
   let incl_objs = List.map_left (fun x -> IncludeObject (RawIncludeOps.Interp.declare_one_include_core x)) mexpr_l in
-  let objects = Lib.Interp.{
-    substobjs = incl_objs;
-    keepobjs = [];
+  let objects = {
+    Lib.substobjs = incl_objs;
+    keepobjs = { keep_objects = [] };
+    escapeobjs = { escape_objects = [] };
     anticipateobjs = [];
   } in
   let mp, objects = RawModTypeOps.Interp.end_modtype_core id subtyps objects fs in
@@ -1539,23 +1620,26 @@ let declare_include me_asts =
     user_err Pp.(str "Include is not allowed inside sections.");
   RawIncludeOps.Interp.declare_include me_asts
 
-(** For the native compiler, we cache the library values *)
 let register_library dir cenv (objs:library_objects) digest vmtab =
   let mp = MPfile dir in
+  let sp = path_of_file dir in
   let () =
     try
-      (* Is this library already loaded ? *)
+      (* If the library was loaded inside a module or section, the
+         end_segment will replay the library object for non-kernel
+         effects but the kernel did not forget the library. *)
       ignore(Global.lookup_module mp);
     with Not_found ->
       begin
-      (* If not, let's do it now ... *)
       let mp' = Global.import cenv vmtab digest in
       if not (ModPath.equal mp mp') then
         anomaly (Pp.str "Unexpected disk module name.")
       end
   in
-  let sobjs,keepobjs = objs in
-  InterpVisitor.load_module 1 dir mp ([],Objs sobjs) keepobjs
+  let sobjs,keepobjs,escapeobjs = objs in
+  InterpVisitor.load_module 1 sp mp ([],Objs sobjs);
+  InterpVisitor.load_escape 1 sp mp escapeobjs;
+  InterpVisitor.load_keep 1 sp mp keepobjs
 
 let import_modules = InterpVisitor.import_modules
 
@@ -1575,12 +1659,15 @@ let end_library_hook () =
 
 let end_library ~output_native_objects dir =
   end_library_hook();
-  let prefix, info, lib_stack, lib_stack_syntax = Lib.end_compilation dir in
+  let { Lib.info; interp_objects = lib_stack; synterp_objects = lib_stack_syntax; } =
+    Lib.end_compilation dir
+  in
   let mp,cenv,vmlib,ast = Global.export ~output_native_objects dir in
   assert (ModPath.equal mp (MPfile dir));
-  let {Lib.Interp.substobjs = substitute; keepobjs = keep; anticipateobjs = _; } = lib_stack in
-  let {Lib.Synterp.substobjs = substitute_syntax; keepobjs = keep_syntax; anticipateobjs = _; } = lib_stack_syntax in
-  cenv,(substitute,keep),(substitute_syntax,keep_syntax),vmlib,ast,info
+  let drop_anticipate {Lib.substobjs; keepobjs; escapeobjs; anticipateobjs=_} =
+    (substobjs, keepobjs, escapeobjs)
+  in
+  cenv,(drop_anticipate lib_stack),(drop_anticipate lib_stack_syntax),vmlib,ast,info
 
 (** {6 Iterators} *)
 
@@ -1591,10 +1678,17 @@ let iter_all_interp_segments f =
       List.iter (apply_obj prefix) objs
     | _ -> f prefix obj
   in
+  let rec subst_view (obj : exp_substituted_object) : Libobject.t = match obj with
+  | KeepObject (_, o) | EscapeObject (_, o) -> Empty.abort o
+  | (AtomicObject _ | ExportObject _ | ModuleObject _ | ModuleTypeObject _) as o -> o
+  | IncludeObject aobjs ->
+    let aobjs = aobjs.exp_algebraic_objects in
+    IncludeObject (Objs (List.map subst_view aobjs))
+  in
   let apply_mod_obj _ modobjs =
     let prefix = modobjs.module_prefix in
-    List.iter (apply_obj prefix) modobjs.module_substituted_objects;
-    List.iter (apply_obj prefix) modobjs.module_keep_objects
+    List.iter (fun obj -> apply_obj prefix (subst_view obj)) modobjs.module_substituted_objects;
+    List.iter (fun obj -> apply_obj prefix obj) modobjs.module_keep_objects.keep_objects
   in
   let apply_nodes (node, os) = List.iter (fun o -> apply_obj (Lib.node_prefix node) o) os in
   MPmap.iter apply_mod_obj (InterpVisitor.ModObjs.all ());
@@ -1616,13 +1710,13 @@ let debug_print_modtab () = InterpVisitor.debug_print_modtab ()
     objects associated to it. *)
 
 let process_module_binding mbid me =
-  let dir = DirPath.make [MBId.to_id mbid] in
+  let sp = Libnames.make_path DirPath.empty (MBId.to_id mbid) in
   let mp = MPbound mbid in
   let sobjs = InterpVisitor.get_module_sobjs false (Global.env()) (default_inline ()) me in
-  let subst = map_mp (get_module_path me) mp empty_delta_resolver in
+  let subst = map_mp (get_module_path me) mp (empty_delta_resolver mp) in
   let sobjs = subst_sobjs subst sobjs in
-  SynterpVisitor.load_module 1 dir mp sobjs [];
-  InterpVisitor.load_module 1 dir mp sobjs []
+  SynterpVisitor.load_module 1 sp mp sobjs;
+  InterpVisitor.load_module 1 sp mp sobjs
 
 (** Compatibility layer *)
 let import_module f ~export mp =

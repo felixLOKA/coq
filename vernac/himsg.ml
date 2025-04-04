@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -123,15 +123,22 @@ let rec display_expr_eq c1 c2 =
   | _ ->
     Constrexpr_ops.constr_expr_eq_gen display_expr_eq c1 c2
 
+let safe_extern_constr env sigma t =
+  Printer.safe_extern_wrapper begin fun env sigma () ->
+    Constrextern.extern_constr env sigma t
+  end env sigma ()
+
 (** Tries to realize when the two terms, albeit different are printed the same. *)
 let display_eq ~flags env sigma t1 t2 =
   (* terms are canonized, then their externalisation is compared syntactically *)
-  let open Constrextern in
   let t1 = canonize_constr sigma t1 in
   let t2 = canonize_constr sigma t2 in
-  let ct1 = Flags.with_options flags (fun () -> extern_constr env sigma t1) () in
-  let ct2 = Flags.with_options flags (fun () -> extern_constr env sigma t2) () in
-  display_expr_eq ct1 ct2
+  let ct1 = Flags.with_options flags (fun () -> safe_extern_constr env sigma t1) () in
+  let ct2 = Flags.with_options flags (fun () -> safe_extern_constr env sigma t2) () in
+  match ct1, ct2 with
+  | None, None -> false
+  | Some _, None | None, Some _ -> false
+  | Some ct1, Some ct2 -> display_expr_eq ct1 ct2
 
 (** This function adds some explicit printing flags if the two arguments are
     printed alike. *)
@@ -145,12 +152,13 @@ let rec pr_explicit_aux env sigma t1 t2 = function
     (* The two terms are the same from the user point of view *)
     pr_explicit_aux env sigma t1 t2 rem
   else
-    let open Constrextern in
-    let ct1 = Flags.with_options flags (fun () -> extern_constr env sigma t1) ()
+    let ct1 = Flags.with_options flags (fun () -> safe_extern_constr env sigma t1) () in
+    let ct2 = Flags.with_options flags (fun () -> safe_extern_constr env sigma t2) () in
+    let pr = function
+    | None -> str "??"
+    | Some c -> Ppconstr.pr_lconstr_expr env sigma c
     in
-    let ct2 = Flags.with_options flags (fun () -> extern_constr env sigma t2) ()
-    in
-    Ppconstr.pr_lconstr_expr env sigma ct1, Ppconstr.pr_lconstr_expr env sigma ct2
+    pr ct1, pr ct2
 
 let explicit_flags =
   let open Constrextern in
@@ -373,12 +381,17 @@ let explain_unification_error env sigma p1 p2 = function
         [str "instance for " ++ quote (pr_existential_key env sigma evk) ++
         strbrk " refers to a metavariable - please report your example" ++
         strbrk "at " ++ str Coq_config.wwwbugtracker ++ str "."]
-     | InstanceNotSameType (evk,env,t,u) ->
+     | InstanceNotSameType (evk,env,Some t,u) ->
         let t, u = pr_explicit env sigma t u in
         [str "unable to find a well-typed instantiation for " ++
         quote (pr_existential_key env sigma evk) ++
         strbrk ": cannot ensure that " ++
         t ++ strbrk " is a subtype of " ++ u]
+     | InstanceNotSameType (evk,env,None,u) ->
+        let u = pr_leconstr_env env sigma u in
+        [str "unable to find a well-typed instantiation for " ++
+        quote (pr_existential_key env sigma evk) ++
+         strbrk " of type " ++ u]
      | InstanceNotFunctionalType (evk,env,f,u) ->
         let env = make_all_name_different env sigma in
         let f = pr_leconstr_env env sigma f in
@@ -1110,8 +1123,16 @@ let pr_modtype_subpath upper mp =
   in
   let mp, suff = aux mp in
   (if suff = [] then mt ()
-   else str (if upper then "Module " else "module ") ++ DirPath.print (DirPath.make suff) ++ str " of ") ++
+   else strbrk (if upper then "Module " else "module ") ++ DirPath.print (DirPath.make suff) ++ strbrk " of ") ++
   DirPath.print mp
+
+let pr_module_or_modtype_subpath mp = match Nametab.shortest_qualid_of_module mp with
+| qid ->
+  (* [mp] is bound to a proper module *)
+  strbrk "module " ++ Libnames.pr_qualid qid
+| exception Not_found ->
+  (* [mp] ought to be bound to a submodule of a module type *)
+  pr_modtype_subpath false mp
 
 open Modops
 
@@ -1131,10 +1152,11 @@ let explain_not_match_error = function
   | NotConvertibleBodyField ->
     str "the body of definitions differs"
   | NotConvertibleTypeField (env, typ1, typ2) ->
+    let typ1, typ2 = pr_explicit env (Evd.from_env env) (EConstr.of_constr typ1) (EConstr.of_constr typ2) in
     str "expected type" ++ spc ()  ++
-    quote (Printer.safe_pr_lconstr_env env (Evd.from_env env) typ2) ++ spc () ++
+    typ2 ++ spc () ++
     str "but found type" ++ spc () ++
-    quote (Printer.safe_pr_lconstr_env env (Evd.from_env env) typ1)
+    typ1
   | NotSameConstructorNamesField ->
     str "constructor names differ"
   | NotSameInductiveNameInBlockField ->
@@ -1170,10 +1192,11 @@ let explain_not_match_error = function
       UnivNames.pr_level_with_global_universes
       incon
   | IncompatiblePolymorphism (env, t1, t2) ->
+    let t1, t2 = pr_explicit env (Evd.from_env env) (EConstr.of_constr t1) (EConstr.of_constr t2) in
     str "conversion of polymorphic values generates additional constraints: " ++
-      quote (Printer.safe_pr_lconstr_env env (Evd.from_env env) t1) ++ spc () ++
+      quote t1 ++ spc () ++
       str "compared to " ++ spc () ++
-      quote (Printer.safe_pr_lconstr_env env (Evd.from_env env) t2)
+      quote t2
   | IncompatibleConstraints { got; expect } ->
     let open UVars in
     let pr_auctx auctx =
@@ -1182,7 +1205,7 @@ let explain_not_match_error = function
              (Printer.universe_binders_with_opt_names auctx None))
       in
       let uctx = AbstractContext.repr auctx in
-      Printer.pr_universe_instance_constraints sigma
+      Printer.pr_universe_instance_binder sigma
         (UContext.instance uctx)
         (UContext.constraints uctx)
     in
@@ -1234,19 +1257,20 @@ let explain_is_a_functor mp =
 
 let explain_incompatible_module_types mexpr1 mexpr2 =
   let open Declarations in
+  let open Mod_declarations in
   let rec get_arg = function
   | NoFunctor _ -> 0
   | MoreFunctor (_, _, ty) -> succ (get_arg ty)
   in
-  let len1 = get_arg mexpr1.mod_type in
-  let len2 = get_arg mexpr2.mod_type in
+  let len1 = get_arg @@ mod_type mexpr1 in
+  let len2 = get_arg @@ mod_type mexpr2 in
   if len1 <> len2 then
     str "Incompatible module types: module expects " ++ int len2 ++
       str " arguments, found " ++ int len1 ++ str "."
   else str "Incompatible module types."
 
 let explain_not_equal_module_paths mp1 mp2 =
-  str "Module " ++ pr_modpath mp1 ++ strbrk " is not equal to " ++ pr_modpath mp2 ++ str "."
+  str "Module " ++ pr_modpath mp1 ++ strbrk " is not equal to " ++ pr_module_or_modtype_subpath mp2 ++ str "."
 
 let explain_no_such_label l mp =
   str "No field named " ++ Label.print l ++ str " in " ++ pr_modtype_subpath false mp ++ str "."
@@ -1429,18 +1453,15 @@ let error_bad_entry () =
 let error_large_non_prop_inductive_not_in_type () =
   str "Large non-propositional inductive types must be in Type."
 
-let error_inductive_missing_constraints (us,ind_univ) =
+let error_inductive_missing_constraints env (us,ind_univ) =
+  let sigma = Evd.from_env env in
+  let pr_sort u = Flags.with_option Constrextern.print_universes (Printer.pr_sort sigma) u in
   str "Missing universe constraint declared for inductive type:" ++ spc()
   ++ v 0 (prlist_with_sep spc (fun u ->
-      hov 0 (Printer.pr_sort Evd.empty u ++ str " <= " ++ Printer.pr_sort Evd.empty ind_univ))
+      hov 0 (pr_sort u ++ str " <= " ++ pr_sort ind_univ))
       us)
 
 (* Recursion schemes errors *)
-
-let error_not_allowed_dependent_analysis env isrec i =
-  str "Dependent " ++ str (if isrec then "induction" else "case analysis") ++
-  strbrk " is not allowed for inductive definition " ++
-  pr_inductive env i ++ str "."
 
 let error_not_mutual_in_scheme env ind ind' =
   if QInd.equal env ind ind' then
@@ -1453,20 +1474,20 @@ let error_not_mutual_in_scheme env ind ind' =
 
 (* Inductive constructions errors *)
 
-let explain_inductive_error = function
-  | NonPos (env,c,v) -> error_non_strictly_positive env c v
-  | NotEnoughArgs (env,c,v) -> error_ill_formed_inductive env c v
-  | NotConstructor (env,id,c,v,n,m) ->
+let explain_inductive_error env = function
+  | NonPos (c,v) -> error_non_strictly_positive env c v
+  | NotEnoughArgs (c,v) -> error_ill_formed_inductive env c v
+  | NotConstructor (id,c,v,n,m) ->
       error_ill_formed_constructor env id c v n m
-  | NonPar (env,c,n,v1,v2) -> error_bad_ind_parameters env c n v1 v2
+  | NonPar (c,n,v1,v2) -> error_bad_ind_parameters env c n v1 v2
   | SameNamesTypes id -> error_same_names_types id
   | SameNamesConstructors id -> error_same_names_constructors id
   | SameNamesOverlap idl -> error_same_names_overlap idl
-  | NotAnArity (env, c) -> error_not_an_arity env c
+  | NotAnArity c -> error_not_an_arity env c
   | BadEntry -> error_bad_entry ()
   | LargeNonPropInductiveNotInType ->
     error_large_non_prop_inductive_not_in_type ()
-  | MissingConstraints csts -> error_inductive_missing_constraints csts
+  | MissingConstraints csts -> error_inductive_missing_constraints env csts
 
 (* Primitive errors *)
 
@@ -1499,7 +1520,7 @@ let explain_recursion_scheme_error env = function
       (* error_not_allowed_case_analysis env isrec k i *)
   | NotMutualInScheme (ind,ind')-> error_not_mutual_in_scheme env ind ind'
   | NotAllowedDependentAnalysis (isrec, i) ->
-     error_not_allowed_dependent_analysis env isrec i
+     Inductiveops.error_not_allowed_dependent_analysis env isrec i
 
 (* Pattern-matching errors *)
 
@@ -1647,8 +1668,8 @@ let rec vernac_interp_error_handler = function
     explain_prim_token_notation_error kind ctx sigma te
   | Typeclasses_errors.TypeClassError(env, sigma, te) ->
     explain_typeclass_error env sigma te
-  | InductiveError e ->
-    explain_inductive_error e
+  | InductiveError (env,e) ->
+    explain_inductive_error env e
   | Primred.IncompatibleDeclarations (act,x,y) ->
     explain_incompatible_prim_declarations act x y
   | Modops.ModuleTypingError e ->

@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -32,10 +32,10 @@ type t
 
 val empty : t
 
-val make : lbound:UGraph.Bound.t -> UGraph.t -> t
+val make : UGraph.t -> t
 [@@ocaml.deprecated "(8.13) Use from_env"]
 
-val make_with_initial_binders : lbound:UGraph.Bound.t -> UGraph.t -> lident list -> t
+val make_with_initial_binders : UGraph.t -> lident list -> t
 [@@ocaml.deprecated "(8.13) Use from_env"]
 
 val from_env : ?binders:lident list -> Environ.env -> t
@@ -93,6 +93,8 @@ val univ_entry : poly:bool -> t -> named_universes_entry
 val universe_binders : t -> UnivNames.universe_binders
 (** Return local names of universes. *)
 
+val compute_instance_binders : t -> UVars.Instance.t -> UVars.bound_names
+
 val nf_qvar : t -> QVar.t -> Quality.t
 (** Returns the normal form of the sort variable. *)
 
@@ -143,24 +145,24 @@ val name_level : Univ.Level.t -> Id.t -> t -> t
 
 (** {5 Unification} *)
 
-(** [restrict_universe_context lbound (univs,csts) keep] restricts [univs] to
+(** [restrict_universe_context (univs,csts) keep] restricts [univs] to
    the universes in [keep]. The constraints [csts] are adjusted so
    that transitive constraints between remaining universes (those in
    [keep] and those not in [univs]) are preserved. *)
-val restrict_universe_context : ?lbound:UGraph.Bound.t -> ContextSet.t -> Level.Set.t -> ContextSet.t
+val restrict_universe_context : ContextSet.t -> Level.Set.t -> ContextSet.t
 
 (** [restrict uctx ctx] restricts the local universes of [uctx] to
    [ctx] extended by local named universes and side effect universes
    (from [demote_seff_univs]). Transitive constraints between retained
    universes are preserved. *)
-val restrict : ?lbound:UGraph.Bound.t -> t -> Univ.Level.Set.t -> t
+val restrict : t -> Univ.Level.Set.t -> t
 
 
 (** [restrict_even_binders uctx ctx] restricts the local universes of [uctx] to
    [ctx] extended by side effect universes
    (from [demote_seff_univs]). Transitive constraints between retained
    universes are preserved. *)
-val restrict_even_binders : ?lbound:UGraph.Bound.t -> t -> Univ.Level.Set.t -> t
+val restrict_even_binders : t -> Univ.Level.Set.t -> t
 
 type rigid =
   | UnivRigid
@@ -222,11 +224,11 @@ val fix_undefined_variables : t -> t
 (** cf UnivFlex *)
 
 (** Universe minimization *)
-val minimize : ?lbound:UGraph.Bound.t -> t -> t
+val minimize : t -> t
 
 val collapse_above_prop_sort_variables : to_prop:bool -> t -> t
 
-val collapse_sort_variables : t -> t
+val collapse_sort_variables : ?except:QVar.Set.t -> t -> t
 
 type ('a, 'b, 'c) gen_universe_decl = {
   univdecl_qualities : 'a;
@@ -258,6 +260,8 @@ val check_uctx_impl : fail:(Pp.t -> unit) -> t -> t -> unit
 
 val check_mono_univ_decl : t -> universe_decl -> Univ.ContextSet.t
 
+val check_template_univ_decl : t -> template_qvars:QVar.Set.t -> universe_decl -> Univ.ContextSet.t
+
 (** {5 TODO: Document me} *)
 
 val update_sigma_univs : t -> UGraph.t -> t
@@ -272,6 +276,8 @@ val qualid_of_level : t -> Univ.Level.t -> Libnames.qualid option
 val id_of_level : t -> Univ.Level.t -> Id.t option
 
 val id_of_qvar : t -> Sorts.QVar.t -> Id.t option
+
+val is_rigid_qvar : t -> Sorts.QVar.t -> bool
 
 val pr_weak : (Univ.Level.t -> Pp.t) -> t -> Pp.t
 

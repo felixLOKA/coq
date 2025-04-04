@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -466,7 +466,7 @@ module Search = struct
 
   (** Local hints *)
   let autogoal_cache = Summary.ref ~name:"autogoal_cache"
-      (DirPath.empty, true, Context.Named.empty, GlobRef.Map.empty,
+      (Libnames.dummy_full_path, true, Context.Named.empty, Hints.Modes.empty,
        Hint_db.empty TransparentState.full true)
 
   let make_autogoal_hints only_classes (modes,st as mst) gl =
@@ -476,7 +476,7 @@ module Search = struct
     let (dir, onlyc, sign', cached_modes, cached_hints) = !autogoal_cache in
     let cwd = Lib.cwd () in
     let eq c1 c2 = EConstr.eq_constr sigma c1 c2 in
-    if DirPath.equal cwd dir &&
+    if Libnames.eq_full_path cwd dir &&
          (onlyc == only_classes) &&
            Context.Named.equal (ERelevance.equal sigma) eq sign sign' &&
              cached_modes == modes
@@ -721,7 +721,7 @@ module Search = struct
     let idx = ref 1 in
     let foundone = ref false in
     let rec onetac e (tac, pat, b, name, pp) tl =
-      let derivs = path_derivate info.search_cut name in
+      let derivs = path_derivate env info.search_cut name in
       let pr_error ie =
         ppdebug 1 (fun () ->
             let idx = if fst ie == NoApplicableHint then pred !idx else !idx in
@@ -1004,7 +1004,7 @@ module Search = struct
     in
     let evm = Evd.set_typeclass_evars evm Evar.Set.empty in
     let evm = Evd.push_future_goals evm in
-    evm, Evd.meta_list evm, sorted_goals
+    evm, sorted_goals
 
 
   let run_on_goals env evm tac ~goals =
@@ -1036,7 +1036,7 @@ module Search = struct
     let evm' = Proofview.return pv' in
     (finished, evm')
 
-  let post_process_goals ~goals ~nongoals ~old_metas ~sigma ~finished =
+  let post_process_goals ~goals ~nongoals ~sigma ~finished =
     let _, sigma = Evd.pop_future_goals sigma in
     let tc_evars = Evd.get_typeclass_evars sigma in
     let () = ppdebug 1 (fun () ->
@@ -1054,9 +1054,6 @@ module Search = struct
           | Some ev -> Evar.Set.add ev acc
           | None -> acc) (Evar.Set.union goals nongoals) tc_evars
     in
-    (* FIXME: the need to merge metas seems to come from this being called
-       internally from Unification. It should be handled there instead. *)
-    let sigma = Evd.meta_merge old_metas (Evd.clear_metas sigma) in
     let sigma = Evd.set_typeclass_evars sigma nongoals in
     let () = ppdebug 1 (fun () ->
         str"New typeclass evars are: " ++
@@ -1093,7 +1090,7 @@ let typeclasses_eauto ?(only_classes=false)
   in
   let st = match dbs with x :: _ -> Hint_db.transparent_state x | _ -> st in
   let modes = List.map Hint_db.modes dbs in
-  let modes = List.fold_left (GlobRef.Map.union (fun _ m1 m2 -> Some (m1@m2))) GlobRef.Map.empty modes in
+  let modes = List.fold_left Modes.union Modes.empty modes in
   let depth = match depth with None -> get_typeclasses_depth () | Some l -> Some l in
   Proofview.tclIGNORE
     (Search.eauto_tac (modes,st) ~only_classes ?strategy
@@ -1125,11 +1122,24 @@ let evar_dependencies pred evm p =
 
 (** [split_evars] returns groups of undefined evars according to dependencies *)
 
-let split_evars pred evm =
+let split_evars pred env evm =
   let p = Intpart.create () in
   evar_dependencies pred evm p;
   deps_of_constraints (snd (extract_all_conv_pbs evm)) evm p;
-  Intpart.partition p
+  let part = Intpart.partition p in
+  let is_strictly_unique ev =
+    let evi = Evd.find_undefined evm ev in
+    let concl = Evd.evar_concl evi in
+    match Typeclasses.class_of_constr env evm concl with
+    | None -> false
+    | Some (_, ((cl, _), _)) ->
+      cl.cl_strict && cl.cl_unique
+  in
+  let fn evs =
+    let (strictly_uniques, rest) = Evar.Set.partition is_strictly_unique evs in
+    List.rev_append (List.rev_map Evar.Set.singleton (Evar.Set.elements strictly_uniques)) [rest]
+  in
+  List.concat_map fn part
 
 let is_inference_forced p evd ev =
   try
@@ -1213,7 +1223,7 @@ let resolve_all_evars depth unique env p oevd fail =
         str"Initial evar map: " ++
         Termops.pr_evar_map ~with_univs:!Detyping.print_universes None env oevd)
   in
-  let split = split_evars p oevd in
+  let split = split_evars p env oevd in
   let in_comp comp ev = Evar.Set.mem ev comp in
   let rec docomp evd = function
     | [] ->
@@ -1230,9 +1240,9 @@ let resolve_all_evars depth unique env p oevd fail =
           match evars_to_goals p evd with
           | Some (goals, nongoals) ->
             let solver = find_solver env evd comp in
-            let evd, old_metas, sorted_goals = Search.preprocess_goals evd goals in
+            let evd, sorted_goals = Search.preprocess_goals evd goals in
             let finished, evd = solver.solver env evd ~goals:sorted_goals ~best_effort:true ~depth ~unique in
-            let evd = Search.post_process_goals ~goals ~nongoals ~old_metas ~sigma:evd ~finished in
+            let evd = Search.post_process_goals ~goals ~nongoals ~sigma:evd ~finished in
             if has_undefined p oevd evd then
               let () = if finished then ppdebug 1 (fun () ->
                   str"Proof is finished but there remain undefined evars: " ++

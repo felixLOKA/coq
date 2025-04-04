@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -105,7 +105,7 @@ type 'a hint_ast =
   | Give_exact of 'a
   | Res_pf_THEN_trivial_fail of 'a (* Hint Immediate *)
   | Unfold_nth of Evaluable.t (* Hint Unfold *)
-  | Extern     of Pattern.constr_pattern option * Genarg.glob_generic_argument (* Hint Extern *)
+  | Extern of Pattern.constr_pattern option * Gentactic.glob_generic_tactic (* Hint Extern *)
 
 
 type 'a hints_path_atom_gen =
@@ -155,14 +155,14 @@ type hint_pattern =
 | ConstrPattern of constr_pattern
 | SyntacticPattern of constr_pattern
 
-type 'a with_metadata =
+type ('a,'db) with_metadata =
   { pri     : int
   (** A number lower is higher priority *)
   ; pat     : hint_pattern option
   (** A pattern for the concl of the Goal *)
   ; name    : GlobRef.t option
   (** A potential name to refer to the hint *)
-  ; db : string option
+  ; db : 'db
   (** The database from which the hint comes *)
   ; secvars : Id.Pred.t
   (** The set of section variables the hint depends on *)
@@ -170,15 +170,25 @@ type 'a with_metadata =
   (** the tactic to apply when the concl matches pat *)
   }
 
-type full_hint = hint hint_ast with_uid with_metadata
+type hint_db_name = string
+
+(* db = None for local database (ie built from goal hyps) *)
+type full_hint = (hint hint_ast with_uid, hint_db_name option) with_metadata
 
 type hint_entry = GlobRef.t option *
-  raw_hint hint_ast with_uid with_metadata
+  (raw_hint hint_ast with_uid, unit) with_metadata
 
 type hint_mode =
   | ModeInput (* No evars *)
   | ModeNoHeadEvar (* No evar at the head *)
   | ModeOutput (* Anything *)
+
+module Modes =
+struct
+  type t = hint_mode array list GlobRef.Map.t
+  let empty = GlobRef.Map.empty
+  let union m1 m2 = GlobRef.Map.union (fun _ m1 m2 -> Some (m1@m2)) m1 m2
+end
 
 type 'a hints_transparency_target =
   | HintsVariables
@@ -225,11 +235,9 @@ let fresh_key =
     KerName.make mp (Label.of_id lbl)
 
 let pri_order_int (id1, {pri=pri1}) (id2, {pri=pri2}) =
-  let d = pri1 - pri2 in
-    if Int.equal d 0 then id2 - id1
+  let d = Int.compare pri1 pri2 in
+    if Int.equal d 0 then Int.compare id2 id1
     else d
-
-let pri_order t1 t2 = pri_order_int t1 t2 <= 0
 
 let get_default_pattern (h : hint hint_ast) = match h with
 | Give_exact h -> h.hint_type
@@ -257,24 +265,33 @@ let get_default_pattern (h : hint hint_ast) = match h with
 type stored_data = int * full_hint
     (* First component is the index of insertion in the table, to keep most recent first semantics. *)
 
+module Stored =
+struct
+  type t = stored_data
+  let compare = pri_order_int
+end
+
+module StoredSet = Set.Make(Stored)
+
+let merge_set s l = List.merge Stored.compare (StoredSet.elements s) l
+
 module Bounded_net :
 sig
   type t
   val empty : TransparentState.t option -> t
-  val build : TransparentState.t option -> stored_data list -> t
+  val build : TransparentState.t option -> StoredSet.t -> t
   val add : t -> hint_pattern -> stored_data -> t
   val lookup : Environ.env -> Evd.evar_map -> t -> EConstr.constr -> stored_data list
 end =
 struct
-  module Data = struct type t = stored_data let compare = pri_order_int end
-  module Bnet = Btermdn.Make(Data)
+  module Bnet = Btermdn.Make(Stored)
 
   type diff = hint_pattern * stored_data
 
   type data =
   | Bnet of (TransparentState.t option * Bnet.t)
   | Diff of diff * data ref
-  | Build of TransparentState.t option * stored_data list
+  | Build of TransparentState.t option * StoredSet.t
 
   type t = data ref
 
@@ -302,8 +319,8 @@ struct
     let () = net := (Bnet (st, dn)) in
     st, dn
   | Build (st, data) ->
-    let fold dn v = add0 env sigma st (Option.get (snd v).pat) v dn in
-    let ans = List.fold_left fold Bnet.empty data in
+    let fold v dn = add0 env sigma st (Option.get (snd v).pat) v dn in
+    let ans = StoredSet.fold fold data Bnet.empty in
     let () = net := Bnet (st, ans) in
     st, ans
 
@@ -319,35 +336,35 @@ sig
   val mem : KerName.t -> t -> bool
   val add : stored_data -> t -> t
   val remove : GlobRef.Set.t -> t -> t
-  val elements : t -> stored_data list
+  val elements : t -> StoredSet.t
 end =
 struct
 
 type t = {
-  data : stored_data list;
+  data : StoredSet.t;
   set : KNset.t;
 }
 
-let empty = { data = []; set = KNset.empty }
+let empty = { data = StoredSet.empty; set = KNset.empty }
 
 let mem kn sd = KNset.mem kn sd.set
 
 let add t sd = {
-  data = List.insert pri_order t sd.data;
+  data = StoredSet.add t sd.data;
   set = KNset.add (snd t).code.uid sd.set;
 }
 
 let remove grs sd =
-  let fold (accu, ans) ((_, h) as v) =
+  let fold ((_, h) as v) (accu, ans) =
     let keep = match h.name with
     | Some gr -> not (GlobRef.Set.mem gr grs)
     | None -> true
     in
-    if keep then (accu, v :: ans) else (KNset.remove h.code.uid accu, ans)
+    if keep then (accu, StoredSet.add v ans) else (KNset.remove h.code.uid accu, ans)
   in
-  let set, data = List.fold_left fold (sd.set, []) sd.data in
+  let set, data = StoredSet.fold fold sd.data (sd.set, StoredSet.empty) in
   if set == sd.set then sd
-  else { data = List.rev data; set }
+  else { data = data; set }
 
 let elements v = v.data
 
@@ -387,7 +404,7 @@ let rebuild_dn st se =
 let lookup_tacs env sigma concl se =
   let l' = Bounded_net.lookup env sigma se.sentry_bnet concl in
   let sl' = List.stable_sort pri_order_int l' in
-  List.merge pri_order_int (StoredData.elements se.sentry_nopat) sl'
+  merge_set (StoredData.elements se.sentry_nopat) sl'
 
 let merge_context_set_opt sigma ctx = match ctx with
 | None -> sigma
@@ -416,29 +433,29 @@ let hint_mode_eq m1 m2 = match m1, m2 with
   | ModeOutput, ModeOutput -> true
   | (ModeInput | ModeNoHeadEvar | ModeOutput), _ -> false
 
-let hints_path_atom_eq h1 h2 = match h1, h2 with
-| PathHints l1, PathHints l2 -> List.equal GlobRef.CanOrd.equal l1 l2
+let hints_path_atom_eq env h1 h2 = match h1, h2 with
+| PathHints l1, PathHints l2 -> List.equal (fun gr1 gr2 -> QGlobRef.equal env gr1 gr2) l1 l2
 | PathAny, PathAny -> true
 | _ -> false
 
-let rec hints_path_eq h1 h2 = match h1, h2 with
-| PathAtom h1, PathAtom h2 -> hints_path_atom_eq h1 h2
-| PathStar h1, PathStar h2 -> hints_path_eq h1 h2
+let rec hints_path_eq env h1 h2 = match h1, h2 with
+| PathAtom h1, PathAtom h2 -> hints_path_atom_eq env h1 h2
+| PathStar h1, PathStar h2 -> hints_path_eq env h1 h2
 | PathSeq (l1, r1), PathSeq (l2, r2) ->
-  hints_path_eq l1 l2 && hints_path_eq r1 r2
+  hints_path_eq env l1 l2 && hints_path_eq env r1 r2
 | PathOr (l1, r1), PathOr (l2, r2) ->
-  hints_path_eq l1 l2 && hints_path_eq r1 r2
+  hints_path_eq env l1 l2 && hints_path_eq env r1 r2
 | PathEmpty, PathEmpty -> true
 | PathEpsilon, PathEpsilon -> true
 | _ -> false
 
-let path_matches hp hints =
+let path_matches env hp hints =
   let rec aux hp hints k =
     match hp, hints with
     | PathAtom _, [] -> false
     | PathAtom PathAny, (_ :: hints') -> k hints'
     | PathAtom p, (h :: hints') ->
-      if hints_path_atom_eq p h then k hints' else false
+      if hints_path_atom_eq env p h then k hints' else false
     | PathStar hp', hints ->
       k hints || aux hp' hints (fun hints' -> aux hp hints' k)
     | PathSeq (hp, hp'), hints ->
@@ -473,10 +490,10 @@ let path_seq p p' =
   | p, PathEpsilon -> p
   | p, p' -> PathSeq (p, p')
 
-let rec path_derivate hp hint =
-  let rec derivate_atoms hints hints' =
+let rec path_derivate env hp hint =
+  let rec derivate_atoms env hints hints' =
     match hints, hints' with
-    | gr :: grs, gr' :: grs' when GlobRef.CanOrd.equal gr gr' -> derivate_atoms grs grs'
+    | gr :: grs, gr' :: grs' when QGlobRef.equal env gr gr' -> derivate_atoms env grs grs'
     | [], [] -> PathEpsilon
     | [], hints -> PathEmpty
     | grs, [] -> PathAtom (PathHints grs)
@@ -487,47 +504,47 @@ let rec path_derivate hp hint =
   | PathAtom (PathHints grs) ->
      (match grs, hint with
       | h :: _, PathAny -> PathEmpty
-      | hints, PathHints hints' -> derivate_atoms hints hints'
+      | hints, PathHints hints' -> derivate_atoms env hints hints'
       | _, _ -> assert false)
-  | PathStar p -> if path_matches p [hint] then hp else PathEpsilon
+  | PathStar p -> if path_matches env p [hint] then hp else PathEpsilon
   | PathSeq (hp, hp') ->
-     let hpder = path_derivate hp hint in
+     let hpder = path_derivate env hp hint in
      if matches_epsilon hp then
-       PathOr (path_seq hpder hp', path_derivate hp' hint)
+       PathOr (path_seq hpder hp', path_derivate env hp' hint)
      else if is_empty hpder then PathEmpty
      else path_seq hpder hp'
   | PathOr (hp, hp') ->
-     PathOr (path_derivate hp hint, path_derivate hp' hint)
+     PathOr (path_derivate env hp hint, path_derivate env hp' hint)
   | PathEmpty -> PathEmpty
   | PathEpsilon -> PathEmpty
 
-let rec normalize_path h =
+let rec normalize_path env h =
   match h with
   | PathStar PathEpsilon -> PathEpsilon
   | PathOr (p, q) ->
-    (match normalize_path p with
-     | PathEmpty -> normalize_path q
+    (match normalize_path env p with
+     | PathEmpty -> normalize_path env q
      | p' ->
-     match normalize_path q with
+     match normalize_path env q with
      | PathEmpty -> p'
-     | q' -> if hints_path_eq p' q' then p' else PathOr (p', q'))
+     | q' -> if hints_path_eq env p' q' then p' else PathOr (p', q'))
   | PathSeq (p, q) ->
-    (match normalize_path p with
+    (match normalize_path env p with
      | PathEmpty -> PathEmpty
-     | PathEpsilon -> normalize_path q
+     | PathEpsilon -> normalize_path env q
      | p' ->
-     match normalize_path q with
+     match normalize_path env q with
      | PathEmpty -> PathEmpty
      | PathEpsilon -> p'
      | q' -> PathSeq (p', q'))
   | _ -> h
 
-let path_derivate hp hint =
+let path_derivate env hp hint =
   let hint = match hint with
   | None -> PathAny
   | Some gr -> PathHints [gr]
   in
-  normalize_path (path_derivate hp hint)
+  normalize_path env (path_derivate env hp hint)
 
 let pp_hints_path_atom prg a =
   match a with
@@ -589,8 +606,6 @@ let rec subst_hints_path subst hp =
       if p' == p && q' == q then hp else PathOr (p', q')
   | _ -> hp
 
-type hint_db_name = string
-
 type mode_match =
   | NoMode
   | WithMode of hint_mode array
@@ -616,12 +631,13 @@ val iter : (GlobRef.t option -> hint_mode array list -> full_hint list -> unit) 
 val use_dn : t -> bool
 val transparent_state : t -> TransparentState.t
 val set_transparent_state : t -> TransparentState.t -> t
-val add_cut : hints_path -> t -> t
+val add_cut : Environ.env -> hints_path -> t -> t
 val add_mode : GlobRef.t -> hint_mode array -> t -> t
 val cut : t -> hints_path
 val unfolds : t -> Id.Set.t * Cset.t * PRset.t
 val add_modes : hint_mode array list GlobRef.Map.t -> t -> t
 val modes : t -> hint_mode array list GlobRef.Map.t
+val find_mode : env -> GlobRef.t -> t -> hint_mode array list
 val fold : (GlobRef.t option -> hint_mode array list -> full_hint list -> 'a -> 'a) ->
   t -> 'a -> 'a
 end =
@@ -700,7 +716,10 @@ struct
 
   let map_all ~secvars k db =
     let se = find k db in
-    merge_entry secvars db (StoredData.elements se.sentry_nopat) (StoredData.elements se.sentry_pat)
+    let h = List.sort pri_order_int db.hintdb_nopat in
+    let h = merge_set (StoredData.elements se.sentry_nopat) h in
+    let h = merge_set (StoredData.elements se.sentry_pat) h in
+    List.map_filter (realize_tac secvars) h
 
   (* Precondition: concl has no existentials *)
   let map_auto env sigma ~secvars (k,args) concl db =
@@ -780,8 +799,9 @@ struct
       rebuild_dn st se
 
   let remove_list env grs db =
+    let eq gr1 gr2 = QGlobRef.equal env gr1 gr2 in
     let filter (_, h) =
-      match h.name with Some gr -> not (List.mem_f GlobRef.CanOrd.equal gr grs) | None -> true in
+      match h.name with Some gr -> not (List.mem_f eq gr grs) | None -> true in
     let hintmap = GlobRef.Map.map (fun e -> remove (dn_ts db) grs e) db.hintdb_map in
     let hintnopat = List.filter filter db.hintdb_nopat in
       { db with hintdb_map = hintmap; hintdb_nopat = hintnopat }
@@ -789,7 +809,7 @@ struct
   let remove_one env gr db = remove_list env [gr] db
 
   let get_entry se =
-    let h = List.merge pri_order_int (StoredData.elements se.sentry_nopat) (StoredData.elements se.sentry_pat) in
+    let h = merge_set (StoredData.elements se.sentry_nopat) (merge_set (StoredData.elements se.sentry_pat) []) in
     List.map snd h
 
   let iter f db =
@@ -807,8 +827,8 @@ struct
     if db.use_dn then rebuild_db st db
     else { db with hintdb_state = st }
 
-  let add_cut path db =
-    { db with hintdb_cut = normalize_path (PathOr (db.hintdb_cut, path)) }
+  let add_cut env path db =
+    { db with hintdb_cut = normalize_path env (PathOr (db.hintdb_cut, path)) }
 
   let add_mode gr m db =
     let se = find gr db in
@@ -827,6 +847,8 @@ struct
     { db with hintdb_map = GlobRef.Map.union f db.hintdb_map mode_entries }
 
   let modes db = GlobRef.Map.map (fun se -> se.sentry_mode) db.hintdb_map
+
+  let find_mode _env gr db = (GlobRef.Map.find gr db.hintdb_map).sentry_mode
 
   let use_dn db = db.use_dn
 
@@ -889,7 +911,7 @@ let make_exact_entry env sigma info ?name (c, cty, ctx) =
         let h = { rhint_term = c; rhint_type = cty; rhint_uctx = ctx; rhint_arty = 0 } in
         (Some hd,
          { pri; pat = Some pat; name;
-           db = None; secvars;
+           db = (); secvars;
            code = with_uid (Give_exact h); })
 
 let name_of_hint = function
@@ -919,13 +941,13 @@ let make_apply_entry env sigma hnf info ?name (c, cty, ctx) =
     if Int.equal nmiss 0 then
       (Some hd,
        { pri; pat = Some pat; name;
-         db = None;
+         db = ();
          secvars;
          code = with_uid (Res_pf h); })
     else
       (Some hd,
        { pri; pat = Some pat; name;
-         db = None; secvars;
+         db = (); secvars;
          code = with_uid (ERes_pf h); })
   | _ -> failwith "make_apply_entry"
 
@@ -983,7 +1005,7 @@ let make_unfold eref =
    { pri = 4;
      pat = None;
      name = Some g;
-     db = None;
+     db = ();
      secvars = secvars_of_global (Global.env ()) g;
      code = with_uid (Unfold_nth eref) })
 
@@ -1000,7 +1022,7 @@ let make_extern pri pat tacast =
    { pri = pri;
      pat = Option.map (fun p -> SyntacticPattern p) pat;
      name = None;
-     db = None;
+     db = ();
      secvars = Id.Pred.empty; (* Approximation *)
      code = with_uid (Extern (pat, tacast)) })
 
@@ -1027,7 +1049,7 @@ let make_trivial env sigma r =
    { pri=1;
      pat = Some DefaultPattern;
      name = name;
-     db = None;
+     db = ();
      secvars = secvars_of_constr env sigma c;
      code= with_uid (Res_pf_THEN_trivial_fail h) })
 
@@ -1084,8 +1106,9 @@ let remove_hint dbname grs =
     searchtable_add (dbname, db')
 
 let add_cut dbname path =
+  let env = Global.env () in
   let db = get_db dbname in
-  let db' = Hint_db.add_cut path db in
+  let db' = Hint_db.add_cut env path db in
     searchtable_add (dbname, db')
 
 let add_mode dbname l m =
@@ -1100,8 +1123,20 @@ type db_obj = {
   db_ts : TransparentState.t;
 }
 
-let cache_db {db_name=name; db_use_dn=b; db_ts=ts} =
-  searchtable_add (name, Hint_db.empty ~name ts b)
+let warn_mismatch_create_hintdb = CWarnings.create ~name:"mismatched-hint-db" ~category:CWarnings.CoreCategories.automation
+    Pp.(fun {db_name;db_use_dn} ->
+        str "Hint Db " ++ str db_name ++ str " already exists and " ++
+        (if db_use_dn then str "is not" else str "is") ++ str " discriminated.")
+
+let cache_db ({db_name=name; db_use_dn=b; db_ts=ts} as o) =
+  match searchtable_map name with
+  | exception Not_found -> searchtable_add (name, Hint_db.empty ~name ts b)
+  | db ->
+    (* Explicit DBs start with full TS, implicit DBs start with empty TS
+       This should probably be controllable in Create Hint Db,
+       otherwise we have to do eg "Create HintDb foo. Hint Constants Opaque : foo."
+       and if someone else creates foo and puts some transparency hints they will be overwritten. *)
+    if Hint_db.use_dn db <> b then warn_mismatch_create_hintdb o
 
 let load_db _ x = cache_db x
 
@@ -1245,7 +1280,7 @@ let subst_autohint (subst, obj) =
           if ref==ref' then data.code.obj else Unfold_nth ref'
       | Extern (pat, tac) ->
           let pat' = Option.Smart.map (subst_pattern env sigma subst) pat in
-          let tac' = Gensubst.generic_substitute subst tac in
+          let tac' = Gentactic.subst subst tac in
           if pat==pat' && tac==tac' then data.code.obj else Extern (pat', tac')
     in
     let name' = Option.Smart.map (subst_global_reference subst) data.name in
@@ -1464,7 +1499,7 @@ type hints_entry =
   | HintsUnfoldEntry of Evaluable.t list
   | HintsTransparencyEntry of Evaluable.t hints_transparency_target * bool
   | HintsModeEntry of GlobRef.t * hint_mode list
-  | HintsExternEntry of hint_info * Genarg.glob_generic_argument
+  | HintsExternEntry of hint_info * Gentactic.glob_generic_tactic
 
 let default_prepare_hint_ident = Id.of_string "H"
 
@@ -1620,7 +1655,7 @@ let pr_hint env sigma h = match h.obj with
   | Unfold_nth c ->
     str"unfold " ++  pr_evaluable_reference c
   | Extern (_, tac) ->
-    str "(*external*) " ++ Pputils.pr_glb_generic env sigma tac
+    str "(*external*) " ++ Gentactic.print_glob env sigma ~level:(LevelLe 0) tac
 
 let pr_id_hint env sigma (id, v) =
   let pr_pat p = match p.pat with
@@ -1628,7 +1663,7 @@ let pr_id_hint env sigma (id, v) =
   | Some (ConstrPattern p | SyntacticPattern p) -> str", pattern " ++ pr_lconstr_pattern_env env sigma p
   | Some DefaultPattern -> str", pattern " ++ pr_leconstr_env env sigma (get_default_pattern v.code.obj)
   in
-  (pr_hint env sigma v.code ++ str" (level " ++ int v.pri ++ pr_pat v
+  (pr_hint env sigma v.code ++ str" (cost " ++ int v.pri ++ pr_pat v
    ++ str", id " ++ int id ++ str ")")
 
 let pr_hint_list env sigma hintlist =
@@ -1717,16 +1752,31 @@ let pr_hint_db_env env sigma db =
     else str" (modes " ++ prlist_with_sep pr_comma pr_mode l ++ str")"
   in
   let content =
-    let fold head modes hintlist accu =
+    let pr_one (head, modes, hintlist) =
       let goal_descr = match head with
       | None -> str "For any goal"
       | Some head -> str "For " ++ pr_global head ++ pr_modes modes
       in
-      let hints = pr_hint_list env sigma (List.map (fun x -> (0, x)) hintlist) in
-      let hint_descr = hov 0 (goal_descr ++ str " -> " ++ hints) in
-      accu ++ hint_descr
+      (* sort because db.hintdb_nopat isn't kept in priority sorted order;
+         "auto" sorts on priority before using the hintdb *)
+      let sorted = List.stable_sort (fun a b -> Int.compare a.pri b.pri) hintlist in
+      (* always prints "id 0" in Print HintDb *)
+      let hints = pr_hint_list env sigma (List.map (fun x -> (0, x)) sorted) in
+      hov 0 (goal_descr ++ str " -> " ++ hints)
     in
-    Hint_db.fold fold db (mt ())
+    let hints =
+      let name x = Nametab.shortest_qualid_of_global Id.Set.empty x in
+      let order (h1, _, _) (h2, _, _) =
+        Option.compare (fun a b ->
+            let a = name a and b = name b in
+            let rv = Id.compare (qualid_basename a) (qualid_basename b) in
+            if rv <> 0 then rv else
+              String.compare (string_of_qualid a) (string_of_qualid b))
+          h1 h2
+      in
+      let hints = Hint_db.fold (fun h m hl l -> (h, m, hl) :: l) db [] in
+      List.stable_sort order hints in
+    Pp.prlist pr_one hints
   in
   let { TransparentState.tr_var = ids; tr_cst = csts; tr_prj = ps } =
     Hint_db.transparent_state db

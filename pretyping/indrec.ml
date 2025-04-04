@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -162,11 +162,34 @@ let check_valid_elimination env sigma (ind, u as pind) ~dep s =
       (RecursionSchemeError
          (env, NotAllowedCaseAnalysis (false, s, pind)))
 
-(* Main function to build case analysis scheme *)
+let paramdecls_fresh_template sigma (mib,u) =
+  match mib.mind_template with
+  | None ->
+    let params = Inductive.inductive_paramdecls (mib, EConstr.Unsafe.to_instance u) in
+    sigma, EConstr.of_rel_context params
+  | Some templ ->
+    assert (EConstr.EInstance.is_empty u);
+    let sigma, univs = List.fold_left_map (fun sigma -> function
+        | None -> sigma, (fun ~default -> assert false)
+        | Some s ->
+          let sigma, u = match snd (Inductive.Template.bind_kind s) with
+            | None -> sigma, Univ.Universe.type0
+            | Some _ ->
+              let sigma, u = Evd.new_univ_level_variable UState.univ_rigid sigma in
+              sigma, Univ.Universe.make u
+          in
+          sigma, fun ~default -> Inductive.TemplateUniv u)
+        sigma
+        templ.template_param_arguments
+    in
+    let csts, params, _ = Inductive.instantiate_template_universes mib univs in
+    let sigma = Evd.add_constraints sigma csts in
+    sigma, EConstr.of_rel_context params
+
 let mis_make_case_com dep env sigma (ind, u as pind) (mib, mip) s =
   let open EConstr in
   let sigma = check_valid_elimination env sigma pind ~dep s in
-  let lnamespar = Vars.subst_instance_context u (of_rel_context mib.mind_params_ctxt) in
+  let sigma, lnamespar = paramdecls_fresh_template sigma (mib, u) in
   let indf = make_ind_family(pind, Context.Rel.instance_list mkRel 0 lnamespar) in
   let constrs = get_constructors env indf in
   let projs = get_projections env ind in
@@ -418,18 +441,21 @@ let make_rec_branch_arg env sigma (nparrec,fvect,decF) mind f cstr recargs =
     | _,[] | [],_ -> anomaly (Pp.str "process_constr.")
 
   in
-  process_constr env 0 f (List.rev cstr.cs_args, recargs)
+  process_constr env 0 f (List.rev cstr.cs_args, Array.to_list recargs)
 
 (* Main function *)
 (* let sigma, l = mis_make_indrec env sigma [(pind,mib,mip,dep,kind)] mib (snd pind) *)
 let mis_make_indrec env sigma ?(force_mutual=false) listdepkind mib u =
-  let u = EConstr.Unsafe.to_instance u in
   let env = RelEnv.make env in
   let nparams = mib.mind_nparams in
   let nparrec = mib.mind_nparams_rec in
-  let evdref = ref sigma in
-  let lnonparrec,lnamesparrec = Inductive.inductive_nonrec_rec_paramdecls (mib,u) in
-  let lnamesparrec = EConstr.of_rel_context lnamesparrec in
+  (* bind sigma to () to prevent incorrect usage *)
+  let sigma, evdref = (), ref sigma in
+  let lnonparrec,lnamesparrec =
+    let sigma, params = paramdecls_fresh_template !evdref (mib,u) in
+    evdref := sigma;
+    Context.Rel.chop_nhyps (Inductive.inductive_nnonrecparams mib) params
+  in
   let nrec = List.length listdepkind in
   let depPvec =
     Array.make mib.mind_ntypes (None : (bool * constr) option) in
@@ -445,11 +471,11 @@ let mis_make_indrec env sigma ?(force_mutual=false) listdepkind mib u =
     in
       assign nrec listdepkind in
   let recargsvec =
-    Array.map (fun mip -> mip.mind_recargs) mib.mind_packets in
+    Array.map (fun mip -> Rtree.Kind.make mip.mind_recargs) mib.mind_packets in
   (* recarg information for non recursive parameters *)
   let rec recargparn l n =
-    if Int.equal n 0 then l else recargparn (mk_norec::l) (n-1) in
-  (* rajoute n fois un rtree node noRec sans args à l *)
+    if Int.equal n 0 then l else recargparn (Rtree.Kind.make mk_norec::l) (n-1) in
+    (* rajoute n fois un rtree node noRec sans args à l *)
   let recargpar = recargparn [] (nparams-nparrec) in
   (* creer un tableau avec les branches non rec du type inductif *) 
   let make_one_rec p =
@@ -538,7 +564,7 @@ let mis_make_indrec env sigma ?(force_mutual=false) listdepkind mib u =
                   arsign'
               in
               let obj =
-                let indty = find_rectype !!env sigma depind in
+                let indty = find_rectype !!env !evdref depind in
                 Inductiveops.make_case_or_project !!env !evdref indty ci
                   (pred, target_relevance)
                   (EConstr.mkRel 1) branches
@@ -578,7 +604,7 @@ let mis_make_indrec env sigma ?(force_mutual=false) listdepkind mib u =
             if Int.equal j nconstr then
               make_branch env (i+j) rest
             else
-              let recarg = (dest_subterms recargsvec.(tyi)).(j) in
+              let recarg = Array.to_list (dest_subterms recargsvec.(tyi)).(j) in
               let recarg = recargpar@recarg in
               let vargs = Context.Rel.instance_list mkRel (nrec+i+j) lnamesparrec in
               let cs = get_constructor ((indi,u),mibi,mipi,vargs) (j+1) in
@@ -610,9 +636,9 @@ let mis_make_indrec env sigma ?(force_mutual=false) listdepkind mib u =
     (* on peut choisir aue tree est dependant et forest non *)
 
 
-      if force_mutual || (mis_is_recursive_subset
+      if force_mutual || (mis_is_recursive_subset !!env
         (List.map (fun ((indi,u),_,_,_,_) -> indi) listdepkind)
-        mipi.mind_recargs)
+        (Rtree.Kind.make mipi.mind_recargs))
       then
         let env' = RelEnv.push_rel_context lnamesparrec env in
           it_mkLambda_or_LetIn_name env (put_arity env' 0 listdepkind)
@@ -650,15 +676,13 @@ let declare_prop_but_default_dependent_elim i =
 let is_prop_but_default_dependent_elim i = Indset_env.mem i !prop_but_default_dependent_elim
 
 let pseudo_sort_family_for_elim ind mip =
-  match mip.mind_arity with
-  | RegularArity s when Sorts.is_prop s.mind_sort && is_prop_but_default_dependent_elim ind -> InType
-  | RegularArity s -> Sorts.family s.mind_sort
-  | TemplateArity _ -> InType
+  let s = mip.mind_sort in
+  if Sorts.is_prop s && is_prop_but_default_dependent_elim ind then InType
+  else Sorts.family s
 
 let is_in_prop mip =
-  match mip.mind_arity with
-  | RegularArity s -> Sorts.is_prop s.mind_sort
-  | TemplateArity _ -> false
+  let s = mip.mind_sort in
+  Sorts.is_prop s
 
 let default_case_analysis_dependence env ind =
   let _, mip as specif = lookup_mind_specif env ind in

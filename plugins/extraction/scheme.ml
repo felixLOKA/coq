@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -60,7 +60,9 @@ let pp_apply st _ = function
 
 (*s The pretty-printer for Scheme syntax *)
 
-let pp_global k r = str (Common.pp_global k r)
+let pp_global k r =
+  if is_inline_custom r then str (find_custom r)
+  else str (Common.pp_global k r)
 
 (*s Pretty-printing of expressions.  *)
 

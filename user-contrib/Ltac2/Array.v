@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -34,14 +34,14 @@ Require Ltac2.Message.
 (* Question: what is returned in case of an out of range value?
    Answer:   Ltac2 throws a panic *)
 
-Ltac2 @external empty : 'a array := "coq-core.plugins.ltac2" "array_empty".
-Ltac2 @external make : int -> 'a -> 'a array := "coq-core.plugins.ltac2" "array_make".
-Ltac2 @external length : 'a array -> int := "coq-core.plugins.ltac2" "array_length".
-Ltac2 @external get : 'a array -> int -> 'a := "coq-core.plugins.ltac2" "array_get".
-Ltac2 @external set : 'a array -> int -> 'a -> unit := "coq-core.plugins.ltac2" "array_set".
-Ltac2 @external lowlevel_blit : 'a array -> int -> 'a array -> int -> int -> unit := "coq-core.plugins.ltac2" "array_blit".
-Ltac2 @external lowlevel_fill : 'a array -> int -> int -> 'a -> unit := "coq-core.plugins.ltac2" "array_fill".
-Ltac2 @external concat : ('a array) list -> 'a array := "coq-core.plugins.ltac2" "array_concat".
+Ltac2 @external empty : 'a array := "rocq-runtime.plugins.ltac2" "array_empty".
+Ltac2 @external make : int -> 'a -> 'a array := "rocq-runtime.plugins.ltac2" "array_make".
+Ltac2 @external length : 'a array -> int := "rocq-runtime.plugins.ltac2" "array_length".
+Ltac2 @external get : 'a array -> int -> 'a := "rocq-runtime.plugins.ltac2" "array_get".
+Ltac2 @external set : 'a array -> int -> 'a -> unit := "rocq-runtime.plugins.ltac2" "array_set".
+Ltac2 @external lowlevel_blit : 'a array -> int -> 'a array -> int -> int -> unit := "rocq-runtime.plugins.ltac2" "array_blit".
+Ltac2 @external lowlevel_fill : 'a array -> int -> int -> 'a -> unit := "rocq-runtime.plugins.ltac2" "array_fill".
+Ltac2 @external concat : ('a array) list -> 'a array := "rocq-runtime.plugins.ltac2" "array_concat".
 
 (* Low level array operations *)
 
@@ -210,7 +210,7 @@ Ltac2 rec exist_aux (p : 'a -> bool) (a : 'a array) (pos : int) (len : int) :=
              end
   end.
 
-(* Note: named exist (as in Coq library) rather than exists cause exists is a notation *)
+(* Note: named exist (as in Rocq library) rather than exists cause exists is a notation *)
 Ltac2 exist (p : 'a -> bool) (a : 'a array) := exist_aux p a 0 (length a).
 
 Ltac2 rec for_all_aux (p : 'a -> bool) (a : 'a array) (pos : int) (len : int) :=

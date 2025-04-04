@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -44,7 +44,8 @@ let pr_constr_pattern_expr = pr_in_global_env pr_constr_pattern_expr
 
 (* In principle this may use the env/sigma, in practice not sure if it
    does except through pr_constr_expr in beautify mode. *)
-let pr_gen = pr_in_global_env Pputils.pr_raw_generic
+let pr_gen = pr_in_global_env (Pputils.pr_raw_generic ?level:None)
+let pr_gentac = pr_in_global_env (Gentactic.print_raw ?level:None)
 
 (* No direct Global.env or pr_in_global_env use after this *)
 
@@ -342,7 +343,7 @@ let pr_hints db h pr_c pr_pat =
     | HintsExtern (n,c,tac) ->
       let pat = match c with None -> mt () | Some pat -> pr_pat pat in
       keyword "Extern" ++ spc() ++ int n ++ spc() ++ pat ++ str" =>" ++
-      spc() ++ pr_gen tac
+      spc() ++ pr_gentac tac
   in
   hov 2 (keyword "Hint "++ pph ++ opth)
 
@@ -558,7 +559,6 @@ let pr_oc coe ins = match coe, ins with
   | AddCoercion, NoInstance -> str" :>"
   | NoCoercion, BackInstance -> str" ::"
   | AddCoercion, BackInstance -> str" ::>"
-  | _, BackInstanceWarning -> str" :>"  (* remove this line at end of deprecation phase *)
 
 let pr_record_field (x, { rfu_attrs = attr ; rfu_coercion = coe ; rfu_instance = ins ; rfu_priority = pri ; rfu_notation = ntn }) =
   let prx = match x with
@@ -636,13 +636,20 @@ let pr_printable = function
     keyword "Print Hint *"
   | PrintHintDbName s ->
     keyword "Print HintDb" ++ spc () ++ str s
-  | PrintUniverses (b, g, fopt) ->
+  | PrintUniverses {sort=b; subgraph=g; with_sources; file=fopt;} ->
     let cmd =
       if b then "Print Sorted Universes"
       else "Print Universes"
     in
-    let pr_subgraph = prlist_with_sep spc pr_qualid in
-    keyword cmd ++ pr_opt pr_subgraph g ++ pr_opt str fopt
+    let pr_debug_univ_name = function
+      | NamedUniv x -> pr_qualid x
+      | RawUniv { CAst.v = x } -> qstring x
+    in
+    let pr_subgraph = prlist_with_sep spc pr_debug_univ_name in
+    let pr_with_src b = if b then str "With Constraint Sources"
+      else str "Without Constraint Sources"
+    in
+    keyword cmd ++ pr_opt pr_subgraph g ++ pr_opt pr_with_src with_sources ++ pr_opt str fopt
   | PrintName (qid,udecl) ->
     keyword "Print" ++ spc()  ++ pr_smart_global qid ++ pr_full_univ_name_list udecl
   | PrintModuleType qid ->
@@ -1263,12 +1270,12 @@ let pr_synpure_vernac_expr v =
     return (keyword "Proof " ++ spc () ++
             keyword "using" ++ spc() ++ pr_using e)
   | VernacProof (Some te, None) ->
-    return (keyword "Proof with" ++ spc() ++ pr_gen te)
+    return (keyword "Proof with" ++ spc() ++ pr_gentac te)
   | VernacProof (Some te, Some e) ->
     return (
       keyword "Proof" ++ spc () ++
       keyword "using" ++ spc() ++ pr_using e ++ spc() ++
-      keyword "with" ++ spc() ++ pr_gen te
+      keyword "with" ++ spc() ++ pr_gentac te
     )
   | VernacBullet b ->
     (* XXX: Redundant with Proof_bullet.print *)
@@ -1402,6 +1409,7 @@ let pr_control_flag (p : control_flag) =
   let w = match p with
     | ControlTime -> keyword "Time"
     | ControlInstructions -> keyword "Instructions"
+    | ControlProfile f -> keyword "Profile" ++ pr_opt qstring f
     | ControlRedirect s -> keyword "Redirect" ++ spc() ++ qs s
     | ControlTimeout n -> keyword "Timeout " ++ int n
     | ControlFail -> keyword "Fail"

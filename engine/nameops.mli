@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -57,6 +57,7 @@ sig
   type t
   val empty : t
   val add : Id.t -> t -> t
+  val union : t -> t -> t
   val remove : Id.t -> t -> t
   val mem : Id.t -> t -> bool
   val next : Id.t -> t -> Id.t

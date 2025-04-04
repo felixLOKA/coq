@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -20,5 +20,5 @@ val make_graph : Names.GlobRef.t -> unit
 (* Can be thrown by build_{,case}_scheme *)
 exception No_graph_found
 
-val build_scheme : (Names.Id.t * Libnames.qualid * Sorts.family) list -> unit
-val build_case_scheme : Names.Id.t * Libnames.qualid * Sorts.family -> unit
+val build_scheme : (Names.lident * Libnames.qualid * Sorts.family) list -> unit
+val build_case_scheme : Names.lident * Libnames.qualid * Sorts.family -> unit

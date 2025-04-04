@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -131,6 +131,7 @@ val find :
     applied to term which is not a constructor. Used by evarconv not to
     unfold too much and lose a projection too early *)
 val is_open_canonical_projection :
+  ?metas:Reductionops.meta_handler ->
   Environ.env -> Evd.evar_map -> EConstr.t -> bool
 
 val print : Environ.env -> Evd.evar_map -> t -> Pp.t

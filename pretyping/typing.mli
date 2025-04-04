@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -9,7 +9,6 @@
 (************************************************************************)
 
 open Names
-open Constr
 open Environ
 open EConstr
 open Evd
@@ -29,9 +28,6 @@ val check : env -> evar_map -> constr -> types -> evar_map
 
 (** Type of a variable. *)
 val type_of_variable : env -> variable -> types
-
-(** Returns the instantiated type of a metavariable *)
-val meta_type : env -> evar_map -> metavariable -> types
 
 (** Solve existential variables using typing *)
 val solve_evars : env -> evar_map -> constr -> evar_map * constr
@@ -77,3 +73,7 @@ type ('constr,'types,'r) bad_relevance =
 | BadRelevanceCase of 'r * 'constr
 
 val bad_relevance_msg : (Environ.env * evar_map * (constr, types, ERelevance.t) bad_relevance) CWarnings.msg
+
+(** Template typing *)
+
+val get_template_parameters : env -> evar_map -> inductive -> unsafe_judgment array -> evar_map * Inductive.param_univs

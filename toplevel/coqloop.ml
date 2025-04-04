@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -24,7 +24,7 @@ type input_buffer = {
   mutable len : int;    (* number of chars in the buffer *)
   mutable bols : int list; (* offsets in str of beginning of lines *)
   mutable stream : (unit,char) Gramlib.Stream.t; (* stream of chars *)
-  mutable tokens : Pcoq.Parsable.t; (* stream of tokens *)
+  mutable tokens : Procq.Parsable.t; (* stream of tokens *)
   mutable start : int } (* stream count of the first char of the buffer *)
 
 (* Double the size of the buffer. *)
@@ -195,17 +195,17 @@ let print_toplevel_parse_error (e, info) buf =
 *)
 end
 
-(*s The Coq prompt is the name of the focused proof, if any, and "Coq"
+(*s The Rocq prompt is the name of the focused proof, if any, and "Rocq"
     otherwise. We trap all exceptions to prevent the error message printing
     from cycling. *)
 let make_prompt () =
   try
     (Names.Id.to_string (Vernacstate.Declare.get_current_proof_name ())) ^ " < "
   with Vernacstate.Declare.NoCurrentProof ->
-    "Coq < "
+    "Rocq < "
   [@@ocaml.warning "-3"]
 
-(* the coq prompt added to the default one when in emacs mode
+(* the rocq prompt added to the default one when in emacs mode
    The prompt contains the current state label [n] (for global
    backtracking) and the current proof state [p] (for proof
    backtracking) plus the list of open (nested) proofs (for proof
@@ -241,7 +241,7 @@ let top_buffer =
     len = 0;
     bols = [];
     stream;
-    tokens = Pcoq.Parsable.make stream;
+    tokens = Procq.Parsable.make stream;
     start = 0 }
 
 (* Intialize or reinitialize the char stream *)
@@ -251,7 +251,7 @@ let reset_input_buffer ~state =
   top_buffer.len <- 0;
   top_buffer.bols <- [];
   top_buffer.stream <- stream;
-  top_buffer.tokens <- Pcoq.Parsable.make stream;
+  top_buffer.tokens <- Procq.Parsable.make stream;
   top_buffer.start <- 0
 
 let set_prompt prompt =
@@ -268,7 +268,7 @@ let parse_to_dot =
     | Tok.EOI -> ()
     | _ -> dot kwstate st
   in
-  Pcoq.Entry.(of_parser "Coqtoplevel.dot" { parser_fun = dot })
+  Procq.Entry.(of_parser "Coqtoplevel.dot" { parser_fun = dot })
 
 (* If an error occurred while parsing, we try to read the input until a dot
    token is encountered.
@@ -276,7 +276,7 @@ let parse_to_dot =
 
 let rec discard_to_dot () =
   try
-    Pcoq.Entry.parse parse_to_dot top_buffer.tokens
+    Procq.Entry.parse parse_to_dot top_buffer.tokens
   with
     | CLexer.Error.E _ -> (* Lexer failed *) discard_to_dot ()
     | e when CErrors.noncritical e -> ()
@@ -342,8 +342,8 @@ let coqloop_feed (fb : Feedback.feedback) = let open Feedback in
   | Message (lvl,loc,qf,msg) ->
     TopErr.print_error_for_buffer ?loc ~qf lvl msg top_buffer
 
-(** Main coq loop : read vernacular expressions until Drop is entered.
-    Ctrl-C is handled internally as Sys.Break instead of aborting Coq.
+(** Main rocq loop : read vernacular expressions until Drop is entered.
+    Ctrl-C is handled internally as Sys.Break instead of aborting Rocq.
     Normally, the only exceptions that can come out of [do_vernac] and
     exit the loop are Drop and Quit. Any other exception there indicates
     an issue with [print_toplevel_error] above. *)
@@ -437,10 +437,13 @@ let ml_toplevel_include_ran = ref false
 (* Initialises the Ocaml toplevel before launching it, so that it can
    find the "include" file in the *source* directory *)
 let init_ocaml_path () =
-  let env = Boot.Env.init () in
-  let corelib = Boot.Env.corelib env |> Boot.Path.to_string in
-  let add_subdir dl = Mltop.add_ml_dir (Filename.concat corelib dl) in
-  List.iter add_subdir ("dev" :: Coq_config.all_src_dirs)
+  match Boot.Env.initialized () with
+  | None -> assert false
+  | Some Boot -> CErrors.user_err Pp.(str "Drop not supported with -boot.")
+  | Some (Env env) ->
+    let corelib = Boot.Env.corelib env |> Boot.Path.to_string in
+    let add_subdir dl = Mltop.add_ml_dir (Filename.concat corelib dl) in
+    List.iter add_subdir ("dev" :: Coq_config.all_src_dirs)
 
 let init_and_run_ml_toploop () =
   init_ocaml_path ();

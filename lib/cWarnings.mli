@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -103,7 +103,7 @@ val override_unknown_warning : bool ref
     "-w -unknown-warning". *)
 
 module CoreCategories : sig
-  (** Categories used in coq-core. Might not be exhaustive. *)
+  (** Categories used in rocq-runtime. Might not be exhaustive. *)
 
   val automation : category
   val bytecode_compiler : category
@@ -122,10 +122,12 @@ module CoreCategories : sig
   val parsing : category
   val pedantic : category
   val records : category
+  val rewrite_rules : category
   val ssr : category
   val syntax : category
   val tactics : category
   val user_warn : category
   val vernacular : category
+  val internal : category
 
 end

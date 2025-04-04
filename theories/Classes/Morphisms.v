@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -14,10 +14,10 @@
    Institution: LRI, CNRS UMR 8623 - University Paris Sud
 *)
 
-Require Import Coq.Program.Basics.
-Require Import Coq.Program.Tactics.
-Require Import Coq.Relations.Relation_Definitions.
-Require Export Coq.Classes.RelationClasses.
+Require Import Corelib.Program.Basics.
+Require Import Corelib.Program.Tactics.
+Require Import Corelib.Relations.Relation_Definitions.
+Require Export Corelib.Classes.RelationClasses.
 
 Generalizable Variables A eqA B C D R RA RB RC m f x y.
 Local Obligation Tactic := try solve [ simpl_relation ].
@@ -96,7 +96,7 @@ End Proper.
 Definition pointwise_relation A {B} (R : relation B) : relation (A -> B) :=
   fun f g => forall a, R (f a) (g a).
 
-(** We let Coq infer these relations when a default relation should
+(** We let Rocq infer these relations when a default relation should
   be found on the function space. *)
 Lemma rewrite_relation_pointwise {A B R} `{RewriteRelation B R}:
   RewriteRelation (@pointwise_relation A B R).
@@ -334,7 +334,7 @@ Section GenericInstances.
   Let U := Type.
   Context {A B C : U}.
 
-  (** We can build a PER on the Coq function space if we have PERs on the domain and
+  (** We can build a PER on the Rocq function space if we have PERs on the domain and
    codomain. *)
   
   Program Instance respectful_per `(PER A R, PER B R') : PER (R ==> R').
@@ -804,4 +804,5 @@ Register do_subrelation as rewrite.prop.do_subrelation.
 Register apply_subrelation as rewrite.prop.apply_subrelation.
 Register RewriteRelation as rewrite.prop.RewriteRelation.
 Register Proper as rewrite.prop.Proper.
+Register proper_prf as rewrite.prop.proper_prf.
 Register ProperProxy as rewrite.prop.ProperProxy.

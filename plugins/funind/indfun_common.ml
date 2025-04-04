@@ -72,14 +72,14 @@ let list_union_eq eq_fun l1 l2 =
   urec l1
 
 let list_add_set_eq eq_fun x l = if List.exists (eq_fun x) l then l else x :: l
-let coq_constant s = UnivGen.constr_of_monomorphic_global (Global.env ()) @@ Coqlib.lib_ref s
+let rocq_constant s = UnivGen.constr_of_monomorphic_global (Global.env ()) @@ Rocqlib.lib_ref s
 
 let find_reference sl s =
   let dp = Names.DirPath.make (List.rev_map Id.of_string sl) in
   Nametab.locate (make_qualid dp (Id.of_string s))
 
-let eq = lazy (EConstr.of_constr (coq_constant "core.eq.type"))
-let refl_equal = lazy (EConstr.of_constr (coq_constant "core.eq.refl"))
+let eq = lazy (EConstr.of_constr (rocq_constant "core.eq.type"))
+let refl_equal = lazy (EConstr.of_constr (rocq_constant "core.eq.refl"))
 
 let with_full_print f a =
   let old_implicit_args = Impargs.is_implicit_args ()
@@ -366,16 +366,16 @@ exception ToShow of exn
 
 let jmeq () =
   try
-    Coqlib.check_required_library Coqlib.jmeq_module_name;
+    Rocqlib.check_required_library Rocqlib.jmeq_module_name;
     EConstr.of_constr @@ UnivGen.constr_of_monomorphic_global (Global.env ())
-    @@ Coqlib.lib_ref "core.JMeq.type"
+    @@ Rocqlib.lib_ref "core.JMeq.type"
   with e when CErrors.noncritical e -> raise (ToShow e)
 
 let jmeq_refl () =
   try
-    Coqlib.check_required_library Coqlib.jmeq_module_name;
+    Rocqlib.check_required_library Rocqlib.jmeq_module_name;
     EConstr.of_constr @@ UnivGen.constr_of_monomorphic_global (Global.env ())
-    @@ Coqlib.lib_ref "core.JMeq.refl"
+    @@ Rocqlib.lib_ref "core.JMeq.refl"
   with e when CErrors.noncritical e -> raise (ToShow e)
 
 let h_intros l = Tacticals.tclMAP (fun x -> Tactics.Simple.intro x) l
@@ -383,22 +383,22 @@ let h_id = Id.of_string "h"
 let hrec_id = Id.of_string "hrec"
 
 let well_founded = function
-  | () -> EConstr.of_constr (coq_constant "core.wf.well_founded")
+  | () -> EConstr.of_constr (rocq_constant "core.wf.well_founded")
 
-let acc_rel = function () -> EConstr.of_constr (coq_constant "core.wf.acc")
+let acc_rel = function () -> EConstr.of_constr (rocq_constant "core.wf.acc")
 
 let acc_inv_id = function
-  | () -> EConstr.of_constr (coq_constant "core.wf.acc_inv")
+  | () -> EConstr.of_constr (rocq_constant "core.wf.acc_inv")
 
 let well_founded_ltof () =
-  EConstr.of_constr (coq_constant "num.nat.well_founded_ltof")
+  EConstr.of_constr (rocq_constant "num.nat.well_founded_ltof")
 
-let ltof_ref = function () -> find_reference ["Coq"; "Arith"; "Wf_nat"] "ltof"
+let ltof_ref = function () -> find_reference ["Stdlib"; "Arith"; "Wf_nat"] "ltof"
 
 let make_eq () =
   try
     EConstr.of_constr
-      (UnivGen.constr_of_monomorphic_global (Global.env ()) (Coqlib.lib_ref "core.eq.type"))
+      (UnivGen.constr_of_monomorphic_global (Global.env ()) (Rocqlib.lib_ref "core.eq.type"))
   with e when CErrors.noncritical e -> assert false
 
 let evaluable_of_global_reference r =

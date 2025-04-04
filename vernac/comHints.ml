@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -16,7 +16,7 @@ open Names
 
 let project_hint ~poly pri l2r r =
   let open EConstr in
-  let open Coqlib in
+  let open Rocqlib in
   let gr = Smartlocate.global_with_alias r in
   let env = Global.env () in
   let sigma = Evd.from_env env in
@@ -114,7 +114,7 @@ let interp_hints ~poly h =
       let c =
         if poly then (c, Some (UState.sort_context_set uctx))
         else
-          let () = Global.push_context_set ~strict:true (UState.context_set uctx) in
+          let () = Global.push_context_set (UState.context_set uctx) in
           (c, None)
       in
       (Hints.hint_constr c) [@ocaml.warning "-3"]
@@ -163,7 +163,6 @@ let interp_hints ~poly h =
   | HintsExtern (pri, patcom, tacexp) ->
     let pat = Option.map (fp sigma) patcom in
     let ltacvars = match pat with None -> Id.Set.empty | Some (l, _) -> l in
-    let env = Genintern.{(empty_glob_sign ~strict:true env) with ltacvars} in
-    let _, tacexp = Genintern.generic_intern env tacexp in
+    let tacexp = Gentactic.intern ~ltacvars env tacexp in
     HintsExternEntry
       ({Typeclasses.hint_priority = Some pri; hint_pattern = pat}, tacexp)

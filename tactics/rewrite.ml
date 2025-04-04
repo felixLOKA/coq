@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -37,13 +37,13 @@ module TC = Typeclasses
 (** Constants used by the tactic. *)
 
 let bind_global_ref lib s =
-  let gr = lazy (Coqlib.lib_ref (lib ^ "." ^ s)) in
+  let gr = lazy (Rocqlib.lib_ref (lib ^ "." ^ s)) in
   fun () -> Lazy.force gr
 
 type evars = evar_map * Evar.Set.t (* goal evars, constraint evars *)
 
 let bind_global lib s =
-  let gr = lazy (Coqlib.lib_ref (lib ^ "." ^ s)) in
+  let gr = lazy (Rocqlib.lib_ref (lib ^ "." ^ s)) in
     fun env (evd,cstrs) ->
       let (evd, c) = Evd.fresh_global env evd (Lazy.force gr) in
         (evd, cstrs), c
@@ -52,10 +52,10 @@ let bind_global lib s =
 
 (** Global constants. *)
 
-let coq_eq_ref  () = Coqlib.lib_ref    "core.eq.type"
-let coq_eq      = bind_global "core.eq" "type"
-let coq_f_equal = bind_global "core.eq" "congr"
-let coq_all     = bind_global "core" "all"
+let rocq_eq_ref  () = Rocqlib.lib_ref    "core.eq.type"
+let rocq_eq      = bind_global "core.eq" "type"
+let rocq_f_equal = bind_global "core.eq" "congr"
+let rocq_all     = bind_global "core" "all"
 let impl        = bind_global "core" "impl"
 
 let default_relation = bind_global "rewrite" "DefaultRelation"
@@ -196,7 +196,7 @@ let decompose_applied_relation env sigma (c,l) =
       let t' = it_mkProd_or_LetIn t' (List.map (fun (n,t) -> LocalAssum (n, t)) ctx) in
       match find_rel t' with
       | Some c -> c
-      | None -> user_err Pp.(str "Cannot find an homogeneous relation to rewrite.")
+      | None -> user_err Pp.(str "Cannot find a homogeneous relation to rewrite.")
 
 (** Utility functions *)
 
@@ -231,7 +231,7 @@ end) = struct
 
   let respectful = bind_rewrite "respectful"
 
-  let coq_forall = bind_rewrite "forall_def"
+  let rocq_forall = bind_rewrite "forall_def"
 
   let subrelation = bind_rewrite "subrelation"
   let do_subrelation = bind_rewrite "do_subrelation"
@@ -247,8 +247,7 @@ end) = struct
     let r = lazy (bind_rewrite_ref "ProperProxy" ()) in
     fun () -> Option.get (TC.class_info (Lazy.force r))
 
-  let proper_proj () =
-    UnsafeMonomorphic.mkConst (Option.get (List.hd (proper_class ()).TC.cl_projs).TC.meth_const)
+  let proper_proj () = bind_rewrite_ref "proper_prf" ()
 
   let proper_type env (sigma,cstrs) =
     let l = (proper_class ()).TC.cl_impl in
@@ -331,7 +330,7 @@ end) = struct
 
   let unfold_all sigma t =
     match EConstr.kind sigma t with
-    | App (id, [| a; b |]) (* when eq_constr id (Lazy.force coq_all) *) ->
+    | App (id, [| a; b |]) (* when eq_constr id (Lazy.force rocq_all) *) ->
       (match EConstr.kind sigma b with
       | Lambda (n, ty, b) -> mkProd (n, ty, b)
       | _ -> assert false)
@@ -339,7 +338,7 @@ end) = struct
 
   let unfold_forall sigma t =
     match EConstr.kind sigma t with
-    | App (id, [| a; b |]) (* when eq_constr id (Lazy.force coq_all) *) ->
+    | App (id, [| a; b |]) (* when eq_constr id (Lazy.force rocq_all) *) ->
       (match EConstr.kind sigma b with
       | Lambda (n, ty, b) -> mkProd (n, ty, b)
       | _ -> assert false)
@@ -352,7 +351,7 @@ end) = struct
         (app_poly env evd arrow [| a; b |]), unfold_impl n
         (* (evd, mkProd (Anonymous, a, b)), (fun x -> x) *)
       else if bp then (* Dummy forall *)
-        (app_poly env evd coq_all [| a; mkLambda (make_annot n ERelevance.relevant, a, lift 1 b) |]), unfold_forall
+        (app_poly env evd rocq_all [| a; mkLambda (make_annot n ERelevance.relevant, a, lift 1 b) |]), unfold_forall
       else (* None in Prop, use arrow *)
         (app_poly env evd arrow [| a; b |]), unfold_impl n
 
@@ -438,7 +437,7 @@ end) = struct
     match EConstr.kind sigma t with
     | App (c, args) when Array.length args >= 2 ->
       let head = if isApp sigma c then fst (destApp sigma c) else c in
-        if isRefX env sigma (coq_eq_ref ()) head then None
+        if isRefX env sigma (rocq_eq_ref ()) head then None
         else
           (try
             let env' = push_rel_context rels env in
@@ -471,7 +470,7 @@ module PropGlobal = struct
     let prefix = "rewrite.prop"
     let app_poly = app_poly_nocheck
     let arrow = bind_global "core" "arrow"
-    let coq_inverse = bind_global "core" "flip"
+    let rocq_inverse = bind_global "core" "flip"
   end
 
   module G = GlobalBindings(Consts)
@@ -479,8 +478,8 @@ module PropGlobal = struct
   include G
   include Consts
   let inverse env evd car rel =
-    type_app_poly env env evd coq_inverse [| car ; car; mkProp; rel |]
-      (* app_poly env evd coq_inverse [| car ; car; mkProp; rel |] *)
+    type_app_poly env env evd rocq_inverse [| car ; car; mkProp; rel |]
+      (* app_poly env evd rocq_inverse [| car ; car; mkProp; rel |] *)
 
 end
 
@@ -490,7 +489,7 @@ module TypeGlobal = struct
       let prefix = "rewrite.type"
       let app_poly = app_poly_check
       let arrow = bind_global prefix "arrow"
-      let coq_inverse = bind_global prefix "flip"
+      let rocq_inverse = bind_global prefix "flip"
     end
 
   module G = GlobalBindings(Consts)
@@ -501,20 +500,20 @@ module TypeGlobal = struct
   let inverse env (evd,cstrs) car rel =
     let evd, car = Evarsolve.refresh_universes ~onlyalg:true (Some false) env evd car in
     let (evd, sort) = Evarutil.new_Type ~rigid:Evd.univ_flexible evd in
-      app_poly_check env (evd,cstrs) coq_inverse [| car ; car; sort; rel |]
+      app_poly_check env (evd,cstrs) rocq_inverse [| car ; car; sort; rel |]
 
 end
 
 (* Check that relation constants have been registered *)
 let init_relation_classes () =
-  if Coqlib.has_ref "rewrite.prop.relation" || Coqlib.has_ref "rewrite.type.relation" then ()
+  if Rocqlib.has_ref "rewrite.prop.relation" || Rocqlib.has_ref "rewrite.type.relation" then ()
   else CErrors.user_err
-    (Pp.str "No bindings have been registered for relation classes in Prop or Type, maybe you need to require Coq.Classes.(C)RelationClasses.")
+    (Pp.str "No bindings have been registered for relation classes in Prop or Type, maybe you need to require Corelib.Classes.(C)RelationClasses.")
 
 let init_rewrite () =
-  if Coqlib.has_ref "rewrite.prop.Proper" || Coqlib.has_ref "rewrite.type.Proper" then ()
+  if Rocqlib.has_ref "rewrite.prop.Proper" || Rocqlib.has_ref "rewrite.type.Proper" then ()
   else CErrors.user_err
-    (Pp.str "No bindings have been registered for morphisms in Prop or Type, maybe you need to require Coq.Classes.(C)Morphisms.")
+    (Pp.str "No bindings have been registered for morphisms in Prop or Type, maybe you need to require Corelib.Classes.(C)Morphisms.")
 
 let get_type_of_refresh env evars t =
   let evars', tty = Evarsolve.get_type_of_refresh env (fst evars) t in
@@ -629,9 +628,8 @@ let solve_remaining_by env sigma holes by =
     let ist = { Geninterp.lfun = Id.Map.empty
               ; poly = false
               ; extra = Geninterp.TacStore.empty } in
-    let solve_tac = match tac with
-    | Genarg.GenArg (Genarg.Glbwit tag, tac) ->
-      Ftactic.run (Geninterp.interp tag ist tac) (fun _ -> Proofview.tclUNIT ())
+    let solve_tac =
+      Ftactic.run (Geninterp.generic_interp ist tac) (fun _ -> Proofview.tclUNIT ())
     in
     let solve_tac = tclCOMPLETE solve_tac in
     let solve sigma evk =
@@ -714,7 +712,7 @@ let symmetry env sort rew =
 let unify_eqn (car, rel, prf, c1, c2, holes, sort) l2r flags env (sigma, cstrs) by t =
   try
     let left = if l2r then c1 else c2 in
-    let sigma = Unification.w_unify ~flags env sigma CONV left t in
+    let _, sigma = Unification.w_unify ~flags env sigma CONV left t in
     let sigma = TC.resolve_typeclasses ~filter:(no_constraints cstrs)
       ~fail:true env sigma in
     let sigma = solve_remaining_by env sigma holes by in
@@ -743,7 +741,7 @@ let unify_abs (car, rel, prf, c1, c2) l2r sort env (sigma, cstrs) t =
        basically an eq_constr, except when preexisting evars occur in
        either the lemma or the goal, in which case the eq_constr also
        solved this evars *)
-    let sigma = Unification.w_unify ~flags:rewrite_unif_flags env sigma CONV left t in
+    let _, sigma = Unification.w_unify ~flags:rewrite_unif_flags env sigma CONV left t in
     let rew_evars = sigma, cstrs in
     let rew_prf = RewPrf (rel, prf) in
     let rew = { rew_car = car; rew_from = c1; rew_to = c2; rew_prf; rew_evars; } in
@@ -763,9 +761,9 @@ let new_global env (evars, cstrs) gr =
   (sigma, cstrs), c
 
 let make_eq env sigma =
-  new_global env sigma Coqlib.(lib_ref "core.eq.type")
+  new_global env sigma Rocqlib.(lib_ref "core.eq.type")
 let make_eq_refl env sigma =
-  new_global env sigma Coqlib.(lib_ref "core.eq.refl")
+  new_global env sigma Rocqlib.(lib_ref "core.eq.refl")
 
 let get_rew_prf env evars r = match r.rew_prf with
   | RewPrf (rel, prf) -> evars, (rel, prf)
@@ -913,9 +911,9 @@ let make_leibniz_proof env c ty r =
   let prf =
     match r.rew_prf with
     | RewPrf (rel, prf) ->
-        let rel = e_app_poly env evars coq_eq [| ty |] in
+        let rel = e_app_poly env evars rocq_eq [| ty |] in
         let prf =
-          e_app_poly env evars coq_f_equal
+          e_app_poly env evars rocq_f_equal
                 [| r.rew_car; ty;
                    mkLambda (make_annot Anonymous ERelevance.relevant, r.rew_car, c);
                    r.rew_from; r.rew_to; prf |]
@@ -985,7 +983,7 @@ let unfold_match env sigma sk app =
 let is_rew_cast = function RewCast _ -> true | _ -> false
 
 let subterm all flags (s : 'a pure_strategy) : 'a pure_strategy =
-  let rec aux { state ; env ; unfresh ;
+  let aux { state ; env ; unfresh ;
                 term1 = t ; ty1 = ty ; cstr = (prop, cstr) ; evars } =
     let cstr' = Option.map (fun c -> (ty, Some c)) cstr in
       match EConstr.kind (goalevars evars) t with
@@ -1093,7 +1091,7 @@ let subterm all flags (s : 'a pure_strategy) : 'a pure_strategy =
             else TypeGlobal.arrow_morphism
           in
           let (evars', mor), unfold = arr env evars n.binder_name tx tb x b in
-          let state, res = aux { state ; env ; unfresh ;
+          let state, res = s.strategy { state ; env ; unfresh ;
                                  term1 = mor ; ty1 = ty ;
                                  cstr = (prop,cstr) ; evars = evars' } in
           let res =
@@ -1106,12 +1104,12 @@ let subterm all flags (s : 'a pure_strategy) : 'a pure_strategy =
           let lam = mkLambda (n, dom, codom) in
           let (evars', app), unfold =
             if eq_constr (fst evars) ty mkProp then
-              (app_poly_sort prop env evars coq_all [| dom; lam |]), TypeGlobal.unfold_all
+              (app_poly_sort prop env evars rocq_all [| dom; lam |]), TypeGlobal.unfold_all
             else
-              let forall = if prop then PropGlobal.coq_forall else TypeGlobal.coq_forall in
+              let forall = if prop then PropGlobal.rocq_forall else TypeGlobal.rocq_forall in
                 (app_poly_sort prop env evars forall [| dom; lam |]), TypeGlobal.unfold_forall
           in
-          let state, res = aux { state ; env ; unfresh ;
+          let state, res = s.strategy { state ; env ; unfresh ;
                                  term1 = app ; ty1 = ty ;
                                  cstr = (prop,cstr) ; evars = evars' } in
           let res =
@@ -1170,7 +1168,7 @@ let subterm all flags (s : 'a pure_strategy) : 'a pure_strategy =
       | Case (ci, u, pms, p, iv, c, brs) ->
         let (ci, (p,rp), iv, c, brs) = EConstr.expand_case env (goalevars evars) (ci, u, pms, p, iv, c, brs) in
         let cty = Retyping.get_type_of env (goalevars evars) c in
-        let evars', eqty = app_poly_sort prop env evars coq_eq [| cty |] in
+        let evars', eqty = app_poly_sort prop env evars rocq_eq [| cty |] in
         let cstr' = Some eqty in
         let state, c' = s.strategy { state ; env ; unfresh ;
                                      term1 = c ; ty1 = cty ;
@@ -1183,7 +1181,7 @@ let subterm all flags (s : 'a pure_strategy) : 'a pure_strategy =
               state, Success (coerce env (prop,cstr) res)
           | Fail | Identity ->
             if Array.for_all (Int.equal 0) ci.ci_cstr_ndecls then
-              let evars', eqty = app_poly_sort prop env evars coq_eq [| ty |] in
+              let evars', eqty = app_poly_sort prop env evars rocq_eq [| ty |] in
               let cstr = Some eqty in
               let state, found, brs' = Array.fold_left
                 (fun (state, found, acc) br ->
@@ -1207,7 +1205,7 @@ let subterm all flags (s : 'a pure_strategy) : 'a pure_strategy =
               match try Some (fold_match env (goalevars evars) t) with Not_found -> None with
               | None -> state, c'
               | Some (cst, t') ->
-                 let state, res = aux { state ; env ; unfresh ;
+                 let state, res = s.strategy { state ; env ; unfresh ;
                                         term1 = t' ; ty1 = ty ;
                                         cstr = (prop,cstr) ; evars } in
                 let res =
@@ -1415,7 +1413,7 @@ module Strategies =
         | Some c -> c
         in
           try
-            let sigma = Unification.w_unify env sigma CONV ~flags:(Unification.elim_flags ()) unfolded t in
+            let _, sigma = Unification.w_unify env sigma CONV ~flags:(Unification.elim_flags ()) unfolded t in
             let c' = Reductionops.nf_evar sigma c in
               state, Success { rew_car = ty; rew_from = t; rew_to = c';
                                   rew_prf = RewCast DEFAULTcast;
@@ -1779,14 +1777,15 @@ let rec strategy_of_ast bindings = function
 
 let strategy_of_ast s = strategy_of_ast Id.Map.empty s
 
-let proper_projection sigma r ty =
+let proper_projection env sigma r ty =
   let rel_vect n m = Array.init m (fun i -> mkRel(n+m-i)) in
   let ctx, inst = decompose_prod_decls sigma ty in
   let mor, args = destApp sigma inst in
   let instarg = mkApp (r, rel_vect 0 (List.length ctx)) in
-  let app = mkApp (PropGlobal.proper_proj (),
+  let sigma, proj = Evd.fresh_global env sigma (PropGlobal.proper_proj ()) in
+  let app = mkApp (proj,
                   Array.append args [| instarg |]) in
-    it_mkLambda_or_LetIn app ctx
+  sigma, it_mkLambda_or_LetIn app ctx
 
 let build_morphism_signature env sigma m =
   let m,ctx = Constrintern.interp_constr env sigma m in
@@ -1818,18 +1817,19 @@ let build_morphism_signature env sigma m =
 
 let default_morphism env sigma sign m =
   let t = Retyping.get_type_of env sigma m in
-  let evars, _, sign, cstrs =
+  let sigma, _, sign, cstrs =
     PropGlobal.build_signature (sigma, Evar.Set.empty) env t (fst sign) (snd sign)
   in
-  let evars, morph = app_poly_check env evars PropGlobal.proper_type [| t; sign; m |] in
-  let evars, mor = Class_tactics.resolve_one_typeclass env (goalevars evars) morph in
-    mor, proper_projection sigma mor morph
+  let sigma, morph = app_poly_check env sigma PropGlobal.proper_type [| t; sign; m |] in
+  let sigma, mor = Class_tactics.resolve_one_typeclass env (goalevars sigma) morph in
+  let sigma, proj = proper_projection env sigma mor morph in
+  sigma, mor, proj
 
 (** Bind to "rewrite" too *)
 
 (* Find a subterm which matches the pattern to rewrite for "rewrite" *)
 let unification_rewrite l2r c1 c2 sigma prf car rel but env =
-  let (sigma,c') =
+  let ((_, sigma), c') =
     try
       (* ~flags:(false,true) to allow to mark occurrences that must not be
          rewritten simply by replacing them with let-defined definitions
@@ -1904,7 +1904,7 @@ let () = CErrors.register_handler begin function
 | RelationNotDeclared (env, sigma, ty, concl) ->
   let rel, _, _, _, _, _ = decompose_app_rel_error env sigma concl in
   Some (str" The relation " ++ Printer.pr_econstr_env env sigma rel ++ str" is not a declared " ++
-    str ty ++ str" relation. Maybe you need to require the Coq.Classes.RelationClasses library")
+    str ty ++ str" relation. Maybe you need to require the Corelib.Classes.RelationClasses library")
 | _ -> None
 end
 

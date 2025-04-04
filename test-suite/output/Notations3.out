@@ -151,11 +151,6 @@ exists_true (x : nat) (A : Type) (R : A -> A -> Prop)
      : Prop * Prop * Prop
 {{D 1, 2}}
      : nat * nat * (nat * nat * (nat * nat))
-File "./output/Notations3.v", line 236, characters 0-104:
-Warning: Notations "! _ .. _ , _" defined at level 200 with arguments binder,
-constr at next level and "! _ .. _ # _ #" defined at level 200 with arguments
-binder, constr have incompatible prefixes. One of them will likely not work.
-[notation-incompatible-prefix,parsing,default]
 ! a b : nat # True #
      : Prop * (Prop * Prop)
 {{forall x : nat, x = 0, nat}}
@@ -236,14 +231,14 @@ fun l : list nat => match l with
                     end
      : list nat -> list nat
 
-Arguments foo l%list_scope
+Arguments foo l%_list_scope
 Notation "'exists' x .. y , p" := (ex (fun x => .. (ex (fun y => p)) ..))
-  : type_scope (default interpretation)
+  : type_scope (default interpretation) (from Corelib.Init.Logic)
 Notation "'exists' ! x .. y , p" :=
   (ex (unique (fun x => .. (ex (unique (fun y => p))) ..))) : type_scope
-  (default interpretation)
+  (default interpretation) (from Corelib.Init.Logic)
 Notation "( x , y , .. , z )" := (pair .. (pair x y) .. z) : core_scope
-  (default interpretation)
+  (default interpretation) (from Corelib.Init.Datatypes)
 1 goal
   
   ============================

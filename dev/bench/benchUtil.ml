@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -26,6 +26,17 @@ let same_char_locs a b = a.start_char = b.start_char && a.stop_char = b.stop_cha
 type measure = { str: string; q: Q.t; }
 
 let dummy_measure = { str="0"; q=Q.zero; }
+
+type memory = {
+  major_words : string;
+  minor_words : string;
+  major_collect : int;
+  minor_collect : int;
+}
+
+type data = { time : measure; memory : memory option }
+
+let dummy_data = { time = dummy_measure; memory = None }
 
 let combine_related_data data =
   let nvals = Array.length (snd (data.(0))) in

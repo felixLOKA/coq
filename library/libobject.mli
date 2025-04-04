@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -9,7 +9,6 @@
 (************************************************************************)
 
 open Names
-open Nametab
 open Mod_subst
 
 (** [Libobject] declares persistent objects, given with methods:
@@ -48,6 +47,8 @@ open Mod_subst
      Keep       - the object is kept at the end of the module.
        When the module is cloned the object is not cloned with it.
        This means that Keep objects in a module type or functor are dropped.
+     Escape     - like Keep, but also escapes module types, functors and opaque modules.
+       Monomorphic universes and universe constraints behave like this.
      Anticipate - this is for objects that have to be explicitly managed
        by the [end_module] function (currently only Require).
 
@@ -74,7 +75,7 @@ open Mod_subst
 
 *)
 
-type substitutivity = Dispose | Substitute | Keep | Anticipate
+type substitutivity = Dispose | Substitute | Keep | Escape | Anticipate
 
 (** Both names are passed to objects: a "semantic" [kernel_name], which
    can be substituted and a "syntactic" [full_path] which can be printed
@@ -126,13 +127,14 @@ val filter_and : open_filter -> open_filter -> open_filter option
 
 val filter_or :  open_filter -> open_filter -> open_filter
 
-(** The default object is a "Keep" object with empty methods.
+(** The default object has empty methods.
    Object creators are advised to use the construction
    [{(default_object "MY_OBJECT") with
       cache_function = ...
    }]
    and specify only these functions which are not empty/meaningless
 
+    The classify_function must be specified.
 *)
 
 val default_object : ?stage:Summary.Stage.t -> string -> ('a,'b,'a) object_declaration
@@ -153,19 +155,30 @@ module ExportObj : sig
   type t = { mpl : (open_filter * Names.ModPath.t) list } [@@unboxed]
 end
 
-type algebraic_objects =
-  | Objs of t list
-  | Ref of ModPath.t * Mod_subst.substitution
+type ('subs, 'alg, 'keep, 'escape) object_view =
+| ModuleObject of Id.t * 'subs
+| ModuleTypeObject of Id.t * 'subs
+| IncludeObject of 'alg
+| KeepObject of Id.t * 'keep
+| EscapeObject of Id.t * 'escape
+| ExportObject of ExportObj.t
+| AtomicObject of obj
 
-and t =
-  | ModuleObject of Id.t * substitutive_objects
-  | ModuleTypeObject of Id.t * substitutive_objects
-  | IncludeObject of algebraic_objects
-  | KeepObject of Id.t * t list
-  | ExportObject of ExportObj.t
-  | AtomicObject of obj
+(* there are some extra invariants we could try to enforce by typing:
+   - substitutive_objects do not contain KeepObject and EscapeObject
+   - KeepObject only contains itself and atoms
+   - EscapeObject only contains itself and atoms *)
+type t = (substitutive_objects, algebraic_objects, keep_objects, escape_objects) object_view
 
-and substitutive_objects = MBId.t list * algebraic_objects
+and algebraic_objects =
+| Objs of t list
+| Ref of Names.ModPath.t * Mod_subst.substitution
+
+and substitutive_objects = Names.MBId.t list * algebraic_objects
+
+and keep_objects = { keep_objects : t list }
+
+and escape_objects = { escape_objects : t list }
 
 (** Object declaration and names: if you need the current prefix
    (typically to interact with the nametab), you need to have it
@@ -191,6 +204,26 @@ val declare_named_object_full :
 
 val declare_named_object :
   ('a, object_name * 'a, _) object_declaration -> (Id.t -> 'a -> obj)
+
+(** Object prefix morally contains the "prefix" naming of an object to
+   be stored by [library], where [obj_path] is the "absolute" path and
+   [obj_mp] is the current "module" prefix.
+
+    Thus, for an object living inside [Module A. Section B.] the
+   prefix would be:
+
+    [ { obj_path = "A.B"; obj_mp = "A"; } ]
+
+    Note that [obj_path] is a "path" that is to say,
+   as opposed to [obj_mp] which is a single module name.
+
+ *)
+type object_prefix = {
+  obj_path : Libnames.full_path;
+  obj_mp  : ModPath.t;
+}
+
+val eq_object_prefix : object_prefix -> object_prefix -> bool
 
 val declare_named_object_gen :
   ('a, object_prefix * 'a, _) object_declaration -> ('a -> obj)

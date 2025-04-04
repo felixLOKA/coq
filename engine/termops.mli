@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -269,6 +269,7 @@ val is_global : Environ.env -> Evd.evar_map -> GlobRef.t -> constr -> bool
 val isGlobalRef : Evd.evar_map -> constr -> bool
 [@@ocaml.deprecated "(8.12) Use [EConstr.isRef] instead."]
 
+val is_template_polymorphic_ref : env -> Evd.evar_map -> constr -> bool
 val is_template_polymorphic_ind : env -> Evd.evar_map -> constr -> bool
 
 val is_Prop : Evd.evar_map -> constr -> bool
@@ -292,7 +293,6 @@ val pr_evar_constraints : evar_map -> evar_constraint list -> Pp.t
 val pr_evar_map : ?with_univs:bool -> int option -> env -> evar_map -> Pp.t
 val pr_evar_map_filter : ?with_univs:bool -> (Evar.t -> any_evar_info -> bool) ->
   env -> evar_map -> Pp.t
-val pr_metaset : Metaset.t -> Pp.t
 val pr_evd_level : evar_map -> Univ.Level.t -> Pp.t
 val pr_evd_qvar : evar_map -> Sorts.QVar.t -> Pp.t
 
@@ -305,7 +305,7 @@ module Internal : sig
 val debug_print_constr : evar_map -> constr -> Pp.t
 
 (** Pretty-printer hook: [print_constr_env env sigma c] will pretty
-   print c if the pretty printing layer has been linked into the Coq
+   print c if the pretty printing layer has been linked into the Rocq
    binary. *)
 val print_constr_env : env -> Evd.evar_map -> constr -> Pp.t
 
@@ -318,7 +318,9 @@ val pr_rel_decl : env -> Evd.evar_map -> Constr.rel_declaration -> Pp.t
 val print_rel_context : env -> Evd.evar_map -> Pp.t
 val print_env : env -> Evd.evar_map -> Pp.t
 
+val print_kconstr : Environ.env -> Evd.evar_map -> Evd.econstr -> Pp.t
+
 end
 
 val pr_evar_universe_context : UState.t -> Pp.t
-[@@deprecated "(8.21) Use [Evd.pr_ustate] instead"]
+[@@deprecated "(9.0) Use [Evd.pr_ustate] instead"]

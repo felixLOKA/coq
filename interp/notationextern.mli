@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -23,6 +23,9 @@ val notation_with_optional_scope_eq : notation_with_optional_scope -> notation_w
 
 val notation_eq : notation -> notation -> bool
 (** Equality on [notation]. *)
+
+val notation_binder_kind_eq : notation_binder_kind -> notation_binder_kind -> bool
+(** Equality on [notation_binder_kind]. *)
 
 val interpretation_eq : interpretation -> interpretation -> bool
 (** Equality on [interpretation]. *)

@@ -172,7 +172,7 @@ Manual declaration of implicit arguments
 
 .. example::
 
-   .. coqtop:: reset all
+   .. rocqtop:: reset all
 
       Inductive list (A : Type) : Type :=
       | nil : list A
@@ -202,7 +202,7 @@ Manual declaration of implicit arguments
 
 .. example:: Multiple alternatives with :n:`@implicits_alt`
 
-   .. coqtop:: all
+   .. rocqtop:: all
 
       Arguments map [A B] f l, [A] B f l, A B f l.
 
@@ -213,7 +213,7 @@ Manual declaration of implicit arguments
 Automatic declaration of implicit arguments
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-   The ":n:`default implicits`" :token:`args_modifier` clause tells Coq to automatically determine the
+   The ":n:`default implicits`" :token:`args_modifier` clause tells Rocq to automatically determine the
    implicit arguments of the object.
 
    Auto-detection is governed by flags specifying whether strict,
@@ -223,7 +223,7 @@ Automatic declaration of implicit arguments
 
 .. example:: Default implicits
 
-   .. coqtop:: reset all
+   .. rocqtop:: reset all
 
       Inductive list (A:Set) : Set :=
       | nil : list A
@@ -249,7 +249,7 @@ of :term:`constants <constant>`. For instance, the variable ``p`` below has type
 ``forall x,y:U, R x y -> forall z:U, R y z -> R x z``. As the variables ``x``, ``y`` and ``z``
 appear strictly in the :term:`body` of the type, they are implicit.
 
-.. coqtop:: all
+.. rocqtop:: all
 
    Parameter X : Type.
 
@@ -277,7 +277,7 @@ Renaming implicit arguments
 
 .. example:: (continued)  Renaming implicit arguments
 
-   .. coqtop:: all
+   .. rocqtop:: all
 
       Arguments p [s t] _ [u] _: rename.
 
@@ -298,7 +298,7 @@ Binding arguments to scopes
    the key ``R``, then in ``F`` (when a notation has
    no interpretation in ``R``).
 
-      .. coqdoc::
+      .. rocqdoc::
 
          Arguments plus_fct (f1 f2)%_F x%_R%_F.
 
@@ -317,7 +317,7 @@ Binding arguments to scopes
    occurred at the time of the declaration of the notation. Here is an
    example:
 
-   .. coqtop:: all
+   .. rocqtop:: all
 
       Parameter g : bool -> bool.
       Declare Scope mybool_scope.
@@ -346,7 +346,7 @@ Effects of :cmd:`Arguments` on unfolding
 
   .. example::
 
-     .. coqtop:: all
+     .. rocqtop:: all
 
         Arguments Nat.sub n m : simpl never.
 
@@ -362,7 +362,7 @@ Effects of :cmd:`Arguments` on unfolding
 
   .. example::
 
-     .. coqtop:: all
+     .. rocqtop:: all
 
         Definition fcomp A B C f (g : A -> B) (x : A) : C := f (g x).
         Arguments fcomp {A B C} f g x /.
@@ -375,7 +375,7 @@ Effects of :cmd:`Arguments` on unfolding
 
   .. example::
 
-     .. coqtop:: all
+     .. rocqtop:: all
 
         Definition volatile := fun x : nat => x.
         Arguments volatile / x.
@@ -386,7 +386,7 @@ Effects of :cmd:`Arguments` on unfolding
 
   .. example::
 
-     .. coqtop:: all
+     .. rocqtop:: all
 
         Arguments minus !n !m.
 
@@ -399,7 +399,7 @@ Effects of :cmd:`Arguments` on unfolding
 
   .. example::
 
-     .. coqtop:: all
+     .. rocqtop:: all
 
         Arguments minus n m : simpl nomatch.
 
@@ -418,7 +418,7 @@ Effects of :cmd:`Arguments` on unfolding
 Bidirectionality hints
 ~~~~~~~~~~~~~~~~~~~~~~
 
-When type-checking an application, Coq normally does not use information from
+When type-checking an application, Rocq normally does not use information from
 the context to infer the types of the arguments. It only checks after the fact
 that the type inferred for the application is coherent with the expected type.
 Bidirectionality hints make it possible to specify that after type-checking the
@@ -435,7 +435,7 @@ the context to help inferring the types of the remaining arguments.
   * *type inference*, with is inferring the type of a construct by analyzing the construct.
 
   Methods that combine these approaches are known as *bidirectional typing*.
-  Coq normally uses only the first approach to infer the types of arguments,
+  Rocq normally uses only the first approach to infer the types of arguments,
   then later verifies that the inferred type is consistent with the expected type.
   *Bidirectionality hints* specify to use both methods: after type checking the
   first arguments of an application (appearing before the `&` in :cmd:`Arguments`),
@@ -452,27 +452,27 @@ type check the remaining arguments (in :n:`@arg_specs__2`).
 
    In a context where a coercion was declared from ``bool`` to ``nat``:
 
-   .. coqtop:: in reset
+   .. rocqtop:: in reset
 
       Definition b2n (b : bool) := if b then 1 else 0.
       Coercion b2n : bool >-> nat.
 
-   Coq cannot automatically coerce existential statements over ``bool`` to
+   Rocq cannot automatically coerce existential statements over ``bool`` to
    statements over ``nat``, because the need for inserting a coercion is known
    only from the expected type of a subterm:
 
-   .. coqtop:: all
+   .. rocqtop:: all
 
       Fail Check (ex_intro _ true _ : exists n : nat, n > 0).
 
    However, a suitable bidirectionality hint makes the example work:
 
-   .. coqtop:: all
+   .. rocqtop:: all
 
       Arguments ex_intro _ _ & _ _.
       Check (ex_intro _ true _ : exists n : nat, n > 0).
 
-Coq will attempt to produce a term which uses the arguments you
+Rocq will attempt to produce a term which uses the arguments you
 provided, but in some cases involving Program mode the arguments after
 the bidirectionality starts may be replaced by convertible but
 syntactically different terms.

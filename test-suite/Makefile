@@ -1,5 +1,5 @@
 ##########################################################################
-##         #   The Coq Proof Assistant / The Coq Development Team       ##
+##         #      The Rocq Prover / The Rocq Development Team           ##
 ##  v      #         Copyright INRIA, CNRS and contributors             ##
 ## <O___,, # (see version control and CREDITS file for authors & dates) ##
 ##   \VV/  ###############################################################
@@ -36,7 +36,9 @@ else
 TEST_SUITE_CONFIG_PATH:=$(TEST_SUITE_CONFIG_FILE)
 endif
 
-include $(TEST_SUITE_CONFIG_PATH)
+ifneq ($(MAKECMDGOALS),clean)
+include $(TEST_SUITE_CONFIG_FILE)
+endif
 
 #######################################################################
 # Variables
@@ -58,19 +60,19 @@ endif
 export OCAMLPATH := $(shell echo $(COQPREFIX)/lib$(FINDLIB_SEP)$$OCAMLPATH)
 export CAML_LD_LIBRARY_PATH:=$(shell echo $(COQPREFIX)/lib/stublibs):$(CAML_LD_LIBRARY_PATH)
 
-# COQLIB is an env variable so no quotes
-COQLIB?=
+# ROCQLIB is an env variable so no quotes
+ROCQLIB?=
 
-ifeq ($(COQLIB),)
+ifeq ($(ROCQLIB),)
 # Guard againt the COQLIBINSTALL directory not existing, otherwise
 # ocaml_pwd will error
 ifneq ($(wildcard $(shell echo $(COQLIBINSTALL))),)
-	COQLIB := $(shell ocaml ocaml_pwd.ml $(COQLIBINSTALL))
+	ROCQLIB := $(shell ocaml ocaml_pwd.ml $(COQLIBINSTALL))
 endif
 endif
-export COQLIB
+export ROCQLIB
 
-ifeq ($(wildcard $(COQLIB)/theories/Reals/Reals.vo),)
+ifeq ($(wildcard $(ROCQLIB)/theories/Init/Prelude.vo),)
   COQLIB_NOT_FOUND:=true
 else
   COQLIB_NOT_FOUND:=false
@@ -79,20 +81,15 @@ endif
 COQEXTRAFLAGS?=
 COQFLAGS?=$(COQEXTRAFLAGS)
 
-coqc := $(BIN)coqc -q -R prerequisite TestSuite $(COQFLAGS)
-coqchk := $(BIN)coqchk -R prerequisite TestSuite
-coqdoc := $(BIN)coqdoc
-coqtop := $(BIN)coqtop -q -test-mode -R prerequisite TestSuite
-coqtopbyte := $(BIN)coqtop.byte -q
+coqc := $(BIN)rocq c -q -R prerequisite TestSuite $(COQFLAGS)
+coqchk := $(BIN)rocqchk -R prerequisite TestSuite
+coqdoc := $(BIN)rocq doc
+coqtop := $(BIN)rocq repl -q -test-mode -R prerequisite TestSuite
 
-ifeq ($(BEST),opt)
-coqidetop := $(BIN)coqidetop.opt
-else
-coqidetop := $(BIN)coqidetop.byte
-endif
+coqidetop := $(BIN)coqidetop
 
 coqc_interactive := $(coqc) -test-mode
-coqdep := $(BIN)coqdep
+coqdep := $(BIN)rocq dep
 
 # This is the convention for coq_makefile
 OPT=-$(BEST)
@@ -168,7 +165,7 @@ COMPLEXITY := $(if $(bogomips),complexity)
 INTERACTIVE := interactive
 UNIT_TESTS := unit-tests
 VSUBSYSTEMS := prerequisite success failure bugs bugs-nocoqchk output output-coqtop \
-  output-modulo-time $(INTERACTIVE) micromega $(COMPLEXITY) modules stm \
+  output-modulo-time $(INTERACTIVE) $(COMPLEXITY) modules stm \
   coqdoc ssr $(wildcard primitive/*) ltac2 coqchk
 
 # All subsystems
@@ -193,7 +190,7 @@ all:
 	@echo ""
 	@echo "Coq's standard library has not been built; please run: "
 	@echo "  - make world"
-	@echo ""
+	@echo "(looked in $(COQLIBINSTALL))"
 	@false
 else
 ifeq ($(TIMED),)
@@ -214,7 +211,7 @@ noop: ;
 run: $(SUBSYSTEMS)
 
 clean:
-	rm -f trace .csdp.cache .nia.cache .lia.cache output/MExtraction.out
+	rm -f trace .csdp.cache .nia.cache .lia.cache
 	rm -f misc/universes/all_stdlib.v
 	$(SHOW) 'RM        <**/*.stamp> <**/*.vo> <**/*.log> <**/*.glob> <**/*.time>'
 	$(HIDE)find . \( \
@@ -257,7 +254,6 @@ summary:
 	  $(call summary_dir, "Output tests with coqtop", output-coqtop); \
 	  $(call summary_dir, "Output (modulo time changes) tests", output-modulo-time); \
 	  $(call summary_dir, "Interactive tests", interactive); \
-	  $(call summary_dir, "Micromega tests", micromega); \
 	  $(call summary_dir, "Miscellaneous tests", misc); \
 	  $(call summary_dir, "Complexity tests", complexity); \
 	  $(call summary_dir, "Module tests", modules); \
@@ -293,10 +289,14 @@ report: summary.log
 # Test suite configuration, to eventually go away
 #######################################################################
 
-# Not inside Dune, build by hand, note the shuffling
+# Not inside Dune, build by hand
 ifeq ($(INSIDE_DUNE),)
-$(TEST_SUITE_CONFIG_PATH): $(TESTCONFIGURE)
-	dune build $(TEST_SUITE_CONFIG_FILE)
+CONFIG_TO_MAKE_EXE:=../_build/$(DUNE_CONTEXT)/test-suite/tools/coq_config_to_make.exe
+ROCQ_EXE:=../_build/install/$(DUNE_CONTEXT)/bin/rocq
+
+$(TEST_SUITE_CONFIG_FILE):
+	dune build $(CONFIG_TO_MAKE_EXE)
+	$(CONFIG_TO_MAKE_EXE) $(ROCQ_EXE) > $@
 endif
 
 #######################################################################
@@ -339,7 +339,7 @@ unit-tests: $(UNIT_LOGFILES)
 # Build executable, run it to generate log file
 unit-tests/%.ml.log: unit-tests/%.ml unit-tests/src/$(UNIT_LINK)
 	$(SHOW) 'TEST      $<'
-	$(HIDE)$(OCAMLBEST) -w -29 -linkpkg -package coq-core.toplevel,ounit2 \
+	$(HIDE)$(OCAMLBEST) -w -29 -linkpkg -package rocq-runtime.toplevel,ounit2 \
 	     -I unit-tests/src $(UNIT_LINK) $< -o $<.test;
 	$(HIDE)$(call WITH_TIMER,$@,./$<.test)
 	$(HIDE)$(call REPORT_TIMER,$@)
@@ -366,7 +366,7 @@ $(addsuffix .log,$(wildcard prerequisite/*.v)): %.v.log: %.v
 	} > "$@"
 	$(HIDE)$(call REPORT_TIMER,$@)
 
-$(addsuffix .log,$(wildcard bugs/*.v ssr/*.v success/*.v failure/*.v stm/*.v micromega/*.v modules/*.v primitive/*/*.v ltac2/*.v coqchk/*.v)): %.v.log: %.v $(PREREQUISITELOG)
+$(addsuffix .log,$(wildcard bugs/*.v ssr/*.v success/*.v failure/*.v stm/*.v modules/*.v primitive/*/*.v ltac2/*.v coqchk/*.v)): %.v.log: %.v $(PREREQUISITELOG)
 	@echo "TEST      $< $(call get_coq_prog_args_in_parens,"$<")"
 	$(HIDE){ \
 	  opts="$(if $(findstring modules/,$<),-R modules Mods)"; \
@@ -424,7 +424,7 @@ $(addsuffix .log,$(wildcard output/*.v)): %.v.log: %.v %.out $(PREREQUISITELOG)
 	  { $(call WITH_TIMER,$@,$(coqc_interactive) "$<" $(call get_coq_prog_args,"$<") 2>&1); \
 	      R=$$?; \
 	      if ! [ $$R = 0 ]; then printf '\ncoqc exited with code %s\n' "$$R"; fi; \
-	  } | grep -a -v "Welcome to Coq" \
+	  } | grep -a -v "Welcome to Rocq" \
 	    | grep -a -v "\[Loading ML file" \
 	    | grep -a -v "Skipping rcfile loading" \
 	    | grep -a -v "^<W>" \
@@ -448,7 +448,7 @@ $(addsuffix .log,$(wildcard output-coqtop/*.v)): %.v.log: %.v %.out $(PREREQUISI
 	  echo $(call log_intro,$<); \
 	  output=$*.out.real; \
 	  $(call WITH_TIMER,$@,$(coqtop) < "$<" $(call get_coq_prog_args,"$<") 2>&1) \
-	    | grep -v "Welcome to Coq" \
+	    | grep -v "Welcome to Rocq" \
 	    | grep -v "\[Loading ML file" \
 	    | grep -v "Skipping rcfile loading" \
 	    | grep -v "^<W>" \
@@ -520,14 +520,6 @@ approve-coqdoc: coqdoc
 	  echo "Updated $$f!"; \
 	fi; done)
 
-# the expected output for the MExtraction test is
-# /plugins/micromega/micromega.ml except with additional newline
-output/MExtraction.out: ../plugins/micromega/micromega.ml
-	$(SHOW) GEN $@
-	$(HIDE) cp $< $@
-	$(HIDE) chmod u+w $@
-	$(HIDE) echo >> $@
-
 $(addsuffix .log,$(wildcard output-modulo-time/*.v)): %.v.log: %.v %.out
 	@echo "TEST      $< $(call get_coq_prog_args_in_parens,"$<")"
 	$(HIDE){ \
@@ -535,7 +527,7 @@ $(addsuffix .log,$(wildcard output-modulo-time/*.v)): %.v.log: %.v %.out
 	  tmpoutput=`mktemp`; \
 	  tmpexpected=`mktemp`; \
 	  $(call WITH_TIMER,$@,$(coqc_interactive) "$<" $(call get_coq_prog_args,"$<") 2>&1) \
-	    | grep -v "Welcome to Coq" \
+	    | grep -v "Welcome to Rocq" \
 	    | grep -v "\[Loading ML file" \
 	    | grep -v "Skipping rcfile loading" \
 	    | grep -v "^<W>" \
@@ -646,10 +638,10 @@ $(addsuffix .log,$(wildcard ideal-features/*.v)): %.v.log: %.v $(PREREQUISITELOG
 	$(HIDE)$(call REPORT_TIMER,$@)
 
 # Additional dependencies for module tests
-COMMON_MODULE_DEPENDENCIES := modules/plik.v modules/Nat.v
-# We exclude Nat.v.log and plik.v.log because these log files do not
-# depend on having the corresponding .vo files built first, and we end
-# up with pseudo-cyclic build rules if we don't exclude them (See
+COMMON_MODULE_DEPENDENCIES := modules/plik.v
+# We exclude plik.v.log because this log file does not
+# depend on having the corresponding .vo file built first, and we end
+# up with pseudo-cyclic build rules if we don't exclude it (See
 # COQBUG(https://github.com/coq/coq/issues/12582)).
 $(addsuffix .log,$(filter-out $(COMMON_MODULE_DEPENDENCIES),$(wildcard modules/*.v))): %.v.log: $(COMMON_MODULE_DEPENDENCIES:.v=.v.log)
 
@@ -715,7 +707,7 @@ coqwc/%.v.log : coqwc/%.v
 	$(HIDE){ \
 	  echo $(call log_intro,$<); \
 	  tmpoutput=`mktemp`; \
-	  $(BIN)coqwc $< 2>&1 > $$tmpoutput; \
+	  $(BIN)rocq wc $< 2>&1 > $$tmpoutput; \
 	  diff -u --strip-trailing-cr coqwc/$*.out $$tmpoutput 2>&1; R=$$?; times; \
 	  if [ $$R = 0 ]; then \
 	    echo $(log_success); \

@@ -21,8 +21,13 @@ Tactics
    tactic, then it reduces the goal to an atomic one using :tacn:`intros` and
    introduces the newly generated hypotheses as hints. Then it looks at
    the list of tactics associated with the head symbol of the goal and
-   tries to apply one of them.  Lower cost tactics are tried before higher-cost
-   tactics.  This process is recursively applied to the generated subgoals.
+   tries to apply one of them.  This process is recursively applied to the
+   generated subgoals.
+
+   Within each hintbase, lower cost tactics are tried before higher-cost
+   tactics.  When multiple hintbases are specified, all hints in the
+   first database are tried before any in the second database (and so forth)
+   regardless of their cost (unlike :tacn:`eauto` and :tacn:`typeclasses eauto`).
 
    :n:`@nat_or_var`
      Specifies the maximum search depth.  The default is 5.
@@ -108,7 +113,7 @@ Tactics
 
    .. example::
 
-      .. coqtop:: all
+      .. rocqtop:: all
 
          Hint Resolve ex_intro : core.
          Goal forall P:nat -> Prop, P 0 -> exists n, P n.
@@ -132,12 +137,6 @@ Tactics
 
       Behaves like :tacn:`eauto` but shows the tactics it tries to solve the goal,
       including failing paths.
-
-   .. tacn:: dfs eauto {? @nat_or_var } {? @auto_using } {? @hintbases }
-
-      .. deprecated:: 8.16
-
-      An alias for :tacn:`eauto`.
 
 .. tacn:: autounfold {? @hintbases } {? @simple_occurrences }
 
@@ -201,80 +200,77 @@ conditional rewriting. The second one ( *Mac Carthy function*)
 involves conditional rewritings and shows how to deal with them using
 the optional tactic of the ``Hint Rewrite`` command.
 
-
 .. example:: Ackermann function
 
-   .. coqtop:: in reset
-
-      Require Import Arith.
-
-   .. coqtop:: in
+   .. rocqtop:: in reset
 
       Parameter Ack : nat -> nat -> nat.
 
-   .. coqtop:: in
+   .. rocqtop:: in
 
       Axiom Ack0 : forall m:nat, Ack 0 m = S m.
       Axiom Ack1 : forall n:nat, Ack (S n) 0 = Ack n 1.
       Axiom Ack2 : forall n m:nat, Ack (S n) (S m) = Ack n (Ack (S n) m).
 
-   .. coqtop:: in
+   .. rocqtop:: in
 
       Global Hint Rewrite Ack0 Ack1 Ack2 : base0.
 
-   .. coqtop:: all
+   .. rocqtop:: all
 
       Lemma ResAck0 : Ack 3 2 = 29.
 
-   .. coqtop:: all
+   .. rocqtop:: all
 
       autorewrite with base0 using try reflexivity.
 
 .. example:: MacCarthy function
 
-   .. coqtop:: in reset
+   This example requires the Stdlib library.
 
-      Require Import Lia.
+   .. rocqtop:: in reset extra-stdlib
 
-   .. coqtop:: in
+      From Stdlib Require Import Arith Lia.
+
+   .. rocqtop:: in extra-stdlib
 
       Parameter g : nat -> nat -> nat.
 
-   .. coqtop:: in
+   .. rocqtop:: in extra-stdlib
 
       Axiom g0 : forall m:nat, g 0 m = m.
       Axiom g1 : forall n m:nat, (n > 0) -> (m > 100) -> g n m = g (pred n) (m - 10).
       Axiom g2 : forall n m:nat, (n > 0) -> (m <= 100) -> g n m = g (S n) (m + 11).
 
-   .. coqtop:: in
+   .. rocqtop:: in extra-stdlib
 
       Global Hint Rewrite g0 g1 g2 using lia : base1.
 
-   .. coqtop:: in
+   .. rocqtop:: in extra-stdlib
 
       Lemma Resg0 : g 1 110 = 100.
 
-   .. coqtop:: out
+   .. rocqtop:: out extra-stdlib
 
       Show.
 
-   .. coqtop:: all
+   .. rocqtop:: all extra-stdlib
 
       autorewrite with base1 using reflexivity || simpl.
 
-   .. coqtop:: none
+   .. rocqtop:: none extra-stdlib
 
       Qed.
 
-   .. coqtop:: all
+   .. rocqtop:: all extra-stdlib
 
       Lemma Resg1 : g 1 95 = 91.
 
-   .. coqtop:: all
+   .. rocqtop:: all extra-stdlib
 
       autorewrite with base1 using reflexivity || simpl.
 
-   .. coqtop:: none
+   .. rocqtop:: none extra-stdlib
 
       Qed.
 
@@ -304,8 +300,8 @@ Hints used by :tacn:`auto`, :tacn:`eauto` and other tactics are stored in hint
 databases.  Each database maps head symbols to a list of hints.  Use the
 :cmd:`Print Hint` command to view a database.
 
-Each hint has a cost that is a nonnegative
-integer and an optional pattern. Hints with lower costs are tried first.
+Each hint has a cost and an optional pattern. Hints with lower
+cost are tried first.  (Cost is not used to limit the scope of searches.)
 :tacn:`auto` tries a hint when the conclusion of the current goal matches its
 pattern or when the hint has no pattern.
 
@@ -324,7 +320,8 @@ and `Constants`, while implicitly created databases have the `Opaque` setting.
 
 .. cmd:: Create HintDb @ident {? discriminated }
 
-   Creates a new hint database named :n:`@ident`. The database is
+   If there is no hint database named :n:`@name`, creates a new hint database
+   with that name.  Otherwise, does nothing.  The database is
    implemented by a Discrimination Tree (DT) that serves as a filter to select
    the lemmas that will be applied. When discriminated, the DT uses
    transparency information to decide if a constant should considered rigid for
@@ -335,14 +332,21 @@ and `Constants`, while implicitly created databases have the `Opaque` setting.
 
    By default, hint databases are undiscriminated.
 
-Hint databases defined in the Coq standard library
-``````````````````````````````````````````````````
+   .. warn:: @ident already exists and is {? not } discriminated
+      :name: mismatched-hint-db
 
-Several hint databases are defined in the Coq standard library. The
+      `Create HintDb` will not change whether a pre-existing database
+      is discriminated.
+
+
+Hint databases defined in the Rocq standard library
+```````````````````````````````````````````````````
+
+Several hint databases are defined in the Rocq standard library. The
 database contains all hints declared
 to belong to it in the currently loaded modules.
 In particular, requiring new modules may extend the database.
-At Coq startup, only the core database is nonempty and ready to be used immediately.
+At Rocq startup, only the core database is nonempty and ready to be used immediately.
 
 :core: This special database is automatically used by ``auto``, except when
        pseudo-database ``nocore`` is given to ``auto``. The core database
@@ -388,6 +392,11 @@ Creating Hints
    *(Deprecated since version 8.10:* If no :token:`ident`\s
    are given, the hint is added to the `core` database.)
 
+   Hints in hint databases are ordered, which is the order in which they're
+   tried, as shown by the :cmd:`Print HintDb` command.
+   Hints with lower costs are tried first.  Hints with the same cost are tried
+   in reverse of their order of definition, i.e., last to first.
+
    Outside of sections, these commands support the :attr:`local`, :attr:`export`
    and :attr:`global` attributes. :attr:`export` is the default.
 
@@ -404,10 +413,6 @@ Creating Hints
 
    + :attr:`global` hints are visible from other modules when they :cmd:`Import` or
      :cmd:`Require` the current module.
-
-   .. versionadded:: 8.14
-
-      The :cmd:`Hint Rewrite` now supports locality attributes like other `Hint` commands.
 
    .. versionchanged:: 8.18
 
@@ -513,21 +518,23 @@ Creating Hints
       These flags affect the unification of hints in the database.
       We advise using this just after a :cmd:`Create HintDb` command.
 
-   .. cmd:: Hint Extern @natural {? @one_pattern } => @ltac_expr {? : {+ @ident } }
+   .. cmd:: Hint Extern @natural {? @one_pattern } => @generic_tactic {? : {+ @ident } }
 
       Extends :tacn:`auto` with tactics other than :tacn:`apply` and
       :tacn:`unfold`. :n:`@natural` is the cost, :n:`@one_pattern` is the pattern
       to match and :n:`@ltac_expr` is the action to apply.
 
-      .. note::
+      **Usage tip**: tactics that can succeed even if they don't change the context,
+      such as most of the :ref:`conversion tactics <applyingconversionrules>`, should
+      be prefaced with :tacn:`progress` to avoid needless repetition of the tactic.
 
-         Use a :cmd:`Hint Extern` with no pattern to do
-         pattern matching on hypotheses using ``match goal with``
-         inside the tactic.
+      **Usage tip**: Use a :cmd:`Hint Extern` with no pattern to do
+      pattern matching on hypotheses using ``match goal with``
+      inside the tactic.
 
       .. example::
 
-         .. coqtop:: in
+         .. rocqtop:: in
 
             Hint Extern 4 (~(_ = _)) => discriminate : core.
 
@@ -541,9 +548,9 @@ Creating Hints
 
       .. example::
 
-         .. coqtop:: reset all
+         .. rocqtop:: reset all
 
-            Require Import List.
+            Require Import ListDef.
             Hint Extern 5 ({?X1 = ?X2} + {?X1 <> ?X2}) =>
               generalize  X1, X2; decide equality : eqdec.
             Goal forall a b:list (nat * nat), {a = b} + {a <> b}.
@@ -639,13 +646,13 @@ Creating Hints
       This example illustrates the use of modes to control how resolutions
       can be triggered during proof search.
 
-      .. coqtop:: all reset
+      .. rocqtop:: all reset
 
          Parameter plus : nat -> nat -> nat -> Prop.
          Hint Mode plus ! - - : plus.
          Hint Mode plus - ! - : plus.
 
-      .. coqtop:: in
+      .. rocqtop:: in
 
          Axiom plus0l : forall m : nat, plus 0 m m.
          Axiom plus0r : forall n : nat, plus n 0 n.
@@ -658,7 +665,7 @@ Creating Hints
       by a constructor or constant. The last argument of the predicate will be
       the inferred result.
 
-      .. coqtop:: all
+      .. rocqtop:: all
 
          Goal exists x y, plus x y 12.
          Proof. eexists ?[x], ?[y].
@@ -672,7 +679,7 @@ Creating Hints
       argument with ``1``, typeclass resolution succeeds as the second declared mode is matched,
       and instantiates ``x`` with ``11``.
 
-.. cmd:: Hint Rewrite {? {| -> | <- } } {+ @one_term } {? using @ltac_expr } {? : {* @ident } }
+.. cmd:: Hint Rewrite {? {| -> | <- } } {+ @one_term } {? using @ltac_expr } {? : {+ @ident } }
 
    :n:`{? using @ltac_expr }`
      If specified, :n:`@ltac_expr` is applied to the generated subgoals, except for the
@@ -715,7 +722,11 @@ Creating Hints
 
 .. cmd:: Print HintDb @ident
 
-   This command displays all hints from database :n:`@ident`.
+   This command displays all hints from database :n:`@ident`.  Hints
+   in each group ("For ... ->") are shown in the order in which they will be tried
+   (first to last).  The groups are shown ordered alphabetically on the last component of
+   the symbol name.  Note that hints with the same cost are tried in
+   reverse of the order they're defined in, i.e., last to first.
 
 Hint locality
 `````````````
@@ -747,10 +758,10 @@ of where these hints are used:
 Setting implicit automation tactics
 -----------------------------------
 
-.. cmd:: Proof with @ltac_expr {? using @section_var_expr }
+.. cmd:: Proof with @generic_tactic {? using @section_var_expr }
 
-   Starts a proof in which :token:`ltac_expr` is applied to the active goals
+   Starts a proof in which :token:`generic_tactic` is applied to the active goals
    after each tactic that ends with `...` instead of the usual single period.
-   ":n:`@tactic...`" is equivalent to ":n:`@tactic; @ltac_expr.`".
+   ":n:`@tactic...`" is equivalent to ":n:`@tactic; @generic_tactic.`".
 
    .. seealso:: :cmd:`Proof` in :ref:`proof-editing-mode`.

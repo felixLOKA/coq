@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -90,11 +90,11 @@ let () =
       optwrite = (fun b -> rewriting_flag := b) }
 
 (* Util *)
-let define ~poly name sigma c types =
+let define ~poly ?loc name sigma c types =
   let univs = Evd.univ_entry ~poly sigma in
   let entry = Declare.definition_entry ~univs ?types c in
   let kind = Decls.(IsDefinition Scheme) in
-  let kn = Declare.declare_constant ~kind ~name (Declare.DefinitionEntry entry) in
+  let kn = Declare.declare_constant ?loc ~kind ~name (Declare.DefinitionEntry entry) in
   Declare.definition_message name;
   kn
 
@@ -244,7 +244,7 @@ let declare_congr_scheme ?loc ind =
   let env = Global.env () in
   if Hipattern.is_inductive_equality env ind then begin
     if
-      try Coqlib.check_required_library Coqlib.logic_module_name; true
+      try Rocqlib.check_required_library Rocqlib.logic_module_name; true
       with e when CErrors.noncritical e -> false
     then
       define_individual_scheme ?loc congr_scheme_kind None ind
@@ -324,11 +324,11 @@ let fold_left' f = function
     [] -> invalid_arg "fold_left'"
   | hd :: tl -> List.fold_left f hd tl
 
-let mk_coq_and sigma = Evd.fresh_global (Global.env ()) sigma (Coqlib.lib_ref "core.and.type")
-let mk_coq_conj sigma = Evd.fresh_global (Global.env ()) sigma (Coqlib.lib_ref "core.and.conj")
+let mk_rocq_and sigma = Evd.fresh_global (Global.env ()) sigma (Rocqlib.lib_ref "core.and.type")
+let mk_rocq_conj sigma = Evd.fresh_global (Global.env ()) sigma (Rocqlib.lib_ref "core.and.conj")
 
-let mk_coq_prod sigma = Evd.fresh_global (Global.env ()) sigma (Coqlib.lib_ref "core.prod.type")
-let mk_coq_pair sigma = Evd.fresh_global (Global.env ()) sigma (Coqlib.lib_ref "core.prod.intro")
+let mk_rocq_prod sigma = Evd.fresh_global (Global.env ()) sigma (Rocqlib.lib_ref "core.prod.type")
+let mk_rocq_pair sigma = Evd.fresh_global (Global.env ()) sigma (Rocqlib.lib_ref "core.prod.intro")
 
 let build_combined_scheme env schemes =
   let sigma = Evd.from_env env in
@@ -359,13 +359,13 @@ let build_combined_scheme env schemes =
   in
   let mk_and, mk_conj =
     if inprop
-    then (mk_coq_and, mk_coq_conj)
-    else (mk_coq_prod, mk_coq_pair)
+    then (mk_rocq_and, mk_rocq_conj)
+    else (mk_rocq_prod, mk_rocq_pair)
   in
   (* Number of clauses, including the predicates quantification *)
   let prods = Termops.nb_prod sigma (EConstr.of_constr t) - (nargs + 1) in
-  let sigma, coqand  = mk_and sigma in
-  let sigma, coqconj = mk_conj sigma in
+  let sigma, rocqand  = mk_and sigma in
+  let sigma, rocqconj = mk_conj sigma in
   let relargs = Termops.rel_vect 0 prods in
   let concls = List.rev_map
     (fun (cst, t) ->
@@ -374,8 +374,8 @@ let build_combined_scheme env schemes =
   let concl_bod, concl_typ =
     fold_left'
       (fun (accb, acct) (cst, x) ->
-        Constr.mkApp (EConstr.to_constr sigma coqconj, [| x; acct; cst; accb |]),
-        Constr.mkApp (EConstr.to_constr sigma coqand, [| x; acct |])) concls
+        Constr.mkApp (EConstr.to_constr sigma rocqconj, [| x; acct; cst; accb |]),
+        Constr.mkApp (EConstr.to_constr sigma rocqand, [| x; acct |])) concls
   in
   let ctx, _ =
     list_split_rev_at prods
@@ -395,7 +395,7 @@ let do_combined_scheme name csts =
      some other polymorphism they can also manually define the
      combined scheme. *)
   let poly = Global.is_polymorphic (Names.GlobRef.ConstRef (List.hd csts)) in
-  ignore (define ~poly name.v sigma body (Some typ));
+  ignore (define ~poly ?loc:name.loc name.v sigma body (Some typ));
   Declare.fixpoint_message None [name.v]
 
 (**********************************************************************)

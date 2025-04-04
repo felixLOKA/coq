@@ -8,6 +8,681 @@ Recent changes
 
    .. include:: ../unreleased.rst
 
+Version 9.0
+-----------
+
+.. contents::
+   :local:
+   :depth: 1
+
+Summary of changes
+~~~~~~~~~~~~~~~~~~
+
+The Rocq Prover version 9.0 is the first Rocq Prover release after the renaming
+from The Coq Proof Assistant. The Rocq Prover 9.0 command line interface is
+backwards compatible with Coq 8.20, providing compatibility shims so that
+developments depending on Coq can be easily ported, see `Porting to The Rocq
+Prover`_  for details. The 9.0 version is based on a new single binary `rocq`
+that dispatches commands to previously separate binaries, a split and renaming
+of the standard library to `Stdlib` and improvements to the handling of
+template-polymorphism, bringing it closer to a complete subsumption by sort
+polymorphism.
+
+We highlight some of the most impactful changes here:
+
+  - "The Rocq Prover" is the new official name of the project. We leave to users the
+    choice of renaming their projects to reflect this change, see `Renaming Advice`_.
+    The Rocq Prover comes with a new visual identity and website, see `The Rocq Prover Website`_.
+
+  - A single `rocq` binary dispatches commands for compilation, read-eval-print-loop,
+    documentation building, dependency computation, etc. See :ref:`therocqcommands`.
+    It corresponds to the `rocq-runtime` `opam package <https://ocaml.org/p/rocq-runtime>`_.
+    This is a bare-bones package that does not provide any Gallina code.
+
+  - The `Coq` standard library has been :ref:`split <90stdlib>` into two libraries:
+
+    - A `Corelib` library (the `rocq-core` opam package). This is an
+      extended prelude, which is
+      enough to run Rocq tactics and contains the `Ltac2` library and bindings
+      for primitive types (integers, floats, arrays and strings).
+    - An `Stdlib` library (the `rocq-stdlib` opam package). The `Stdlib` is
+      now maintained out of the main `rocq` repository. We welcome maintainers and
+      contributors to the `new repository <https://github.com/rocq-prover/stdlib>`_.
+      A specific call for contributions will be
+      sent soon.
+
+Notable breaking changes:
+
+  - The legacy loading mode for plugins has been :ref:`removed <LegacyLoadingRemoval>`.
+
+See the `Changes in 9.0.0`_ section below for the detailed list of changes,
+including potentially breaking changes marked with **Changed**.
+Rocq's `reference manual for 9.0 <https://rocq-prover.org/doc/v9.0/refman>`_,
+documentation of the 9.0 `core <https://rocq-prover.org/doc/v9.0/corelib>`_ and
+`standard <https://rocq-prover.org/doc/v9.0/stdlib>`_ libraries,
+`reference manual of the 9.0 standard library <https://rocq-prover.org/doc/v9.0/refman-stdlib>`_
+and `developer documentation of the 9.0 ML API <https://rocq-prover.org/doc/v9.0/api>`_
+are also available.
+
+Théo Zimmermann, with help from Jason Gross and Gaëtan Gilbert, maintained
+`coqbot <https://github.com/coq/bot>`_ used to run Coq's CI and other
+pull request management tasks.
+
+Jason Gross maintained the `bug minimizer <https://github.com/JasonGross/coq-tools>`_
+and its `automatic use through coqbot <https://github.com/coq/coq/wiki/Coqbot-minimize-feature>`_.
+
+Ali Caglayan, Emilio Jesús Gallego Arias, Rudi Grinberg and Rodolphe Lepigre maintained the
+`Dune build system for OCaml and Coq/Rocq <https://github.com/ocaml/dune/>`_
+used to build the Rocq Prover itself and many Rocq projects.
+
+The `opam repository <https://github.com/coq/opam>`_ for Rocq packages has been maintained by
+Guillaume Claret, Guillaume Melquiond, Karl Palmskog, Matthieu Sozeau
+and Enrico Tassi with contributions from many users. The up-to-date list
+of packages is `available on the Rocq website <https://rocq-prover.org/packages>`_.
+
+Erik Martin-Dorel and Jaime Arias maintained the
+`Rocq Docker images <https://hub.docker.com/r/rocq/rocq-prover>`_.
+Erik Martin-Dorel maintained the `docker-keeper <https://gitlab.com/erikmd/docker-keeper>`_ compiler
+used to build and keep those images up to date (note that the tool is not Rocq specific).
+Erik Martin-Dorel and Théo Zimmermann maintained the
+`docker-coq-action <https://github.com/coq-community/docker-coq-action>`_
+container action (which is applicable to any opam project hosted on GitHub).
+
+Cyril Cohen, Vincent Laporte, Pierre Roux and Théo Zimmermann
+maintained the `Nix toolbox <https://github.com/coq-community/coq-nix-toolbox>`_.
+The docker-coq-action and the Nix toolbox are used by many Rocq projects for continuous integration.
+
+Rocq 9.0 was made possible thanks to the following 27 reviewers:
+Yves Bertot, Ali Caglayan, Tej Chajed, Andres Erbsen, Jim Fehrle,
+Emilio Jesús Gallego Arias, Gaëtan Gilbert, Jason Gross, Samuel Gruetter,
+Hugo Herbelin, Thomas Lamiaux, Olivier Laurent, Rodolphe Lepigre,
+Erik Martin-Dorel, Guillaume Melquiond, Guillaume Munch-Maccagnoni,
+Karl Palmskog, Pierre-Marie Pédrot, Pierre Rousselin, Pierre Roux,
+Marcello Seri, Michael Soegtrop, Matthieu Sozeau, Enrico Tassi,
+Romain Tetley, Oliver Turner and Théo Zimmermann.
+
+See the `Rocq Team <https://rocq-prover.org/rocq-team>`_ page for
+more details on Rocq's development teams.
+
+The 48 contributors to the 9.0 version are:
+Jean Abou Samra, Tanaka Akira, David Allsopp, Frédéric Besson, Mathis Bouverot, Sylvain Chiron,
+Cyril Cohen, Lucas Donati, Andrej Dudenhefner, Arya Elfren, Andres Erbsen, Siegmentation Fault,
+Jim Fehrle, Gaëtan Gilbert, Tomaz Gomes Mascarenhas, Jason Gross, Hugo Herbelin, Florent Hivert,
+Daniil Iaitskov, Emilio Jesús Gallego Arias, Jan-Oliver Kaiser, Rodolphe Lepigre, Yann Leray,
+Felix Loyau-Kahn, Erik Martin-Dorel, Guillaume Melquiond, Guillaume Munch-Maccagnoni,
+Aleksandar Nanevski, Charles Norton, Karl Palmskog, Pierre-Marie Pédrot, Pierre Rousselin,
+Pierre Roux, Kazuhiko Sakaguchi, Gabriel Scherer, Marcello Seri, Benny Smit, Michael Soegtrop,
+Matthieu Sozeau, Nicolas Tabareau, Enrico Tassi, Oliver Turner, Quentin Vermande, Daneel Yaitskov,
+Remzi Yang, Tan Yee Jian and Théo Zimmermann.
+
+The Coq/Rocq community at large helped improve this new version via
+the GitHub issue and pull request system, the coq-club@inria.fr mailing list,
+the `Discourse forum <https://coq.discourse.group/>`_ and the
+`Coq Zulip chat <https://coq.zulipchat.com>`_.
+
+Version 9.0's development spanned 7 months from the release of Coq 8.20.0.
+Pierre-Marie Pédrot and Matthieu Sozeau are the release managers of Rocq 9.0.
+This release is the result of 491 merged PRs, closing 68 issues.
+
+| Nantes, March 2025
+| Pierre-Marie Pédrot and Matthieu Sozeau for the Rocq development team
+
+Porting to The Rocq Prover
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The Rocq Prover version 9.0 includes compatibility shims that make it possible
+to invoke it through legacy Coq commands: `coq-tex`, `coq_makefile`, `coqchk`, `coqdoc`, `coqpp`, `coqtop`,
+`coqwc`, `coqc`, `coqdep`, `coqnative`, `coqtimelog2html`, `coqtop.byte`, `coqworkmgr`.
+When using `opam`, this compatibility layer is provided by the packages `coq-core`,
+`coq-stdlib` and `coq`. In this setting, nothing needs to be changed to the build systems
+of existing projects to compile with Rocq 9.0 (aliased as "Coq 9.0").
+
+You should expect warnings that the standard library previously under namespace
+`Coq` has been renamed to `Stdlib`. See `this entry
+<https://rocq-prover.org/doc/v9.0/refman-stdlib/changes.html#changed>`_ from
+the Standard Library's changelog for the suggested workflow to port theories.
+
+There are important changes to consider for building plugins and libraries:
+
+- To be future-proof, projects based on `coq_makefile` can be ported to not rely
+  on the compatibility layer anymore. To do so, one must replace uses of
+  `coq_makefile` with :ref:`rocq makefile <rocq_makefile>`, which will directly
+  call the new `rocq` binary without relying on the compatibility shims.
+
+- If using `dune` to :ref:`build <building_dune>` a Rocq project, you will still
+  need the compatibility shim for `coq-core` so that `dune`'s Coq language extension
+  functions correctly.
+
+Regarding packaging:
+
+- Opam packages that depend on the compatibility shims should remain named as `coq-*`, whereas
+  ported packages should be named `rocq-*`, with the `coq` dependency being replaced by
+  a `rocq-core` and `rocq-stdlib` dependency (unless your package does not depend on the stdlib),
+  but **not** `rocq-prover` which is only a user-oriented metapackage.
+- Similarly, Nix packages that use the compatibility shims can be kept in
+  `coqPackages` (and can keep depending on `coq`), whereas ported packages can
+  be added in `rocqPackages`, depending on `rocq-core`.
+
+In both cases, when a `rocq` port is done, a `coq` metapackage can be kept,
+simply depending on the new `rocq` package and `coq`.
+
+Renaming Advice
+~~~~~~~~~~~~~~~
+
+We have applied the `renaming <https://rocq-prover.org/about#Name>`_ from the
+Coq Proof Assistant to The Rocq Prover in this version, and officialy supported
+projects in the `Rocq organization <https://github.com/rocq-prover>`_ will be
+renamed in the future. The Rocq Development Team's official position on renaming of
+projects *it does not officially maintain* is to let their authors do as they wish.
+We just note that the new identity is quite compatible with existing
+Rooster references. However, we encourage existing and forthcoming projects to
+adopt the new logo, its colors and fonts, see the `ìdentity guidelines
+<https://rocq-prover.org/logo>`_ for more information.
+
+The Rocq Prover Website
+~~~~~~~~~~~~~~~~~~~~~~~
+
+The Rocq Prover comes with a new `website <https://rocq-prover.org>`_ which was
+developped by Matthieu Sozeau, Nicolas Tabareau and Théo Zimmermann in
+collaboration with Bastien Sozeau of the `Noir Blanc Rouge
+<https://noirblancrouge.com/>`_ type foundry. The new website is a fork of the
+`OCaml.org <https://ocaml.org>`_ website developed by `Tarides
+<https://tarides.com/>`_. The Rocq development team is thankful for their help
+and for open-sourcing their website. It includes full support for the `Rocq
+package archive <https://github.com/coq/opam>`_, a responsive design and easy
+contributions through markdown files. The new identity, customized fonts and
+logo were designed by Bastien Sozeau, consulting for the Rocq development team.
+The logo is released under the UNLICENSE open-source `license <https://github.com/coq/rocq-prover.org/LICENSE>`_
+and customized 3rd-party fonts are released under open-source `licences <https://github.com/coq/rocq-prover.org/LICENSE-3RD-PARTY>`_.
+
+The website is deployed automatically using a
+custom `deployer <https://deploy.rocq-prover.org>`_ developed by Matthieu
+Sozeau. The deployer keeps the website up-to-date with the GitHub repositories
+of the `website <https://github.com/coq/rocq-prover.org>`__ and `documentation
+<https://github.com/coq/doc>`_. Its code is accessible on `GitHub
+<https://github.com/coq/deploy-rocq-prover.org>`_.
+
+
+Changes in 9.0.0
+~~~~~~~~~~~~~~~~
+
+.. contents::
+   :local:
+
+Kernel
+^^^^^^
+
+- **Changed:**
+  large performance improvements in kernel checking of terms with repeated subterms
+  (`#19160 <https://github.com/coq/coq/pull/19160>`_,
+  by Gaëtan Gilbert)
+- **Changed:**
+  the criteria for a parameter to be considered template in a template inductive type.
+  For a level to be template, it must now appear only once in the context of parameters,
+  and only as the return sort of the arity of some parameter. Furthermore,
+  it may appear neither in the indices of the inductive type nor in the type of its constructors.
+  Finally, a template level appearing in the return sort of the inductive type must have a zero increment
+  (`#19250 <https://github.com/coq/coq/pull/19250>`_,
+  `#19254 <https://github.com/coq/coq/pull/19254>`_,
+  `#19263 <https://github.com/coq/coq/pull/19263>`_,
+  by Pierre-Marie Pédrot).
+- **Changed:**
+  the kernel typing rules for template polymorphic inductive types do not
+  require anymore adding global constraints when applied enough. Rather,
+  template polymorphic inductive types are now a special kind of universe
+  polymorphic inductive types that do not need explicit instances and
+  can handle some amount of algebraic universe levels. The new rules are
+  strictly more general than the previous ones and thus backwards compatible
+  (`#19262 <https://github.com/coq/coq/pull/19262>`_,
+  by Pierre-Marie Pédrot).
+- **Removed:**
+  the kernel always produces an error when given terms with bad relevances
+  instead of emitting the default-error `bad-relevance` warning
+  (which is now only used by the higher layers)
+  (`#19164 <https://github.com/coq/coq/pull/19164>`_,
+  by Gaëtan Gilbert).
+
+Specification language, type inference
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **Changed:**
+  Typeclasses queries of classes that are declared with the options
+  `Typeclasses Strict Resolution` and `Typeclasses Unique Instances`
+  enabled are resolved independently of other queries, allowing them
+  to succeed even when the remaining queries fail
+  (`#18762 <https://github.com/coq/coq/pull/18762>`_,
+  by Jan-Oliver Kaiser).
+- **Changed:**
+  More systematic early check of `@{univs}`-like universe declarations
+  at the time of declaring the statement of an interactive
+  definition/theorem
+  (`#18960 <https://github.com/coq/coq/pull/18960>`_,
+  by Hugo Herbelin).
+- **Changed:**
+  The syntax :n:`Derive x SuchThat type As name` is deprecated and replaced by
+  :n:`Derive x in type as name` which itself is generalized into
+  :n:`Derive open_binders in type as name`, so that several names,
+  and possibly types to these names, can be given
+  (`#19295 <https://github.com/coq/coq/pull/19295>`_,
+  by Hugo Herbelin).
+- **Changed:**
+  `match` elaboration can unify sort quality variables to make an elimination valid
+  (`#19329 <https://github.com/coq/coq/pull/19329>`_,
+  fixes `#19327 <https://github.com/coq/coq/issues/19327>`_,
+  by Gaëtan Gilbert).
+- **Changed:**
+  ``:>`` in :token:`of_type_inst` now always declares coercions. The previous behavior,
+  deprecated since 8.18, was to declare typeclass instances instead,
+  when used in records declared with the :cmd:`Class` keyword. Look at
+  the :ref:`previous changelog entries <819_changes_spec_language>`
+  about former warnings `future-coercion-class-constructor` and
+  `future-coercion-class-field` for advice on how to update your code
+  (`#19519 <https://github.com/coq/coq/pull/19519>`_, by Pierre Roux).
+- **Changed:**
+  The unification algorithm does not solve unification problems of the
+  form `proj _ ~ _` using canonical structures when the LHS reduces or
+  is ground
+  (`#19611 <https://github.com/coq/coq/pull/19611>`_,
+  by Quentin Vermande).
+- **Changed:**
+  When unification fails to instantiate an evar because
+  of a problem that occurs under a beta-redex, we reduce
+  this beta-redex and try again
+  (`#19833 <https://github.com/coq/coq/pull/19833>`_,
+  by Quentin Vermande).
+- **Added:**
+  Ability to hide the quantification over the decreasing argument of a
+  fixpoint under a definition, with application to declaring fixpoints
+  as instance of a class
+  (`#19296 <https://github.com/coq/coq/pull/19296>`_,
+  fixes `#7913 <https://github.com/coq/coq/issues/7913>`_,
+  by Hugo Herbelin).
+- **Fixed:**
+  :cmd:`Derive` now supports :cmd:`Admitted`
+  (`#19092 <https://github.com/coq/coq/pull/19092>`_,
+  fixes `#18951 <https://github.com/coq/coq/issues/18951>`_,
+  by Hugo Herbelin).
+- **Fixed:**
+  Mishandling of let binders in `Program Fixpoint`
+  (`#19257 <https://github.com/coq/coq/pull/19257>`_,
+  fixes `#16906 <https://github.com/coq/coq/issues/16906>`_,
+  by Hugo Herbelin).
+- **Fixed:**
+  Pattern-matching in :attr:`Program` mode now supports inductive
+  types using :ref:`local definitions <let-in>` in their declaration
+  (`#19773 <https://github.com/coq/coq/pull/19773>`_,
+  fixes `#10407 <https://github.com/coq/coq/issues/10407>`_,
+  by Hugo Herbelin).
+- **Fixed:**
+  Anomaly in :cmd:`Function` when a well-founded relation had not the expected type
+  (`#19775 <https://github.com/coq/coq/pull/19775>`_,
+  fixes `#12417 <https://github.com/coq/coq/issues/12417>`_,
+  by Hugo Herbelin).
+
+Notations
+^^^^^^^^^
+
+- **Fixed:**
+  Recognized all Unicode non-spacing marks as valid identifier characters
+  (`#19693 <https://github.com/coq/coq/pull/19693>`_,
+  fixes `#19512 <https://github.com/coq/coq/issues/19512>`_,
+  by Guillaume Melquiond).
+
+Tactics
+^^^^^^^
+
+- **Changed:**
+  The reduction tactic :tacn:`hnf` becomes insensitive to the
+  :g:`simpl never` status of constants, as prescribed in the reference
+  manual; this can exceptionally impact the behavior of :tacn:`intros`
+  on goals defining an implicative or universally quantified statement
+  by recursion (`#18580 <https://github.com/coq/coq/pull/18580>`_,
+  by Hugo Herbelin).
+- **Changed:**
+  `Ncring_tac.extra_reify` is expected to return `tt` on failure and
+  the reification result on success, instead of `(false, anything)` on failure
+  and `(true, result)` on success
+  (this only matters to users overriding it to extend the Ncring reification)
+  (`#19501 <https://github.com/coq/coq/pull/19501>`_,
+  by Gaëtan Gilbert).
+- **Removed:**
+  the deprecated `gintuition` tactic
+  (`#19704 <https://github.com/coq/coq/pull/19704>`_,
+  by Pierre-Marie Pédrot).
+- **Removed:**
+  `dfs eauto` tactic, which was deprecated in 8.16
+  (`#19817 <https://github.com/coq/coq/pull/19817>`_,
+  by Jim Fehrle).
+- **Added:**
+  The :flag:`Info Micromega` flag (unset by default) makes :tacn:`lia`,
+  :tacn:`lra`, :tacn:`nia` and :tacn:`nra` print the names of
+  hypotheses used by the proof
+  (`#19703 <https://github.com/coq/coq/pull/19703>`_,
+  by Frédéric Besson).
+- **Fixed:**
+  Refolding of constants marked as :g:`simpl never` in position of
+  argument of a destructor in :tacn:`simpl`; note that this may
+  occasionally cause some calls to :tacn:`simpl` to satisfy more
+  scrupulously :g:`simpl never` and to stop reducing further in
+  subterms that are *not* in position of argument of a destructor, as
+  specified by :g:`simpl never`
+  (`#18591 <https://github.com/coq/coq/pull/18591>`_,
+  fixes `#16040 <https://github.com/coq/coq/issues/16040>`_,
+  by Hugo Herbelin).
+- **Fixed:**
+  `Set Typeclasses Strict Resolution` is no longer ignored in
+  `typeclasses eauto with <dbs>`
+  (`#19436 <https://github.com/coq/coq/pull/19436>`_,
+  fixes `#15432 <https://github.com/coq/coq/issues/15432>`_,
+  by Jan-Oliver Kaiser).
+- **Fixed:**
+  Unbound variables were sometimes generated when a metavariable of a
+  theorem given to :tacn:`apply` occurred in the type of the theorem
+  under a :n:`fun`
+  (`#19769 <https://github.com/coq/coq/pull/19769>`_,
+  fixes `#17314 <https://github.com/coq/coq/issues/17314>`_,
+  by Hugo Herbelin).
+- **Fixed:**
+  `cbn` now considers primitive literals (integers, floats, arrays, strings)
+  "constructors", i.e. they now satisfy the `!` modifier in `Arguments`
+  (`#20004 <https://github.com/coq/coq/pull/20004>`_,
+  fixes `#20003 <https://github.com/coq/coq/issues/20003>`_,
+  by Jan-Oliver Kaiser).
+
+Ltac2 language
+^^^^^^^^^^^^^^
+
+- **Deprecated:**
+  `Ltac2.Constr.occur_between` and `occurn` whose return values are the opposite of that implied by their names
+  (`#19614 <https://github.com/coq/coq/pull/19614>`_,
+  by Gaëtan Gilbert).
+- **Added:**
+  Added Ltac2 bindings for congruence and simpl congruence, it fixes #14289 not entirely but provides Ltac2 bindings for one of the tactics listed there
+  (`#19032 <https://github.com/coq/coq/pull/19032>`_,
+  fixes `#14289 <https://github.com/coq/coq/issues/14289>`_,
+  by Benny Smit, reviewed by Jason Gross, Pierre-Marie Pédrot, Gaëtan Gilbert).
+- **Added:**
+  APIs `compare` `of_int` and `print` in `Ltac2.Uint63`
+  (`#19197 <https://github.com/coq/coq/pull/19197>`_,
+  by Gaëtan Gilbert).
+- **Added:**
+  :cmd:`Ltac2 Type` supports deprecation of the declared constructors
+  (`#19575 <https://github.com/coq/coq/pull/19575>`_,
+  by Gaëtan Gilbert).
+- **Added:**
+  `Ltac2.Constr.noccur_between` and `noccurn` to test for non-occurrence of local variables in terms
+  (`#19614 <https://github.com/coq/coq/pull/19614>`_,
+  by Gaëtan Gilbert).
+- **Added:**
+  `Ltac2.Control.hyp_value` to get the value (`v` in `H := v`) of an hypothesis
+  (`#19630 <https://github.com/coq/coq/pull/19630>`_,
+  by Gaëtan Gilbert).
+- **Fixed:**
+  resolution of :ref:`abbreviations <Abbreviations>` in :n:`reference`
+  in :token:`ltac2_quotations`, for instance in eval tactic
+  delta-reduction flags :token:`ltac2_delta_reductions`
+  (`#19589 <https://github.com/coq/coq/pull/19589>`_,
+  fixes `#19590 <https://github.com/coq/coq/issues/19590>`_,
+  by Pierre Roux).
+- **Fixed:**
+  `Ltac2 Eval` does not require to be focused in a goal
+  anymore (`#19961 <https://github.com/coq/coq/pull/19961>`_, by
+  Daniil Iaitskov).
+
+SSReflect
+^^^^^^^^^
+
+- **Changed:**
+  The :tacn:`done` tactic now tries to apply `sym_equal` with four arguments
+  instead of trying first with zero to three arguments
+  (`#19372 <https://github.com/coq/coq/pull/19372>`_,
+  by Quentin Vermande).
+- **Changed:**
+  `done` uses `simple refine` instead of `apply` to apply `sym_equal`
+  (`#19399 <https://github.com/coq/coq/pull/19399>`_,
+  by Quentin Vermande).
+- **Removed:**
+  no longer used lemma ``not_locked_false_eq_true``
+  and its call in the :tacn:`done` tactic
+  (`#19382 <https://github.com/coq/coq/pull/19382>`_,
+  by Pierre Roux).
+
+Commands and options
+^^^^^^^^^^^^^^^^^^^^
+
+- **Changed:**
+  :cmd:`Variables` and its aliases do not share the type of combined binders anymore.
+  This makes for instance `Variables a b : T` strictly equivalent to `Variables (a: T) (b : T).`
+  (when `a` is not bound in `T`).
+  The difference matters when interpreting `T` generates fresh universes or existential variables:
+  they will be distinct in the types of `a` and `b`.
+  This was already the case for binders in terms (eg `fun (a b : T) => ...`), :cmd:`Context`,
+  and when :flag:`Universe Polymorphism` is enabled
+  (`#19277 <https://github.com/coq/coq/pull/19277>`_,
+  by Gaëtan Gilbert).
+- **Changed:**
+  :cmd:`Guarded` and :cmd:`Validate Proof` are now internally classified as "queries" instead of "proof steps".
+  This means they should not be counted anymore when stepping back with :cmd:`Undo`.
+  (`#19383 <https://github.com/coq/coq/pull/19383>`_,
+  by Gaëtan Gilbert).
+- **Changed:**
+  template polymorphism can bind universes which do not appear in the inductive's conclusion.
+  For instance `eq` and `ex` are now template polymorphic.
+  (`#19528 <https://github.com/coq/coq/pull/19528>`_,
+  by Gaëtan Gilbert).
+- **Changed:**
+  The order of hints shown in the "For any goal" category in :cmd:`Print HintDb`
+  now matches the order in which they will be tried.
+  Previously the entries were misordered on their priority
+  (`#19624 <https://github.com/coq/coq/pull/19624>`_,
+  by Jim Fehrle).
+- **Changed:**
+  The :cmd:`Hint Rewrite` command now requires a *non-empty* list of hintDbs
+  after the colon to be consistent with other Hint commands.  If your script
+  has an empty list of hintDbs, fix it by removing the colon
+  (`#19730 <https://github.com/coq/coq/pull/19730>`_,
+  by Jim Fehrle).
+- **Changed:**
+  :cmd:`Create HintDb` no longer erases pre-existing hint databases
+  (`#19808 <https://github.com/coq/coq/pull/19808>`_,
+  by Gaëtan Gilbert).
+
+.. _LegacyLoadingRemoval:
+
+- **Removed:**
+  "legacy" (non-findlib) loading mode for plugins in :cmd:`Declare ML Module`
+  (`#18385 <https://github.com/coq/coq/pull/18385>`_,
+  by Emilio Jesús Gallego Arias and Gaëtan Gilbert).
+- **Removed:**
+  :n:`: @type` annotation in :cmd:`Obligation` which was ignored when executing the command
+  (`#19678 <https://github.com/coq/coq/pull/19678>`_,
+  by Gaëtan Gilbert).
+- **Removed:**
+  flag `Automatic Proposition Inductives` (using its effect was deprecated since 8.20)
+  (`#19872 <https://github.com/coq/coq/pull/19872>`_,
+  by Gaëtan Gilbert).
+- **Added:**
+  New :cmd:`Arguments`' modifier `clear simpl` to reset `simpl` reduction flags
+  (`#19216 <https://github.com/coq/coq/pull/19216>`_,
+  by Hugo Herbelin).
+- **Added:**
+  The ``use`` field of the :attr:`deprecated` attribute lets one specify
+  a replacement for a ``Theorem``, ``Definition`` or ``Notation`` that is
+  printed as part of the deprecation warning message and also used to suggest
+  a quick fix in LSP based user interfaces
+  (`#19300 <https://github.com/coq/coq/pull/19300>`_,
+  by Enrico Tassi).
+- **Added:**
+  :cmd:`Register`, :cmd:`Register Scheme` and :cmd:`Add Zify`
+  now support attributes :attr:`local`, :attr:`export` and :attr:`global`
+  (`#19362 <https://github.com/coq/coq/pull/19362>`_,
+  by Gaëtan Gilbert).
+- **Added:**
+  :cmd:`Add` and :cmd:`Remove`
+  now support attributes :attr:`local`, :attr:`export` and :attr:`global`
+  (`#19390 <https://github.com/coq/coq/pull/19390>`_,
+  by Gaëtan Gilbert).
+- **Added:**
+  Default hint mode option for typeclasses, mode attribute on Class
+  declarations overriding the default and class-declaration-default-mode
+  warning to check for uses of the default mode
+  (`#19473 <https://github.com/coq/coq/pull/19473>`_,
+  by Matthieu Sozeau).
+- **Added:**
+  :cmd:`Profile` command modifier to get profiling information for a given command
+  (`#19517 <https://github.com/coq/coq/pull/19517>`_,
+  by Gaëtan Gilbert).
+- **Added:**
+  :cmd:`Print Universes` `Subgraph` accepts raw universe names (which end in an integer instead of an identifier)
+  for debugging purposes, eg `Print Universes Subgraph ("foo.1" "foo.2")`.
+  The integer in raw universe expressions is extremely unstable,
+  so raw universe expressions should not be used outside debugging sessions
+  (`#19640 <https://github.com/coq/coq/pull/19640>`_,
+  by Gaëtan Gilbert).
+- **Fixed:**
+  the effect of :cmd:`Export` survives sections
+  (the previous behaviour was identical to :cmd:`Import` in sections)
+  (`#19361 <https://github.com/coq/coq/pull/19361>`_,
+  fixes `#19360 <https://github.com/coq/coq/issues/19360>`_,
+  by Gaëtan Gilbert).
+- **Fixed:**
+  Anomaly when printing a module functor with :cmd:`Strategy` or
+  :cmd:`Transparent` in one of its parameters
+  (`#19768 <https://github.com/coq/coq/pull/19768>`_,
+  fixes `#19767 <https://github.com/coq/coq/issues/19767>`_,
+  by Hugo Herbelin).
+- **Fixed:**
+  :opt:`Debug` and :opt:`Warnings` are classified as Synterp.
+  This changes the scheduling during :cmd:`Import` such that putting `#[export] Set Warnings` around a specific command may change behaviour.
+  (`#19981 <https://github.com/coq/coq/pull/19981>`_,
+  by Gaëtan Gilbert).
+
+Command-line tools
+^^^^^^^^^^^^^^^^^^
+
+- **Changed:**
+  The ``-compat`` :ref:`command line option <command-line-options>`
+  now raises a warning rather than an error when the compatibility file
+  doesn't exist. This enables easier use of the compat mechanism with
+  versions where the compatibility file doesn't exist yet
+  (`#19370 <https://github.com/coq/coq/pull/19370>`_,
+  by Pierre Roux).
+- **Changed:**
+  `coq_makefile` generated makefiles only install plugin `.cmxs` files in findlib locations
+  and stop putting a copy in `user-contrib` (the copy should be useless after the removal of plugin legacy loading)
+  (`#19841 <https://github.com/coq/coq/pull/19841>`_,
+  by Gaëtan Gilbert).
+- **Removed:**
+  `coqdep` flag `-m` (it was used through `coq_makefile`)
+  (`#19863 <https://github.com/coq/coq/pull/19863>`_,
+  by Gaëtan Gilbert).
+- **Added:**
+  :ref:`command line option <command-line-options>` ``-compat-from``
+  to enable writing compatibility files for libraries similarly to the
+  ``-compat`` option for Rocq
+  (`#19370 <https://github.com/coq/coq/pull/19370>`_,
+  by Pierre Roux).
+- **Added:**
+  The ``-compat`` :ref:`command line option <command-line-options>`
+  now silences deprecation warnings that were introduced since the
+  given version
+  (`#19370 <https://github.com/coq/coq/pull/19370>`_,
+  by Pierre Roux).
+
+RocqIDE
+^^^^^^^
+
+- **Changed:**
+  Improved Preferences dialog: larger margins,
+  tree of categories, sections in the categories,
+  spin buttons for numbers, preservation of the last
+  selected category, and more
+  (`#19417 <https://github.com/coq/coq/pull/19417>`_,
+  by Sylvain Chiron).
+- **Fixed:**
+  All preferences are now applied after clicking Apply or OK
+  rather than immediately
+  (`#19417 <https://github.com/coq/coq/pull/19417>`_,
+  by Sylvain Chiron).
+- **Fixed:**
+  Changing the allowed modifiers in the Shortcuts panel of
+  the Preferences dialog now immediately updates the available
+  modifiers for the listed items
+  (`#19417 <https://github.com/coq/coq/pull/19417>`_,
+  by Sylvain Chiron).
+- **Added:**
+  Preference setting for unjustified conclusions background color
+  (`#19417 <https://github.com/coq/coq/pull/19417>`_,
+  by Sylvain Chiron).
+- **Changed:**
+  CoqIDE is renamed to RocqIDE (the auxiliary binary `coqidetop` is not renamed)
+  (`#20036 <https://github.com/coq/coq/pull/20036>`_,
+  by Gaëtan Gilbert).
+- **Added:**
+  Warnings are now included in the Errors panel
+  (`#19188 <https://github.com/coq/coq/pull/19188>`_,
+  by Jim Fehrle).
+- **Fixed:**
+  Changing the position of buffer names (top, left,
+  bottom or right) no longer needs a restart
+  (`#19166 <https://github.com/coq/coq/pull/19166>`_,
+  by Sylvain Chiron).
+- **Added:**
+  Document tabs are now reorderable
+  (`#19166 <https://github.com/coq/coq/pull/19166>`_,
+  by Sylvain Chiron).
+
+Standard library
+^^^^^^^^^^^^^^^^
+
+.. _90stdlib:
+
+- **Changed:**
+  Stdlib moved to its own repository, look for
+  `Stdlib own changelog <https://rocq-prover.org/doc/v9.0/refman-stdlib/changes.html>`_
+  for other changes there
+  (`#19975 <https://github.com/coq/coq/pull/19975>`_,
+  by Pierre Roux).
+- **Added:**
+  a new `rocq-core` package for users who don't want to depend on Stdlib.
+  This provides `Corelib <https://rocq-prover.org/doc/v9.0/corelib>`_ a tiny subset of Stdlib
+  (`#19530 <https://github.com/coq/coq/pull/19530>`_,
+  starting to implement `CEP#83 <https://github.com/coq/ceps/pull/83>`_
+  by Pierre Roux).
+
+Infrastructure and dependencies
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **Changed:**
+  when building Coq, the makefile's `world` target and `dune build`'s default target do not build rocqide anymore.
+  Use `make world rocqide` or `dune build @default rocqide.install` to build what they respectively used to build
+  (`#19378 <https://github.com/coq/coq/pull/19378>`_,
+  by Gaëtan Gilbert).
+- **Changed:**
+  `coq_makefile` generates profiling info for `coqc` in `foo.vo.prof.json.gz` instead of `foo.v.prof.json.gz`
+  (`#19428 <https://github.com/coq/coq/pull/19428>`_,
+  by Gaëtan Gilbert).
+- **Added:**
+  `coq_makefile` generates profiling info for `coqchk` in `validate.prof.json.gz`
+  (`#19428 <https://github.com/coq/coq/pull/19428>`_,
+  by Gaëtan Gilbert).
+- **Changed:**
+  minimal Dune version required to build Coq bumped to 3.8.3
+  (`#19621 <https://github.com/coq/coq/pull/19621>`_,
+  by Pierre Roux).
+
+Miscellaneous
+^^^^^^^^^^^^^
+
+- **Changed:**
+  the current working directory is not implicitly added to the ML search path
+  (`#19834 <https://github.com/coq/coq/pull/19834>`_,
+  by Gaëtan Gilbert).
+- **Changed:**
+  the `user-contrib`, XDG and `COQPATH` directories are not implicitly added to the ML loadpath
+  (`#19842 <https://github.com/coq/coq/pull/19842>`_,
+  by Gaëtan Gilbert).
+
 Version 8.20
 ------------
 
@@ -22,7 +697,7 @@ We highlight some of the most impactful changes here:
 
   - :ref:`rewrite_rules`
 
-  - :ref:`primitive strings <pstring_library>`
+  - `primitive strings <https://github.com/coq/coq/pull/18973>`_
 
   - A lot of work went into reducing the size of the bytecode segment,
     which in turn means that .vo files might now be considerably
@@ -147,6 +822,8 @@ Kernel
 - **Added:** Support for primitive strings in terms
   (`#18973 <https://github.com/coq/coq/pull/18973>`_,
   by Rodolphe Lepigre).
+
+.. _819_changes_spec_language:
 
 Specification language, type inference
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -364,7 +1041,7 @@ Tactics
   (`#19006 <https://github.com/coq/coq/pull/19006>`_,
   by Pierre-Marie Pédrot).
 - **Deprecated:**
-  the :tacn:`gintuition` tactic, which used to be undocumented
+  the `gintuition` tactic, which used to be undocumented
   until Coq 8.16
   (`#19129 <https://github.com/coq/coq/pull/19129>`_,
   by Pierre-Marie Pédrot).
@@ -441,7 +1118,7 @@ Ltac2 language
   (`#18411 <https://github.com/coq/coq/pull/18411>`_,
   by Gaëtan Gilbert).
 - **Changed:**
-  Ltac2 are typechecked at declaration time by default.
+  Ltac2 notations are typechecked at declaration time by default.
   This should produce better errors when a notation argument does not have the expected type
   (e.g. wrong branch type in `match! goal`).
   In the previous behaviour of typechecking, only the expansion result can be
@@ -522,9 +1199,8 @@ Ltac2 language
   (`#18988 <https://github.com/coq/coq/pull/18988>`_,
   by Gaëtan Gilbert).
 - **Added:**
-  :flag:`Automatic Proposition Inductives`, :flag:`Dependent Proposition Eliminators` and
-  :warn:`warning when automatically lowering an inductive declared with Type to Prop
-  <automatic-prop-lowering>`
+  flag `Automatic Proposition Inductives`, :flag:`Dependent Proposition Eliminators` and
+  warning `automatic-prop-lowering`
   (`#18989 <https://github.com/coq/coq/pull/18989>`_,
   by Gaëtan Gilbert).
 - **Added:**
@@ -994,6 +1670,48 @@ Extraction
   by Hugo Herbelin). Note that OCaml wrappers assuming that the
   applicative syntax of projections is provided may have
   to use the dot notation instead.
+
+Changes in 8.20.1
+~~~~~~~~~~~~~~~~~
+
+.. contents::
+   :local:
+
+Kernel
+^^^^^^
+
+- **Fixed:**
+  Possible guard checker anomaly on fixpoints containing an inner
+  fixpoint that is reducible (because of its main argument reducing to a
+  constructor). This is a regression in 8.20
+  (`#19671 <https://github.com/coq/coq/pull/19671>`_,
+  fixes `#19661 <https://github.com/coq/coq/issues/19661>`_,
+  by Hugo Herbelin).
+
+Notations
+^^^^^^^^^
+
+- **Fixed:**
+  spurious warning about incompatible prefixes in presence of ``as
+  pattern`` :n:`@syntax_modifier`
+  (`#19653 <https://github.com/coq/coq/pull/19653>`_,
+  fixes `#19541 <https://github.com/coq/coq/issues/19541>`_,
+  by Pierre Roux).
+- **Fixed:**
+  spurious warning about incompatible prefixes in presence of
+  recursive notations
+  (`#19673 <https://github.com/coq/coq/pull/19673>`_,
+  fixes `#19658 <https://github.com/coq/coq/issues/19658>`_,
+  by Pierre Roux).
+
+Tactics
+^^^^^^^
+
+- **Fixed:**
+  a regression in `Hint Extern` matching primitive projections
+  (`#19675 <https://github.com/coq/coq/pull/19675>`_,
+  fixes `#19668 <https://github.com/coq/coq/issues/19668>`_,
+  by Jan-Oliver Kaiser).
 
 Version 8.19
 ------------
@@ -2236,7 +2954,7 @@ Command-line tools
   ``coq_makefile`` when compiling OCaml code, since
   it is no longer required by Coq. To re-enable passing
   the flag, put ``CAMLFLAGS+=-rectypes`` in the local makefile,
-  e.g., ``CoqMakefile.local`` (see :ref:`coqmakefilelocal`)
+  e.g., ``CoqMakefile.local`` (see :ref:`rocqmakefilelocal`)
   (`#17038 <https://github.com/coq/coq/pull/17038>`_,
   by Karl Palmskog with help from Gaëtan Gilbert).
 - **Changed:**
@@ -4507,7 +5225,7 @@ Command-line tools
   by Emilio Jesus Gallego Arias).
 - **Changed:**
   Syntax of `_CoqProject` files: `-arg` is now handled by :ref:`coq_makefile
-  <coq_makefile>` and not by `make`. Unquoted `#` now start line comments
+  <rocq_makefile>` and not by `make`. Unquoted `#` now start line comments
   (`#14558 <https://github.com/coq/coq/pull/14558>`_,
   by Stéphane Desarzens, with help from Jim Fehrle and Enrico Tassi).
 - **Changed:**
@@ -4527,13 +5245,13 @@ Command-line tools
   (`#14957 <https://github.com/coq/coq/pull/14957>`_,
   by Gaëtan Gilbert)
 - **Removed:**
-  These options of :ref:`coq_makefile <coq_makefile>`: `-extra`, `-extra-phony`,
+  These options of :ref:`coq_makefile <rocq_makefile>`: `-extra`, `-extra-phony`,
   `-custom`, `-no-install`, `-install`, `-no-opt`, `-byte`.
   Support for subdirectories is also removed
   (`#14558 <https://github.com/coq/coq/pull/14558>`_,
   by Stéphane Desarzens, with help from Jim Fehrle and Enrico Tassi).
 - **Added:**
-  :ref:`coq_makefile <coq_makefile>` now takes the `-docroot` option as alternative to the
+  :ref:`coq_makefile <rocq_makefile>` now takes the `-docroot` option as alternative to the
   `INSTALLCOQDOCROOT` variable
   (`#14558 <https://github.com/coq/coq/pull/14558>`_,
   by Stéphane Desarzens, with help from Jim Fehrle and Enrico Tassi).
@@ -4576,7 +5294,7 @@ CoqIDE
   visually and jumping to the stopping point plus continue, step over,
   step in and step out operations.  Displays the call stack and
   variable values for each stack frame.  Currently only for Ltac.
-  See the documentation :ref:`here <coqide-debugger>`
+  See the documentation :ref:`here <rocqide-debugger>`
   (`#14644 <https://github.com/coq/coq/pull/14644>`_,
   fixes `#13967 <https://github.com/coq/coq/issues/13967>`_,
   by Jim Fehrle)
@@ -5455,14 +6173,14 @@ Native Compilation
   by Pierre-Marie Pédrot).
 - **Deprecated:**
   the `-native-compiler` option for coqc. It is now recommended
-  to use the :ref:`coqnative` binary instead to generate native
+  to use the :ref:`rocqnative` binary instead to generate native
   compilation files ahead of time
   (`#14309 <https://github.com/coq/coq/pull/14309>`_,
   by Pierre-Marie Pédrot).
 - **Added:**
   A standalone `coqnative` binary that performs native compilation
   out of `vo` files, allowing to split library compilation from
-  native compilation. See :ref:`coqnative`. The hybrid build
+  native compilation. See :ref:`rocqnative`. The hybrid build
   system was adapted to perform a split compilation on the stdlib
   (`#13287 <https://github.com/coq/coq/pull/13287>`_,
   by Pierre-Marie Pédrot).
@@ -6091,7 +6809,7 @@ Notations
   (`#12979 <https://github.com/coq/coq/pull/12979>`_,
   by Pierre Roux).
 - **Added:**
-  :flag:`Printing Float` flag to print primitive floats as hexadecimal
+  ``Printing Float`` flag to print primitive floats as hexadecimal
   instead of decimal values. This is included in the :flag:`Printing All` flag
   (`#11986 <https://github.com/coq/coq/pull/11986>`_,
   by Pierre Roux).
@@ -6320,7 +7038,7 @@ Tools
 - **Changed:**
   Added the ability for coq_makefile to directly set the installation folders,
   through the `COQLIBINSTALL` and `COQDOCINSTALL` variables.
-  See :ref:`coqmakefilelocal`
+  See :ref:`rocqmakefilelocal`
   (`#12389 <https://github.com/coq/coq/pull/12389>`_, by Martin Bodin, review of Enrico Tassi).
 - **Removed:** The option ``-I`` of coqchk was removed (it was
   deprecated in Coq 8.8) (`#12613
@@ -7175,7 +7893,7 @@ Tools
   <https://github.com/coq/coq/pull/12034>`_, by Gaëtan Gilbert).
 - **Added:**
   A new documentation environment ``details`` to make certain portion
-  of a Coq document foldable.  See :ref:`coqdoc-hide-show`
+  of a Coq document foldable.  See :ref:`rocqdoc-hide-show`
   (`#10592 <https://github.com/coq/coq/pull/10592>`_,
   by Thomas Letan).
 - **Added:**
@@ -8049,7 +8767,7 @@ Changes in 8.11+beta1
      The following features an implicit argument after a local
      definition. It was wrongly rejected.
 
-     .. coqtop:: in
+     .. rocqtop:: in
 
         Definition f := fix f (o := true) {n : nat} m {struct m} :=
           match m with 0 => 0 | S m' => f (n:=n+1) m' end.
@@ -8688,7 +9406,7 @@ reference manual. Here are the most important user-visible changes:
     ``\alpha`` then ``Shift+Space`` will insert the greek letter alpha.
     A larger number of default bindings are provided, following the latex
     naming convention. Bindings can be customized, either globally, or on a
-    per-project basis. See Section :ref:`coqide-unicode` for details
+    per-project basis. See Section :ref:`rocqide-unicode` for details
     (`#8560 <https://github.com/coq/coq/pull/8560>`_, by Arthur Charguéraud).
 
 - Infrastructure and dependencies:
@@ -11513,7 +12231,7 @@ Interfaces
 - Coqtop/coqc outputs highlighted syntax. Colors can be configured thanks
   to the COQ_COLORS environment variable, and their current state can
   be displayed with the -list-tags command line option.
-- Third party user interfaces can install their main loop in $COQLIB/toploop
+- Third party user interfaces can install their main loop in $ROCQLIB/toploop
   and call coqtop with the -toploop flag to select it.
 
 Internal Infrastructure

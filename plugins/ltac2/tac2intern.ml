@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -22,17 +22,14 @@ open Tac2typing_env
 
 (** Hardwired types and constants *)
 
-let coq_type n = KerName.make Tac2env.coq_prefix (Label.make n)
-let ltac1_kn n = KerName.make Tac2env.ltac1_prefix (Label.make n)
+let rocq_type n = KerName.make Tac2env.rocq_prefix (Label.make n)
 
-let t_int = coq_type "int"
-let t_string = coq_type "string"
-let t_constr = coq_type "constr"
-let t_ltac1 = ltac1_kn "t"
-let ltac1_lamdba = ltac1_kn "lambda"
-let t_preterm = coq_type "preterm"
-let t_pattern = coq_type "pattern"
-let t_bool = coq_type "bool"
+let t_int = rocq_type "int"
+let t_string = rocq_type "string"
+let t_constr = rocq_type "constr"
+let t_preterm = rocq_type "preterm"
+let t_pattern = rocq_type "pattern"
+let t_bool = rocq_type "bool"
 
 let ltac2_env : Tac2typing_env.t Genintern.Store.field =
   Genintern.Store.field "ltac2_env"
@@ -195,7 +192,9 @@ let get_constructor env var = match var with
 | RelId qid ->
   let c = try Some (Tac2env.locate_constructor qid) with Not_found -> None in
   begin match c with
-  | Some knc -> Other knc
+  | Some knc ->
+    Tac2env.constructor_user_warn knc ;
+    Other knc
   | None ->
     CErrors.user_err ?loc:qid.CAst.loc (str "Unbound constructor " ++ pr_qualid qid)
   end
@@ -537,9 +536,9 @@ let make_ctor ctyp tdata is_const n =
   let cnargs = if is_const then 0 else
       let rec find n = function
         | [] -> assert false
-        | (_, []) :: rem ->
+        | (_, _, []) :: rem ->
           find n rem
-        | (_, argtys) :: rem ->
+        | (_, _, argtys) :: rem ->
           if Int.equal n 0 then List.length argtys
           else find (pred n) rem
       in
@@ -644,13 +643,13 @@ let specialized_types env ts ctor = match ts with
           let () = unify env t ans in
           types
         | GTydAlg tdata ->
-          let ctors = List.filter (fun (_,argts) ->
+          let ctors = List.filter (fun (_, _,argts) ->
               if cnargs = 0
               then List.is_empty argts
               else not (List.is_empty argts))
               tdata.galg_constructors
           in
-          let _, argts = List.nth ctors i in
+          let _, _, argts = List.nth ctors i in
           let subst = Array.init ntargs (fun _ -> fresh_id env) in
           let substf i = GTypVar subst.(i) in
           let types = List.map (fun t -> subst_type substf t) argts in
@@ -949,7 +948,7 @@ let to_simple_case env ?loc (e,t) pl =
         | GTydRec _ -> raise HardCase
         | _ -> assert false
       in
-      let arities = List.map (fun (_, args) -> List.length args) galg.galg_constructors in
+      let arities = List.map (fun (_, _, args) -> List.length args) galg.galg_constructors in
       galg.galg_nconst, galg.galg_nnonconst, arities
     in
     let const = Array.make nconst None in
@@ -1112,22 +1111,28 @@ let warn_unused_variables = CWarnings.create ~name:"ltac2-unused-variable"
     ~category:CWarnings.CoreCategories.ltac2
     Pp.(fun ids -> str "Unused " ++ str (String.lplural ids "variable") ++ str ":" ++ spc() ++ prlist_with_sep spc Id.print ids ++ str ".")
 
-let check_unused_variables ?loc env bnd =
-  let unused, _seen = List.fold_right (fun na (unused,seen) -> match na with
-      | Anonymous -> (unused, seen)
-      | Name id ->
-        (* if [id] occurred in the tail of the list, this occurrence is unused
-           (eg in [fun x x => x] the first [x] is unused) *)
-        let unused =
-          if CString.is_prefix "_" (Id.to_string id)
-          || (not (Id.Set.mem id seen) && is_used_var id env)
-          then unused
-          else id :: unused
-        in
-        unused, (Id.Set.add id seen))
+let list_unused_variables env bnd =
+  let unused, _seen =
+    List.fold_right (fun na (unused,seen) ->
+        match na with
+        | Anonymous -> (unused, seen)
+        | Name id ->
+          (* if [id] occurred in the tail of the list, this occurrence is unused
+             (eg in [fun x x => x] the first [x] is unused) *)
+          let unused =
+            if CString.is_prefix "_" (Id.to_string id)
+            || (not (Id.Set.mem id seen) && is_used_var id env)
+            then unused
+            else id :: unused
+          in
+          unused, (Id.Set.add id seen))
       bnd
       ([], Id.Set.empty)
   in
+  unused
+
+let check_unused_variables ?loc env bnd =
+  let unused = list_unused_variables env bnd in
   if CList.is_empty unused then ()
   else warn_unused_variables ?loc unused
 
@@ -1342,20 +1347,13 @@ let rec intern_rec env tycon {loc;v=e} =
   check (GTacSet (pinfo.pdata_type, e, pinfo.pdata_indx, r), GTypRef (Tuple 0, []))
 | CTacExt (tag, arg) ->
   let open Genintern in
-  let self ist e =
-    let env = match Store.get ist.extra ltac2_env with
-    | None -> empty_env ()
-    | Some env -> env
-    in
-    intern_rec env None e
-  in
   let obj = interp_ml_object tag in
   (* External objects do not have access to the named context because this is
      not stable by dynamic semantics. *)
   let genv = Global.env_of_context Environ.empty_named_context_val in
   let ist = empty_glob_sign ~strict:(env_strict env) genv in
   let ist = { ist with extra = Store.set ist.extra ltac2_env env } in
-  let arg, tpe = obj.ml_intern self ist arg in
+  let arg, tpe = obj.ml_intern ist arg in
   let e = match arg with
   | GlbVal arg -> GTacExt (tag, arg)
   | GlbTacexpr e -> e
@@ -1585,9 +1583,13 @@ let intern_typedef self (ids, t) : glb_quant_typedef =
   | CTydDef None -> (count, GTydDef None)
   | CTydDef (Some t) -> (count, GTydDef (Some (intern t)))
   | CTydAlg constrs ->
-    let map (c, t) = (c, List.map intern t) in
+    let map (atts, c, t) =
+      let warn = Attributes.parse Attributes.user_warns atts in
+      let t = List.map intern t in
+      (warn, c, t)
+    in
     let constrs = List.map map constrs in
-    let getn (const, nonconst) (c, args) = match args with
+    let getn (const, nonconst) (_, c, args) = match args with
     | [] -> (succ const, nonconst)
     | _ :: _ -> (const, succ nonconst)
     in
@@ -1896,9 +1898,9 @@ let subst_typedef subst e = match e with
   let t' = Option.Smart.map (fun t -> subst_type subst t) t in
   if t' == t then e else GTydDef t'
 | GTydAlg galg ->
-  let map (c, tl as p) =
+  let map (warn, c, tl as p) =
     let tl' = List.Smart.map (fun t -> subst_type subst t) tl in
-    if tl' == tl then p else (c, tl')
+    if tl' == tl then p else (warn, c, tl')
   in
   let constrs' = List.Smart.map map galg.galg_constructors in
   if constrs' == galg.galg_constructors then e
@@ -2060,79 +2062,68 @@ let rec subst_rawexpr subst ({loc;v=tr} as t) = match tr with
 
 (** Registering *)
 
-let () =
+let genintern_core ?(check_unused=true) ist locals expected v =
   let open Genintern in
-  let intern ist (ids, tac) =
-    let ids = List.map (fun { CAst.v = id } -> id) ids in
-    let env = match Genintern.Store.get ist.extra ltac2_env with
+  let env = match Genintern.Store.get ist.extra ltac2_env with
     | None ->
       (* Only happens when Ltac2 is called from a toplevel ltac1 quotation *)
       empty_env ~strict:ist.strict_check ()
     | Some env -> env
-    in
-    let fold env id =
-      push_name (Name id) (monomorphic (GTypRef (Other t_ltac1, []))) env
-    in
-    let env = List.fold_left fold env ids in
-    let loc = tac.loc in
-    let (tac, t) = intern_rec env None tac in
-    let () = check_unused_variables ?loc env (List.map (fun x -> Name x) ids) in
-    let () = check_elt_unit loc env t in
-    (ist, (ids, tac))
   in
-  Genintern.register_intern0 wit_ltac2in1 intern
+  let env = List.fold_left (fun env (na,t) -> push_name na t env) env locals in
+  let loc = v.CAst.loc in
+  let v, t = intern_rec env expected v in
+  let () = if check_unused then check_unused_variables ?loc env (List.map fst locals) in
+  env, v, t
 
-let () =
-  let open Genintern in
-  let add_lambda id tac =
-    let pat = CAst.make ?loc:id.CAst.loc (CPatVar (Name id.v)) in
-    let loc = tac.CAst.loc in
-    let mk v = CAst.make ?loc v in
-    let lam = mk @@ CTacFun ([pat], tac) in
-    mk @@ CTacApp (mk @@ CTacRef (AbsKn (TacConstant ltac1_lamdba)), [lam])
-  in
-  let intern ist (bnd,tac) =
-    let env = match Genintern.Store.get ist.extra ltac2_env with
-    | None ->
-      (* Only happens when Ltac2 is called from a toplevel ltac1 quotation *)
-      empty_env ~strict:ist.strict_check ()
-    | Some env -> env
-    in
-    let tac = List.fold_right add_lambda bnd tac in
-    let tac = intern_rec_with_constraint env tac (GTypRef (Other t_ltac1, [])) in
-    (ist, tac)
-  in
-  Genintern.register_intern0 wit_ltac2in1_val intern
+let genintern_warn_not_unit ?check_unused ist locals ({CAst.loc} as v) =
+  let env, v, t = genintern_core ?check_unused ist locals None v in
+  let () = check_elt_unit loc env t in
+  v
+
+let genintern ?check_unused ist locals expected v =
+  let _, v, _ = genintern_core ?check_unused ist locals (Some expected) v in
+  v
 
 let () =
   let open Genintern in
   let intern ist tac =
-    let env = match Genintern.Store.get ist.extra ltac2_env with
-    | None ->
-      (* Only happens when Ltac2 is called from a constr quotation *)
-      empty_env ~strict:ist.strict_check ()
-    | Some env -> env
-    in
-    (* Special handling of notation variables *)
-    let fold id _ (ids, env) =
-      let () = assert (not @@ mem_var id env) in
-      let t = monomorphic (GTypRef (Other t_preterm, [])) in
-      let env = push_name (Name id) t env in
-      (Id.Set.add id ids, env)
-    in
+    let t_preterm = monomorphic (GTypRef (Other t_preterm, [])) in
     let ntn_vars = ist.intern_sign.notation_variable_status in
-    let ids, env = Id.Map.fold fold ntn_vars (Id.Set.empty, env) in
-    let loc = tac.loc in
-    let (tac, t) = intern_rec env None tac in
-    (* no check_unused_variables for notation variables *)
-    let () = check_elt_unit loc env t in
-    (ist, (ids, tac))
+    let locals =
+      Id.Map.fold (fun id _ acc -> (Name id, t_preterm) :: acc) ntn_vars []
+    in
+    (* don't check unused variables: we may be in the case of
+       eg "Notation foo x := (ltac2:(tac) + x)" which shouldn't call x unused *)
+    let env, v, t = genintern_core ~check_unused:false ist locals None tac in
+    let () = check_elt_unit tac.loc env t in
+    let unused = list_unused_variables env (List.map fst locals) in
+    let ids = Id.Map.domain ntn_vars in
+    let ids = List.fold_left (fun ids id -> Id.Set.remove id ids) ids unused in
+    let () = Id.Set.iter (fun id ->
+        let status = Id.Map.get id ist.intern_sign.notation_variable_status in
+        match status.Genintern.ntnvar_typ with
+        | NtnInternTypeAny _ -> ()
+        | NtnInternTypeOnlyBinder ->
+          CErrors.user_err ?loc:tac.loc Pp.(str "Cannot use binder notation variable " ++ Id.print id ++ str " as a preterm."))
+        ids
+    in
+    (ist, (ids, v))
   in
   Genintern.register_intern0 wit_ltac2_constr intern
 
-let () = Gensubst.register_subst0 wit_ltac2in1 (fun s (ids, e) -> ids, subst_expr s e)
-let () = Gensubst.register_subst0 wit_ltac2in1_val subst_expr
+let () =
+  let open Genintern in
+  let intern ist tac =
+    (* XXX should we try to get an env from the ist? *)
+    let env = empty_env ~strict:ist.strict_check () in
+    let tac, _ = intern_rec env (Some (GTypRef (Tuple 0, []))) tac in
+    ist, tac
+  in
+  Genintern.register_intern0 wit_ltac2_tac intern
+
 let () = Gensubst.register_subst0 wit_ltac2_constr (fun s (ids, e) -> ids, subst_expr s e)
+let () = Gensubst.register_subst0 wit_ltac2_tac subst_expr
 
 let intern_var_quotation_gen ~ispat ist (kind, { CAst.v = id; loc }) =
   let open Genintern in

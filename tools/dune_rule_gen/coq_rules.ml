@@ -7,7 +7,7 @@
 (* Written by: Rudi Grinberg                                            *)
 (************************************************************************)
 
-(* coq_rules: generate dune build rules for Coq's test-suite and stdlib *)
+(* coq_rules: generate dune build rules for Coq's test-suite and init *)
 
 (* Originally written by Emilio Jesús Gallego Arias and Rudi Grinberg
    for Dune's coq_rules.ml , which followed a first coq_dune.exe
@@ -21,48 +21,10 @@ let _debug = false
 
 module FlagUtil = struct
 
-  let read_plugin_dir () =
-    let plugins_dir = Path.make "plugins" in
-    Sys.readdir (Path.to_string plugins_dir) |> Array.to_list
-
-  (* XXX: This should go away once we fully use findlib in coqdep;
-     for that, we must depend on the META file and pass -m to coqdep.
-     Left for a future PR.
-   *)
-  let local_plugin_flags () =
-    let plugins_dir = Path.make "plugins" in
-    read_plugin_dir ()
-    |> List.map (Path.relative plugins_dir)
-    |> Util.list_concat_map (fun p -> [Arg.A "-I"; Arg.Path p])
-
-  let findlib_plugin_fixup p =
-    ["number_string_notation"; "zify"; "tauto"; "ssreflect";
-      "cc_core"; "firstorder_core"; "micromega_core"; "nsatz_core"]
-    @ (List.filter (fun s -> not (String.equal s "syntax" || String.equal s "ssr")) p)
-
-  (* This can also go when the -I flags are gone, by passing the meta
-     file for coq-core *)
-  (* Use non-local libs for split build *)
-  let findlib_plugin_flags () =
-    let () = Findlib.init () in
-    read_plugin_dir ()
-    |> findlib_plugin_fixup
-    |> List.map (fun p -> Findlib.package_directory ("coq-core.plugins."^p))
-    |> Util.list_concat_map (fun p -> [Arg.A "-I"; Arg.Path (Path.make p)])
-
-  let findlib_plugin_flags () =
-    try findlib_plugin_flags ()
-    with
-      Fl_package_base.No_such_package (p,_) ->
-      raise (Invalid_argument ("failed to locate Coq plugins in split build mode: " ^ p))
-
-  let plugin_flags ~split () =
-    if split then findlib_plugin_flags () else local_plugin_flags ()
-
   (* Native flag *)
   let findlib_native_dir () =
     try
-      Findlib.package_directory ("coq-core.kernel") |> Path.make
+      Findlib.package_directory ("rocq-runtime.kernel") |> Path.make
     with
       Fl_package_base.No_such_package (p,_) ->
       raise (Invalid_argument ("failed to locate Coq kernel package in split build mode: " ^ p))
@@ -80,8 +42,22 @@ let path_of_dep ~vo_ext dep =
   let open Coqdeplib.Dep_info in
   let file = match dep with
     | Dep.Require dep -> dep ^ vo_ext
-    | Dep.Ml (dep, _ext)-> dep ^ ".cmxs"
+    | Dep.Ml dep-> dep ^ ".cmxs"
     | Dep.Other dep -> dep
+  in
+  (* when called by dune, the cmxs and META files are in
+     ../install/... relative to cwd (= _build/default) but the
+     generated dune file will be moved to ../theories so adjusting the
+     path to be relative to the .v won't work
+
+     (it would be relative to the .v in
+     workspace_root/_build/default/theories but dune would read it as
+     relative to the .v in project_root/theories, the number of .. to
+     insert to get to project_root doesn't match) *)
+  let file = if CString.is_prefix ".." file then
+      (Filename.concat "%{workspace_root}" "_build")
+      ^ String.sub file 2 (String.length file - 2)
+    else file
   in
   Path.make file
 
@@ -101,15 +77,15 @@ let translate_boot_to_native dep =
   let dep = Path.to_string dep |> Filename.remove_extension in
   let dir = Filename.dirname dep in
   let components = String.split_on_char '/' dep |> List.filter not_dot_path_or_coqlib in
-  let name = String.concat "_" ("Coq"::components) in
+  let name = String.concat "_" ("Corelib"::components) in
   Filename.concat dir ("N" ^ name ^ ".cmi") |> Path.make
 
 let cmi_of_dep ~tname dep =
   let open Coqdeplib.Dep_info in
   let file = match dep with
     | Dep.Require dep ->
-      Some (translate_to_native ~tname dep)
-    | Dep.Ml (_dep, _ext)-> None
+      Some (translate_to_native ~tname  dep)
+    | Dep.Ml _dep-> None
     | Dep.Other _ -> None
   in
   Option.map Path.make file
@@ -136,10 +112,10 @@ module Theory = struct
 
 end
 
-(** [Regular theory] contains the info about the stdlib theory, see
+(** [Regular theory] contains the info about the core theory, see
     documentation in the .mli file *)
 module Boot_type = struct
-  type t = Stdlib | NoInit | Regular of Theory.t
+  type t = Corelib | NoInit | Regular of Theory.t
 end
 
 (* Context for a Coq theory *)
@@ -179,7 +155,7 @@ module Context = struct
           ]
 
   (* XXX: we could put the workers here, but they need a complete OCaml runtime so this is better *)
-  let build_async_deps = ["(package coq-core)"]
+  let build_async_deps = ["(package rocq-runtime)"]
 
   (* args are for coqdep *)
   let build_dep_info ~coqdep_args dir_info =
@@ -188,25 +164,17 @@ module Context = struct
   let make ~root_lvl ~theory ~user_flags ~boot ~rule ~async ~dir_info ~split =
 
     let flags =
-
-      (* both coqdep and coqc need the -I flags, coqc otherwise
-         doesn't use the legacy plugin resolution method *)
-      let plugin_flags = FlagUtil.plugin_flags ~split () in
-
       let boot_paths = match boot with
         | Boot_type.NoInit -> []
-        | Stdlib -> Theory.args theory
-        | Regular stdlib -> Theory.args stdlib @ Theory.args theory
+        | Corelib -> Theory.args theory
+        | Regular init -> Theory.args init @ Theory.args theory
       in
-      let loadpath =
-        Arg.(A "-boot") ::
-        boot_paths @ plugin_flags
-      in
+      let loadpath = Arg.(A "-boot") :: boot_paths in
       let native_common = native_common ~split () in
       let native_coqc = native_coqc ~native_common ~native:(Coq_module.Rule_type.native_coqc rule) in
       let common = Arg.[ A "-w"; A "+default"; A "-q" ] in
-
-      { Flags.user = user_flags; common; loadpath; native_common; native_coqc } in
+      { Flags.user = user_flags; common; loadpath; native_common; native_coqc }
+    in
 
     (* coqdep and dep info *)
     let coqdep_args = flags.loadpath in
@@ -228,12 +196,12 @@ let prelude_path = "Init/Prelude.vo"
 let boot_module_setup ~cctx coq_module =
   match cctx.Context.boot with
   | Boot_type.NoInit -> [Arg.A "-noinit"], []
-  | Stdlib ->
+  | Corelib ->
     (match Coq_module.prefix coq_module with
      | ["Init"] -> [ Arg.A "-noinit" ], []
      | _ -> [ ], [ Path.relative (Path.make "theories") prelude_path ]
     )
-  | Regular stdlib -> [], [ Path.relative stdlib.directory prelude_path ]
+  | Regular init -> [], [ Path.relative init.directory prelude_path ]
 
 (* rule generation for a module *)
 let module_rule ~(cctx : Context.t) coq_module =
@@ -259,7 +227,7 @@ let module_rule ~(cctx : Context.t) coq_module =
   let deps = cctx.async_deps @ deps in
   (* Build rule *)
   let updir = Path.(to_string (adjust ~lvl (make "."))) in
-  let action = Format.asprintf "(chdir %s (run coqc %s %%{dep:%s}))" updir flags vfile_base in
+  let action = Format.asprintf "(chdir %s (run rocq c %s %%{dep:%s}))" updir flags vfile_base in
   let targets = Coq_module.obj_files ~tname ~rule coq_module in
   let alias = None in
   { Dune_file.Rule.targets; deps; action; alias }
@@ -269,7 +237,7 @@ let gen_rules ~dir_info ~cctx ~f =
   let f ~prefix sub_acc mods =
     let subdir = Coq_module.prefix_to_dir prefix in
     let payload = List.map (f ~cctx) mods in
-    Dune_file.Subdir.{ subdir; payload } :: List.concat sub_acc
+    Dune_file.Subdir.{ subdir; payload } :: sub_acc
   in
   Dir_info.fold ~f ~init:[] dir_info
 
@@ -312,6 +280,6 @@ let install_rule ~(cctx : Context.t) coq_module =
     Coq_module.install_files ~tname ~rule coq_module
     |> List.map (fun (src,dst) -> src, Filename.concat dst_base dst) in
   (* May need to woraround invalid empty `(install )` stanza if that happens *)
-  Dune_file.Install.{ section = "lib_root"; package = "coq-stdlib"; files }
+  Dune_file.Install.{ section = "lib_root"; package = "rocq-core"; files }
 
 let install_rules ~dir_info ~cctx = gen_rules ~dir_info ~cctx ~f:install_rule

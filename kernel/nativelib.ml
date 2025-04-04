@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -59,23 +59,20 @@ let delay_cleanup_file =
    without native compute or native conv uses). *)
 let include_dirs = ref []
 
+let default_include_dirs env = [ Boot.Env.(Path.to_string (native_cmi env "kernel")) ]
+
 let get_include_dirs () =
   let base = match !include_dirs with
-  | [] ->
-    (* EJGA: Should this case go away in favor of always requiring
-       explicit -nI flags once we remove the make-based system? I think
-       so. *)
-    let env = Boot.Env.init () in
-    [ Boot.Env.(Path.to_string (native_cmi env "kernel"))
-    ; Boot.Env.(Path.to_string (native_cmi env "library"))
-    ]
+    | [] ->
+      CErrors.user_err
+        Pp.(str "Native compute with -boot: you must also give -nI pointing to the kernel.")
   | _::_ as l -> l
   in
   if Lazy.is_val my_temp_dir
   then (Lazy.force my_temp_dir) :: base
   else base
 
-(* Pointer to the function linking an ML object into coq's toplevel *)
+(* Pointer to the function linking an ML object into Rocq's toplevel *)
 let load_obj = ref (fun _x -> () : string -> unit)
 
 let rt1 = ref (dummy_value ())
@@ -143,10 +140,11 @@ let call_compiler ?profile:(profile=false) ml_filename =
        ::"-rectypes"
        ::"-w"::"a"
        ::include_dirs) @
-      ["-impl"; ml_filename] in
-  debug_native_compiler (fun () -> Pp.str (Envars.ocamlfind () ^ " " ^ (String.concat " " args)));
+    ["-impl"; ml_filename] in
+  let ocamlfind = Boot.Env.ocamlfind () in
+  debug_native_compiler (fun () -> Pp.str (ocamlfind ^ " " ^ (String.concat " " args)));
   try
-    let res = CUnix.sys_command (Envars.ocamlfind ()) args in
+    let res = CUnix.sys_command ocamlfind args in
     match res with
     | Unix.WEXITED 0 -> link_filename
     | Unix.WEXITED _n | Unix.WSIGNALED _n | Unix.WSTOPPED _n ->

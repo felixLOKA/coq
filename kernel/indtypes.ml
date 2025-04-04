@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -74,18 +74,18 @@ let explain_ind_err id ntyp env nparamsctxt c err =
   let (_lparams,c') = mind_extract_params nparamsctxt c in
   match err with
     | LocalNonPos kt ->
-        raise (InductiveError (NonPos (env,c',mkRel (kt+nparamsctxt))))
+        raise (InductiveError (env, NonPos (c',mkRel (kt+nparamsctxt))))
     | LocalNotEnoughArgs kt ->
         raise (InductiveError
-                 (NotEnoughArgs (env,c',mkRel (kt+nparamsctxt))))
+                 (env, NotEnoughArgs (c',mkRel (kt+nparamsctxt))))
     | LocalNotConstructor (paramsctxt,nargs)->
         let nparams = Context.Rel.nhyps paramsctxt in
         raise (InductiveError
-                 (NotConstructor (env,id,c',mkRel (ntyp+nparamsctxt),
+                 (env, NotConstructor (id,c',mkRel (ntyp+nparamsctxt),
                                   nparams,nargs)))
     | LocalNonPar (n,i,l) ->
         raise (InductiveError
-                 (NonPar (env,c',n,mkRel i,mkRel (l+nparamsctxt))))
+                 (env, NonPar (c',n,mkRel i,mkRel (l+nparamsctxt))))
 
 let failwith_non_pos n ntypes c =
   for k = n to n + ntypes - 1 do
@@ -233,7 +233,7 @@ let check_positivity_one ~chkpos recursive (env,_,ntypes,_ as ienv) paramsctxt (
             in
               (** The case where one of the inductives of the mutually
                   inductive block occurs as an argument of another is not
-                  known to be safe. So Coq rejects it. *)
+                  known to be safe. So Rocq rejects it. *)
               if chkpos &&
                  not (List.for_all (noccur_between n ntypes) largs)
               then failwith_non_pos_list n ntypes largs
@@ -333,7 +333,7 @@ let check_positivity_one ~chkpos recursive (env,_,ntypes,_ as ienv) paramsctxt (
           | Prod (na,b,d) ->
               let () = assert (List.is_empty largs) in
               if not recursive && not (noccur_between n ntypes b) then
-                raise (InductiveError Type_errors.BadEntry);
+                raise (InductiveError (env,Type_errors.BadEntry));
               let nmr',recarg = check_strict_positivity ienv nmr b in
               let ienv' = ienv_push_var ienv (na,b,mk_norec) in
                 check_constr_rec ienv' nmr' (recarg::lrec) d
@@ -376,7 +376,7 @@ let check_positivity_one ~chkpos recursive (env,_,ntypes,_ as ienv) paramsctxt (
 let check_positivity ~chkpos kn names env_ar_par paramsctxt finite inds =
   let ntypes = Array.length inds in
   let recursive = finite != BiFinite in
-  if not recursive && Array.length inds <> 1 then raise (InductiveError Type_errors.BadEntry);
+  if not recursive && Array.length inds <> 1 then raise (InductiveError (env_ar_par,Type_errors.BadEntry));
   let rc = Array.mapi (fun j t -> (Mrec (RecArgInd (kn,j)),t)) (Rtree.mk_rec_calls ntypes) in
   let ra_env_ar = Array.rev_to_list rc in
   let nparamsctxt = Context.Rel.length paramsctxt in
@@ -397,25 +397,14 @@ let check_positivity ~chkpos kn names env_ar_par paramsctxt finite inds =
 (************************************************************************)
 (* Build the inductive packet *)
 
-let fold_arity f acc params arity indices = match arity with
-  | RegularArity ar -> f acc ar.mind_user_arity
-  | TemplateArity _ ->
-    let fold_ctx acc ctx =
-      List.fold_left (fun acc d ->
-          Context.Rel.Declaration.fold_constr (fun c acc -> f acc c) d acc)
-        acc
-        ctx
-    in
-    fold_ctx (fold_ctx acc params) indices
-
-let fold_inductive_blocks f acc params inds =
-  Array.fold_left (fun acc ((arity,lc),(indices,_),_) ->
-      fold_arity f (Array.fold_left f acc lc) params arity indices)
+let fold_inductive_blocks f acc inds =
+  Array.fold_left (fun acc ((arity,lc),_,_) ->
+      f (Array.fold_left f acc lc) arity.IndTyping.user_arity)
     acc inds
 
-let used_section_variables env params inds =
+let used_section_variables env inds =
   let fold l c = Id.Set.union (Environ.global_vars_set env c) l in
-  let ids = fold_inductive_blocks fold Id.Set.empty params inds in
+  let ids = fold_inductive_blocks fold Id.Set.empty inds in
   keep_hyps env ids
 
 let rel_vect n m = Array.init m (fun i -> mkRel(n+m-i))
@@ -483,7 +472,7 @@ let build_inductive env ~sec_univs names prv univs template variance
     paramsctxt kn isrecord isfinite inds nmr recargs =
   let ntypes = Array.length inds in
   (* Compute the set of used section variables *)
-  let hyps = used_section_variables env paramsctxt inds in
+  let hyps = used_section_variables env inds in
   let nparamargs = Context.Rel.nhyps paramsctxt in
   let u = UVars.make_abstract_instance (universes_context univs) in
   let subst = List.init ntypes (fun i -> mkIndU ((kn, ntypes - i - 1), u)) in
@@ -501,10 +490,7 @@ let build_inductive env ~sec_univs names prv univs template variance
     let consnrealargs =
       Array.map (fun (d,_) -> Context.Rel.nhyps d)
         splayed_lc in
-    let mind_relevance = match arity with
-      | RegularArity { mind_sort;_ } -> Sorts.relevance_of_sort mind_sort
-      | TemplateArity _ -> Sorts.Relevant
-    in
+    let mind_relevance = Sorts.relevance_of_sort arity.IndTyping.sort in
     (* Assigning VM tags to constructors *)
     let nconst, nblock = ref 0, ref 0 in
     let transf arity =
@@ -520,7 +506,8 @@ let build_inductive env ~sec_univs names prv univs template variance
     let rtbl = Array.map transf consnrealargs in
       (* Build the inductive packet *)
       { mind_typename = id;
-        mind_arity = arity;
+        mind_user_arity = arity.IndTyping.user_arity;
+        mind_sort = arity.IndTyping.sort;
         mind_arity_ctxt = indices @ paramsctxt;
         mind_nrealargs = Context.Rel.nhyps indices;
         mind_nrealdecls = Context.Rel.length indices;
@@ -588,7 +575,7 @@ let build_inductive env ~sec_univs names prv univs template variance
 
 let check_inductive env ~sec_univs kn mie =
   (* First type-check the inductive definition *)
-  let (env_ar_par, univs, template, variance, record, paramsctxt, inds) =
+  let (env_ar_par, univs, template, variance, record, why_not_prim_record, paramsctxt, inds) =
     IndTyping.typecheck_inductive env ~sec_univs mie
   in
   (* Then check positivity conditions *)
@@ -601,6 +588,9 @@ let check_inductive env ~sec_univs kn mie =
       (Array.map (fun ((_,lc),(indices,_),_) -> Context.Rel.nhyps indices,lc) inds)
   in
   (* Build the inductive packets *)
+  let mib =
     build_inductive env ~sec_univs names mie.mind_entry_private univs template variance
       paramsctxt kn record mie.mind_entry_finite
       inds nmr recargs
+  in
+  mib, why_not_prim_record

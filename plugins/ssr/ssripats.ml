@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -371,7 +371,7 @@ end end
 
 (*** [=> [: id]] ************************************************************)
 let mk_abstract_id =
-  let open Coqlib in
+  let open Rocqlib in
   let ssr_abstract_id = Summary.ref ~name:"SSR:abstractid" 0 in
 begin fun env sigma ->
   let sigma, zero = EConstr.fresh_global env sigma (lib_ref "num.nat.O") in
@@ -630,12 +630,12 @@ let with_dgens { dgens; gens; clr } maintac = match gens with
       Ssrcommon.genstac (gens, clr) <*> maintac dgens gen
 
 let mkCoqEq env sigma =
-  let eq = Coqlib.((build_coq_eq_data ()).eq) in
+  let eq = Rocqlib.((build_rocq_eq_data ()).eq) in
   let sigma, eq = EConstr.fresh_global env sigma eq in
   eq, sigma
 
 let mkCoqRefl t c env sigma =
-  let refl = Coqlib.((build_coq_eq_data()).refl) in
+  let refl = Rocqlib.((build_rocq_eq_data()).refl) in
   let sigma, refl = EConstr.fresh_global env sigma refl in
   EConstr.mkApp (refl, [|t; c|]), sigma
 
@@ -674,7 +674,7 @@ let elim_intro_tac ipats ?seed what eqid ssrelim is_rec clr =
        let rec gen_eq_tac () = Goal.enter begin fun g ->
          let sigma, env, concl = Goal.(sigma g, env g, concl g) in
          let sigma, eq =
-           EConstr.fresh_global env sigma (Coqlib.lib_ref "core.eq.type") in
+           EConstr.fresh_global env sigma (Rocqlib.lib_ref "core.eq.type") in
          let ctx, last = EConstr.decompose_prod_decls sigma concl in
          let open EConstr in
          let args = match kind_of_type sigma last with
@@ -738,7 +738,7 @@ let tclLAST_GEN ~to_ind ((oclr, occ), t) conclusion = tclINDEPENDENTL begin
   let sigma, c, cl = Ssrmatching.fill_rel_occ_pattern env sigma cl pat occ in
   let clr =
     Ssrcommon.interp_clr sigma (oclr, (Ssrmatching.tag_of_cpattern t,c)) in
-  (* Historically in Coq, and hence in ssr, [case t] accepts [t] of type
+  (* Historically in Rocq, and hence in ssr, [case t] accepts [t] of type
      [A.. -> Ind] and opens new goals for [A..] as well as for the branches
      of [Ind], see the [~to_ind] argument *)
   if not(Termops.occur_existential sigma c) then

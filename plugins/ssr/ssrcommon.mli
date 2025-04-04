@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -236,7 +236,7 @@ val resolve_typeclasses :
   where:EConstr.t ->
   fail:bool -> Evd.evar_map
 
-(*********************** Wrapped Coq  tactics *****************************)
+(*********************** Wrapped Rocq tactics *****************************)
 
 val rewritetac : ?under:bool -> ssrdir -> EConstr.t -> unit Proofview.tactic
 

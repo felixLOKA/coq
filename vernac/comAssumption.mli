@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -47,7 +47,7 @@ val declare_axiom
   -> univs:UState.named_universes_entry
   -> impargs:Impargs.manual_implicits
   -> inline:Declaremods.inline
-  -> name:variable
+  -> name:lident
   -> Constr.types
   -> GlobRef.t * UVars.Instance.t
 
@@ -61,7 +61,7 @@ val declare_global
   -> univs:UState.named_universes_entry
   -> impargs:Impargs.manual_implicits
   -> inline:Declaremods.inline
-  -> name:variable
+  -> name:lident
   -> Constr.constr option
   -> Constr.types
   -> GlobRef.t * UVars.Instance.t

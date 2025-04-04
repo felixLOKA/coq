@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -93,5 +93,10 @@ module Version = struct
   let v8_18 = get_generic_cat "8.18"
   let v8_19 = get_generic_cat "8.19"
   let v8_20 = get_generic_cat "8.20"
+  let v9_0 = get_generic_cat "9.0"
+  let v9_1 = get_generic_cat "9.1"
+  (* When adding a new version here, please also add
+     #[export] Set Warnings "-deprecated-since-X.Y".
+     in theories/Compat/RocqX{Y-1}.v *)
 
 end

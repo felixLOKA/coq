@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -13,7 +13,61 @@ open Names
 open Constr
 open Context
 
-(* TODO explain how this works *)
+(** Provide caching and hashconsing dependent on the local context used by a term.
+
+    We want to cache the results of typechecking a term (at constant
+    global environment).
+
+    To do this, we need a map [constr -> result of typechecking], and
+
+    - it must distinguish alpha equal terms (to get the desired names
+      in the result of checking "fun x:nat => eq_refl x" and
+      "fun y:nat => eq_refl y").
+
+    - it must distinguish terms which only differ in "cached" data
+      like relevance marks (if we typecheck "fun x :(*Relevant*) nat => x",
+      cache the result then check "fun x :(*Irrelevant*) nat => x" we must fail).
+
+    - actually the map should be [(rel_context * constr) -> result] as
+      the result of checking a bound variable depends on the context.
+
+      To be more precise we only need to depend on the minimal context
+      needed for the term, ie the context filtered to only the
+      variables which appear in the term and recursively in the types
+      and bodies of needed variables.
+
+      Also note that we don't care about the names of local variables
+      here, they only appear in error messages and since we stop at
+      the first error there is no caching issue.
+
+      (NB we need bodies as while the result of checking [Rel 1] does
+      not depend on the body of rel 1, checking [eq_refl (Rel 1) : Rel 1 = 0]
+      does need the body.)
+
+    - the map should be fast.
+
+    The first 2 points just mean we need a sufficiently precise equality test.
+
+    To distinguish terms according to their context, we annotate each
+    [Rel] subterm with their corresponding (recursively annotated)
+    binder (ignoring the name).
+
+    In practice we have an indirection such that each annotated binder
+    is associated with a unique [int]. It's not clear how useful this
+    is vs annotating with the actual binder data but it does allow
+    handling unknow binders by just generating a fresh int (cf [push_unknown_rel]).
+
+    While annotating [Rel]s we also share identical (for our equality)
+    subterms and annotate each subterm with its hash, ie we hashcons
+    according to our finer-than-[Constr.equal] equality. This means we
+    can lookup by hash, and since identical subterms are shared we can
+    compare them by [(==)] (in practice [hasheq_kind] which does
+    [(==)] on immediate subterms) instead of structural equality
+    (which would be O(size of term)).
+
+    Finally we keep a reference count so that we can avoid caching
+    subterms which aren't repeated.
+*)
 
 module Self = struct
 
@@ -25,6 +79,8 @@ type t = {
   mutable refcount : int;
 }
 
+(* XXX possibly should be just physical equality since we use
+   [raw_equal] on not-yet-hashconsed terms *)
 let equal a b =
   a.isRel == b.isRel
   && hasheq_kind a.kind b.kind
@@ -260,8 +316,6 @@ let kind_to_constr = function
   | String s -> mkString s
   | Array (u,t,def,ty) -> mkArray (u,Array.map self t,def.self,ty.self)
 
-let hcons_inplace f a = Array.iteri (fun i x -> Array.unsafe_set a i (f x)) a
-
 let of_kind_nohashcons = function
   | App (c, [||]) -> c
   | kind ->
@@ -314,28 +368,28 @@ let rec of_constr henv c =
 and of_constr_aux henv c =
   match kind c with
   | Var i ->
-    let i = Id.hcons i in
+    let _, i = Id.hcons i in
     Var i
   | Rel _ as t -> t
   | Sort s ->
-    let s = Sorts.hcons s in
+    let _, s = Sorts.hcons s in
     Sort s
   | Cast (c,k,t) ->
     let c = of_constr henv c in
     let t = of_constr henv t in
     Cast (c, k, t)
   | Prod (na,t,c) ->
-    let na = hcons_annot na in
+    let _, na = hcons_annot na in
     let t = of_constr henv t in
     let c = of_constr (push_assum t henv) c in
     Prod (na, t, c)
   | Lambda (na, t, c) ->
-    let na = hcons_annot na in
+    let _, na = hcons_annot na in
     let t = of_constr henv t in
     let c = of_constr (push_assum t henv) c in
     Lambda (na,t,c)
   | LetIn (na,b,t,c) ->
-    let na = hcons_annot na in
+    let _, na = hcons_annot na in
     let b = of_constr henv b in
     let t = of_constr henv t in
     let c = of_constr (push_letin ~body:b ~typ:t henv) c in
@@ -347,16 +401,16 @@ and of_constr_aux henv c =
   | Evar _ -> CErrors.anomaly Pp.(str "evar in typeops")
   | Meta _ -> CErrors.anomaly Pp.(str "meta in typeops")
   | Const (c,u) ->
-    let c = hcons_con c in
-    let u = UVars.Instance.hcons u in
+    let _, c = hcons_con c in
+    let _, u = UVars.Instance.hcons u in
     Const (c,u)
   | Ind (ind,u) ->
-    let ind = hcons_ind ind in
-    let u = UVars.Instance.hcons u in
+    let _, ind = hcons_ind ind in
+    let _, u = UVars.Instance.hcons u in
     Ind (ind,u)
   | Construct (c,u) ->
-    let c = hcons_construct c in
-    let u = UVars.Instance.hcons u in
+    let _, c = hcons_construct c in
+    let _, u = UVars.Instance.hcons u in
     Construct (c,u)
   | Case (ci,u,pms,(p,r),iv,c,bl) ->
     let pctx, blctx =
@@ -366,13 +420,13 @@ and of_constr_aux henv c =
       pctx, blctx
     in
     let of_ctx (bnd, c) bnd' =
-      let () = hcons_inplace hcons_annot bnd in
+      let _, bnd = Hashcons.hashcons_array hcons_annot bnd in
       let henv = push_rel_context henv bnd' in
       let c = of_constr henv c in
       bnd, c
     in
-    let ci = hcons_caseinfo ci in
-    let u = UVars.Instance.hcons u in
+    let _, ci = hcons_caseinfo ci in
+    let _, u = UVars.Instance.hcons u in
     let pms = Array.map (of_constr henv) pms in
     let p = of_ctx p pctx in
     let iv = match iv with
@@ -383,26 +437,26 @@ and of_constr_aux henv c =
     let bl = Array.map2 of_ctx bl blctx in
     Case (ci,u,pms,(p,r),iv,c,bl)
   | Fix (ln,(lna,tl,bl)) ->
-    let () = hcons_inplace hcons_annot lna in
+    let _, lna = Hashcons.hashcons_array hcons_annot lna in
     let tl = Array.map (of_constr henv) tl in
     let body_env = push_rec tl henv in
     let bl = Array.map (of_constr body_env) bl in
     Fix (ln,(lna,tl,bl))
   | CoFix (ln,(lna,tl,bl)) ->
-    let () = hcons_inplace hcons_annot lna in
+    let _, lna = Hashcons.hashcons_array hcons_annot lna in
     let tl = Array.map (of_constr henv) tl in
     let body_env = push_rec tl henv in
     let bl = Array.map (of_constr body_env) bl in
     CoFix (ln,(lna,tl,bl))
   | Proj (p,r,c) ->
-    let p = Projection.hcons p in
+    let _, p = Projection.hcons p in
     let c = of_constr henv c in
     Proj (p,r,c)
   | Int _ as t -> t
   | Float _ as t -> t
   | String _ as t -> t
   | Array (u,t,def,ty) ->
-    let u = UVars.Instance.hcons u in
+    let _, u = UVars.Instance.hcons u in
     let t = Array.map (of_constr henv) t in
     let def = of_constr henv def in
     let ty = of_constr henv ty in

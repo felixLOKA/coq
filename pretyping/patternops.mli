@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -42,7 +42,7 @@ val head_of_constr_reference : Evd.evar_map -> constr -> GlobRef.t
 
 val pattern_of_constr : Environ.env -> Evd.evar_map -> EConstr.constr -> constr_pattern
 
-(** Do not use, for internal Coq use only. *)
+(** Do not use, for internal Rocq use only. *)
 val legacy_bad_pattern_of_constr : Environ.env -> Evd.evar_map -> EConstr.constr -> constr_pattern
 
 (** [pattern_of_glob_constr l c] translates a term [c] with metavariables into

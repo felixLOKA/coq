@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -59,14 +59,11 @@ sig
   val length : t -> int * int
   (** Instance length *)
 
-  val hcons : t -> t
+  val hcons : t Hashcons.f
   (** Hash-consing. *)
 
   val hash : t -> int
   (** Hash value *)
-
-  val share : t -> t * int
-  (** Simultaneous hash-consing and hash-value computation *)
 
   val pr : (QVar.t -> Pp.t) -> (Level.t -> Pp.t) -> ?variance:Variance.t array -> t -> Pp.t
   (** Pretty-printing, no comments *)
@@ -139,7 +136,7 @@ sig
   val of_context_set : (Instance.t -> bound_names) -> QVar.Set.t -> ContextSet.t -> t
   (** Build a vector of universe levels assuming a function generating names *)
 
-  val to_context_set : t -> Quality.Set.t * ContextSet.t
+  val to_context_set : t -> QVar.Set.t * ContextSet.t
   (** Discard the names and order of the universes *)
 
 end
@@ -241,5 +238,5 @@ val pr_abstract_universe_context : (QVar.t -> Pp.t) -> (Level.t -> Pp.t) -> ?var
 
 (** {6 Hash-consing } *)
 
-val hcons_universe_context : UContext.t -> UContext.t
-val hcons_abstract_universe_context : AbstractContext.t -> AbstractContext.t
+val hcons_universe_context : UContext.t Hashcons.f
+val hcons_abstract_universe_context : AbstractContext.t Hashcons.f

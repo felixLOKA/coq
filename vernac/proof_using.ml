@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -216,9 +216,9 @@ let suggest_variable env id =
 let value = ref None
 
 let using_to_string us = Pp.string_of_ppcmds (Ppvernac.pr_using us)
-let entry = Pcoq.eoi_entry G_vernac.section_subset_expr
-let using_from_string us = Pcoq.Entry.parse entry
-    (Pcoq.Parsable.make (Gramlib.Stream.of_string ("( "^us^" )")))
+let entry = Procq.eoi_entry G_vernac.section_subset_expr
+let using_from_string us = Procq.Entry.parse entry
+    (Procq.Parsable.make (Gramlib.Stream.of_string ("( "^us^" )")))
 
 let proof_using_opt_name = ["Default";"Proof";"Using"]
 let () =

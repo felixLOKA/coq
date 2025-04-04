@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -63,23 +63,32 @@ let infer_assumption env t ty =
   with TypeError _ ->
     error_assumption env (make_judge t ty)
 
+let nf_relevance env = function
+  | Sorts.RelevanceVar q as r ->
+    if Environ.Internal.is_above_prop env q then Sorts.Relevant
+    else r
+  | (Sorts.Irrelevant | Sorts.Relevant) as r -> r
+
+let check_relevance env r r' =
+  Sorts.relevance_equal (nf_relevance env r) (nf_relevance env r')
+
 let check_assumption env x t ty =
   let r = x.binder_relevance in
   let r' = infer_assumption env t ty in
-  if Sorts.relevance_equal r r' then ()
+  if check_relevance env r r' then ()
   else
     error_bad_binder_relevance env r' (RelDecl.LocalAssum (x, t))
 
-let check_binding_relevance na1 na2 =
+let check_binding_relevance env na1 na2 =
   (* Since we know statically the relevance here, we are stricter *)
-  assert (Sorts.relevance_equal (binder_relevance na1) (binder_relevance na2))
+  assert (check_relevance env (binder_relevance na1) (binder_relevance na2))
 
 let esubst u s c =
   Vars.esubst Vars.lift_substituend s (subst_instance_constr u c)
 
 exception ArgumentsMismatch
 
-let instantiate_context u subst nas ctx =
+let instantiate_context env u subst nas ctx =
   let open Context.Rel.Declaration in
   let instantiate_relevance na =
     { na with binder_relevance = UVars.subst_instance_relevance u na.binder_relevance }
@@ -91,7 +100,7 @@ let instantiate_context u subst nas ctx =
     let subst = Esubst.subs_liftn i subst in
     let na = instantiate_relevance na in
     let ty = esubst u subst ty in
-    let () = check_binding_relevance na nas.(i) in
+    let () = check_binding_relevance env na nas.(i) in
     LocalAssum (nas.(i), ty) :: ctx
   | LocalDef (na, ty, bdy) :: ctx ->
     let ctx = instantiate (pred i) ctx in
@@ -99,7 +108,7 @@ let instantiate_context u subst nas ctx =
     let na = instantiate_relevance na in
     let ty = esubst u subst ty in
     let bdy = esubst u subst bdy in
-    let () = check_binding_relevance na nas.(i) in
+    let () = check_binding_relevance env na nas.(i) in
     LocalDef (nas.(i), ty, bdy) :: ctx
   in
   instantiate (Array.length nas - 1) ctx
@@ -224,10 +233,10 @@ let type_of_apply env func funt argsv argstv =
     if Int.equal i len then term_of_fconstr typ
     else
       let typ, stk = whd_stack infos tab typ [] in
-      (** The return stack is known to be empty *)
-      let () = assert (check_empty_stack stk) in
       match fterm_of typ with
       | FProd (_, c1, c2, e) ->
+        (** The return stack is known to be empty *)
+        let () = assert (check_empty_stack stk) in
         let arg = argsv.(i) in
         let argt = argstv.(i) in
         let c1 = term_of_fconstr c1 in
@@ -288,23 +297,23 @@ let type_of_prim_type _env u (type a) (prim : a CPrimitives.prim_type) = match p
     end
 
 let type_of_int env =
-  match env.retroknowledge.Retroknowledge.retro_int63 with
+  match (Environ.retroknowledge env).Retroknowledge.retro_int63 with
   | Some c -> UnsafeMonomorphic.mkConst c
   | None -> CErrors.user_err Pp.(str"The type int must be registered before this construction can be typechecked.")
 
 let type_of_float env =
-  match env.retroknowledge.Retroknowledge.retro_float64 with
+  match (Environ.retroknowledge env).Retroknowledge.retro_float64 with
   | Some c -> UnsafeMonomorphic.mkConst c
   | None -> CErrors.user_err Pp.(str"The type float must be registered before this construction can be typechecked.")
 
 let type_of_string env =
-  match env.retroknowledge.Retroknowledge.retro_string with
+  match (Environ.retroknowledge env).Retroknowledge.retro_string with
   | Some c -> UnsafeMonomorphic.mkConst c
   | None -> CErrors.user_err Pp.(str"The type string must be registered before this construction can be typechecked.")
 
 let type_of_array env u =
   assert (UVars.Instance.length u = (0,1));
-  match env.retroknowledge.Retroknowledge.retro_array with
+  match (Environ.retroknowledge env).Retroknowledge.retro_array with
   | Some c -> mkConstU (c,u)
   | None -> CErrors.user_err Pp.(str"The type array must be registered before this construction can be typechecked.")
 
@@ -387,17 +396,19 @@ let check_cast env c ct k expected_type =
    dynamic constraints of the form u<=v are enforced *)
 
 let make_param_univs env indu spec args argtys =
-  Array.to_list @@ Array.mapi (fun i argt ~expected ->
+  Array.to_list @@ Array.mapi (fun i argt ~default ->
       match (snd (Reduction.dest_arity env argt)) with
       | SProp | exception Reduction.NotArity ->
         Type_errors.error_cant_apply_bad_type env
-          (i+1, mkType (Universe.make expected), argt)
+          (i+1, mkSort default, argt)
           (make_judge (mkIndU indu) (Inductive.type_of_inductive (spec, snd indu)))
           (make_judgev args argtys)
       | Prop -> TemplateProp
       | Set -> TemplateUniv Universe.type0
       | Type u -> TemplateUniv u
-      | QSort _ -> assert false)
+      | QSort (q,u) ->
+        assert (Environ.Internal.is_above_prop env q);
+        TemplateAboveProp (q,u))
     argtys
 
 let type_of_inductive_knowing_parameters env (ind,u as indu) args argst =
@@ -473,8 +484,9 @@ let check_branch_types env (_mib, mip) ci u pms c _ct lft (pctx, p) =
     error_ill_formed_branch env c ((ci.ci_ind, i + 1), u) brt expbrt
 
 let should_invert_case env r ci =
-  Sorts.relevance_equal r Sorts.Relevant &&
+  check_relevance env r Sorts.Relevant &&
   let mib,mip = lookup_mind_specif env ci.ci_ind in
+  (* mind_relevance cannot be a pseudo sort poly variable so don't use check_relevance *)
   Sorts.relevance_equal mip.mind_relevance Sorts.Irrelevant &&
   (* NB: it's possible to have 2 ctors or arguments to 1 ctor by unsetting univ checks
      but we don't do special reduction in such cases
@@ -522,7 +534,7 @@ let type_of_case env (mib, mip as specif) ci u pms (pctx, pnas, p, rp, pt) iv c 
   in
   let () =
     let expected = Sorts.relevance_of_sort sp in
-    if Sorts.relevance_equal rp expected then ()
+    if check_relevance env rp expected then ()
     else
       error_bad_case_relevance env expected (ci, u, pms, ((pnas, p), rp), iv, c, lf)
   in
@@ -601,7 +613,7 @@ let type_of_global_in_context env r =
 let check_assum_annot env s x t =
   let r = x.binder_relevance in
   let r' = Sorts.relevance_of_sort s in
-  if Sorts.relevance_equal r' r
+  if check_relevance env r' r
   then ()
   else error_bad_binder_relevance env r' (RelDecl.LocalAssum (x, t))
 
@@ -609,7 +621,7 @@ let check_assum_annot env s x t =
 let check_let_annot env s x c t =
   let r = x.binder_relevance in
   let r' = Sorts.relevance_of_sort s in
-  if Sorts.relevance_equal r' r
+  if check_relevance env r' r
   then ()
   else error_bad_binder_relevance env r' (RelDecl.LocalDef (x, c, t))
 
@@ -652,7 +664,7 @@ and execute_aux tbl env cstr =
     | Proj (p, r, c) ->
       let ct = execute tbl env c in
       let r', ty = type_of_projection env p (self c) ct in
-      assert (Sorts.relevance_equal r r');
+      assert (check_relevance env r r');
       ty
 
     (* Lambda calculus operators *)
@@ -734,7 +746,7 @@ and execute_aux tbl env cstr =
           cst, mib.mind_params_ctxt
         | Some _ ->
           let args = make_param_univs env (ci.ci_ind, u) (mib, mip) pms pmst in
-          let (cst, params, _) = instantiate_template_universes (mib, mip) args in
+          let (cst, params, _) = instantiate_template_universes mib args in
           cst, params
         in
         let () = check_constraints cst env in
@@ -752,7 +764,7 @@ and execute_aux tbl env cstr =
           in
           let realdecls = LocalAssum (Context.make_annot Anonymous mip.mind_relevance, self) :: realdecls in
           let realdecls =
-            try instantiate_context u paramsubst nas realdecls
+            try instantiate_context env u paramsubst nas realdecls
             with ArgumentsMismatch -> error_elim_arity env (ci.ci_ind, u) (HConstr.self c) None
           in
           let p_env = Environ.push_rel_context realdecls env in
@@ -768,7 +780,7 @@ and execute_aux tbl env cstr =
           let (ctx, cty) = mip.mind_nf_lc.(i) in
           let ctx, _ = List.chop mip.mind_consnrealdecls.(i) ctx in
           let ctx =
-            try instantiate_context u paramsubst nas ctx
+            try instantiate_context env u paramsubst nas ctx
             with ArgumentsMismatch ->
               (* Despite the name, the toplevel message is reasonable *)
               error_elim_arity env (ci.ci_ind, u) (self c) None
@@ -847,7 +859,7 @@ let execute env c =
 
 let check_declared_qualities env qualities =
   let module S = Sorts.QVar.Set in
-  let unknown = S.diff qualities env.env_qualities in
+  let unknown = S.diff qualities (Environ.qualities env) in
   if S.is_empty unknown then ()
   else error_undeclared_qualities env unknown
 
@@ -924,32 +936,32 @@ let type_of_prim env u t =
   let string_ty () = type_of_string env in
   let array_ty u a = mkApp(type_of_array env u, [|a|]) in
   let bool_ty () =
-    match env.retroknowledge.Retroknowledge.retro_bool with
+    match (Environ.retroknowledge env).Retroknowledge.retro_bool with
     | Some ((ind,_),_) -> UM.mkInd ind
     | None -> CErrors.user_err Pp.(str"The type bool must be registered before this primitive.")
   in
   let compare_ty () =
-    match env.retroknowledge.Retroknowledge.retro_cmp with
+    match (Environ.retroknowledge env).Retroknowledge.retro_cmp with
     | Some ((ind,_),_,_) -> UM.mkInd ind
     | None -> CErrors.user_err Pp.(str"The type compare must be registered before this primitive.")
   in
   let f_compare_ty () =
-    match env.retroknowledge.Retroknowledge.retro_f_cmp with
+    match (Environ.retroknowledge env).Retroknowledge.retro_f_cmp with
     | Some ((ind,_),_,_,_) -> UM.mkInd ind
     | None -> CErrors.user_err Pp.(str"The type float_comparison must be registered before this primitive.")
   in
   let f_class_ty () =
-    match env.retroknowledge.Retroknowledge.retro_f_class with
+    match (Environ.retroknowledge env).Retroknowledge.retro_f_class with
     | Some ((ind,_),_,_,_,_,_,_,_,_) -> UM.mkInd ind
     | None -> CErrors.user_err Pp.(str"The type float_class must be registered before this primitive.")
   in
   let pair_ty fst_ty snd_ty =
-    match env.retroknowledge.Retroknowledge.retro_pair with
+    match (Environ.retroknowledge env).Retroknowledge.retro_pair with
     | Some (ind,_) -> Constr.mkApp(UM.mkInd ind, [|fst_ty;snd_ty|])
     | None -> CErrors.user_err Pp.(str"The type pair must be registered before this primitive.")
   in
   let carry_ty int_ty =
-    match env.retroknowledge.Retroknowledge.retro_carry with
+    match (Environ.retroknowledge env).Retroknowledge.retro_carry with
     | Some ((ind,_),_) -> Constr.mkApp(UM.mkInd ind, [|int_ty|])
     | None -> CErrors.user_err Pp.(str"The type carry must be registered before this primitive.")
   in

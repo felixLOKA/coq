@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -73,9 +73,8 @@ let exact h =
     let sigma, t = Typing.type_of env sigma c in
     let concl = Proofview.Goal.concl gl in
     if occur_existential sigma t || occur_existential sigma concl then
-      let sigma = Evd.clear_metas sigma in
       try
-        let sigma = Unification.w_unify env sigma CONV ~flags:auto_unif_flags concl t in
+        let _, sigma = Unification.w_unify env sigma CONV ~flags:auto_unif_flags concl t in
         Proofview.Unsafe.tclEVARSADVANCE sigma <*>
         exact_no_check c
       with e when CErrors.noncritical e -> Proofview.tclZERO e
@@ -111,21 +110,10 @@ let conclPattern concl pat tac =
      let env = Proofview.Goal.env gl in
      let sigma = Proofview.Goal.sigma gl in
      constr_bindings env sigma >>= fun constr_bindings ->
-     Proofview.tclProofInfo [@ocaml.warning "-3"] >>= fun (_name, poly) ->
-     let open Genarg in
-     let open Geninterp in
-     let inj c = match val_tag (topwit Stdarg.wit_constr) with
-     | Val.Base tag -> Val.Dyn (tag, c)
-     | _ -> assert false
-     in
+     let inj c = Geninterp.Val.inject (Geninterp.val_tag (Genarg.topwit Stdarg.wit_constr)) c in
      let fold id c accu = Id.Map.add id (inj c) accu in
      let lfun = Id.Map.fold fold constr_bindings Id.Map.empty in
-     let ist = { lfun
-               ; poly
-               ; extra = TacStore.empty } in
-     match tac with
-     | GenArg (Glbwit wit, tac) ->
-      Ftactic.run (Geninterp.interp wit ist tac) (fun _ -> Proofview.tclUNIT ())
+     Gentactic.interp ~lfun tac
   end
 
 (***********************************************************)

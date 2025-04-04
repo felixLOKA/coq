@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -205,7 +205,7 @@ let goal_with_state = Proofview_monad.goal_with_state
     Tactics of course have arguments, but these are given at the
     meta-level as OCaml functions.  Most tactics in the sense we are
     used to return [()], that is no really interesting values. But
-    some might pass information around.  The tactics seen in Coq's
+    some might pass information around.  The tactics seen in Rocq's
     Ltac are (for now at least) only [unit tactic], the return values
     are kept for the OCaml toolkit.  The operation or the monad are
     [Proofview.tclUNIT] (which is the "return" of the tactic monad)
@@ -235,13 +235,14 @@ type +'a tactic = 'a Proof.t
 (** Applies a tactic to the current proofview. *)
 let apply ~name ~poly env t sp =
   let open Logic_monad in
+  NewProfile.profile "Proofview.apply" (fun () ->
   let ans = Proof.repr (Proof.run t P.{trace=false; name; poly} (sp,env)) in
   let ans = Logic_monad.NonLogical.run ans in
   match ans with
   | Nil (e, info) -> Exninfo.iraise (TacticFailure e, info)
   | Cons ((r, (state, _), status, info), _) ->
-    r, state, status, Trace.to_tree info
-
+    r, state, status, Trace.to_tree info)
+    ()
 
 
 (** {7 Monadic primitives} *)
@@ -1118,6 +1119,8 @@ module Goal = struct
   let sigma {sigma} = sigma
   let hyps {env} = EConstr.named_context env
   let concl {concl} = concl
+  let relevance {sigma; self} =
+    Evd.evar_relevance (Evd.find_undefined sigma self)
 
   let gmake_with info env sigma goal state =
     { env = Environ.reset_with_named_context (Evd.evar_filtered_hyps info) env ;

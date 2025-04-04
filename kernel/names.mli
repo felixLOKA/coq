@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -19,7 +19,7 @@
     - DirPath.t represents generic paths as sequences of identifiers.
     - Label.t is an equivalent of Id.t made distinct for semantical purposes.
     - ModPath.t are module paths.
-    - KerName.t are absolute names of objects in Coq.
+    - KerName.t are absolute names of objects in Rocq.
 *)
 
 open Util
@@ -30,7 +30,7 @@ open Util
 module Id :
 sig
   type t
-  (** Values of this type represent (Coq) identifiers. *)
+  (** Values of this type represent (Rocq) identifiers. *)
 
   val equal : t -> t -> bool
   (** Equality over identifiers. *)
@@ -74,7 +74,7 @@ sig
   module List : List.MonoS with type elt = t
   (** Operations over lists of identifiers. *)
 
-  val hcons : t -> t
+  val hcons : t Hashcons.f
   (** Hashconsing of identifiers. *)
 
 end
@@ -104,7 +104,7 @@ sig
   val hash : t -> int
   (** Hash over names. *)
 
-  val hcons : t -> t
+  val hcons : t Hashcons.f
   (** Hashconsing over names. *)
 
   val print : t -> Pp.t
@@ -118,10 +118,6 @@ type name = Name.t = Anonymous | Name of Id.t
 [@@ocaml.deprecated "(8.8) Use Name.t"]
 
 type variable = Id.t
-type module_ident = Id.t
-
-module ModIdset : Set.ExtS with type elt = module_ident
-module ModIdmap : Map.ExtS with type key = module_ident and module Set := ModIdset
 
 (** {6 Directory paths = section names paths } *)
 
@@ -140,10 +136,10 @@ sig
   val hash : t -> int
   (** Hash over directory paths. *)
 
-  val make : module_ident list -> t
+  val make : Id.t list -> t
   (** Create a directory path. (The list must be reversed). *)
 
-  val repr : t -> module_ident list
+  val repr : t -> Id.t list
   (** Represent a directory path. (The result list is reversed). *)
 
   val empty : t
@@ -155,11 +151,11 @@ sig
   val dummy : t
   (** Used in [Safe_typing.empty_environment] and similar *)
 
-  val hcons : t -> t
+  val hcons : t Hashcons.f
   (** Hashconsing of directory paths. *)
 
   val to_string : t -> string
-  (** Print non-empty directory paths as ["coq_root.module.submodule"] *)
+  (** Print non-empty directory paths as ["root.module.submodule"] *)
 
   val print : t -> Pp.t
 end
@@ -201,7 +197,7 @@ sig
   module Set : Set.ExtS with type elt = t
   module Map : Map.ExtS with type key = t and module Set := Set
 
-  val hcons : t -> t
+  val hcons : t Hashcons.f
 
 end
 
@@ -255,6 +251,9 @@ sig
   val compare : t -> t -> int
   val equal : t -> t -> bool
   val hash : t -> int
+
+  val subpath : t -> t -> bool
+  (* [subpath p q] is true when q = p.l1. ... . ln, where n is potentially 0 *)
 
   val is_bound : t -> bool
 
@@ -331,7 +330,7 @@ sig
       sees when printing. The second one is the canonical name, which is the
       actual absolute name of the reference.
 
-      This mechanism is fundamentally tied to the module system of Coq. Functor
+      This mechanism is fundamentally tied to the module system of Rocq. Functor
       application and module inclusion are the typical ways to introduce names
       where the canonical and user components differ. In particular, the two
       components should be undistinguishable from the point of view of typing,
@@ -544,10 +543,10 @@ val index_of_constructor : constructor -> int
 
 (** {6 Hash-consing } *)
 
-val hcons_con : Constant.t -> Constant.t
-val hcons_mind : MutInd.t -> MutInd.t
-val hcons_ind : inductive -> inductive
-val hcons_construct : constructor -> constructor
+val hcons_con : Constant.t Hashcons.f
+val hcons_mind : MutInd.t Hashcons.f
+val hcons_ind : inductive Hashcons.f
+val hcons_construct : constructor Hashcons.f
 
 (******)
 
@@ -627,7 +626,7 @@ module Projection : sig
   [@@ocaml.deprecated "(8.13) Use QProjection.equal"]
   val hash : t -> int
   [@@ocaml.deprecated "(8.13) Use QProjection.hash"]
-  val hcons : t -> t
+  val hcons : t Hashcons.f
   (** Hashconsing of projections. *)
 
   val repr_equal : t -> t -> bool

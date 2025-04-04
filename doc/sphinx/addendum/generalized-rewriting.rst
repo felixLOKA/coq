@@ -35,7 +35,7 @@ the previous implementation in several ways:
   the new implementation, if one provides the proper morphisms. Again,
   most of the work is handled in the tactics.
 + First-class morphisms and signatures. Signatures and morphisms are
-  ordinary Coq terms, hence they can be manipulated inside Coq, put
+  ordinary Rocq terms, hence they can be manipulated inside Rocq, put
   inside structures and lemmas about them can be proved inside the
   system. Higher-order morphisms are also allowed.
 + Performance. The implementation is based on a depth-first search for
@@ -103,7 +103,7 @@ argument.
 Morphisms can also be contravariant in one or more of their arguments.
 A morphism is contravariant on an argument associated with the relation
 instance :math:`R` if it is covariant on the same argument when the inverse
-relation :math:`R^{−1}` (``inverse R`` in Coq) is considered. The special arrow ``-->``
+relation :math:`R^{−1}` (``inverse R`` in Rocq) is considered. The special arrow ``-->``
 is used in signatures for contravariant morphisms.
 
 Functions having arguments related by symmetric relations instances
@@ -121,7 +121,7 @@ parameters is any term :math:`f \, t_1 \ldots t_n`.
    morphism parametric over ``A`` that respects the relation instance
    ``(set_eq A)``. The latter condition is proved by showing:
 
-   .. coqdoc::
+   .. rocqdoc::
 
      forall (A: Type) (S1 S1' S2 S2': list A),
        set_eq A S1 S1' ->
@@ -144,7 +144,7 @@ always the intended equality for a given structure.
 
 In the next section we will describe the commands to register terms as
 parametric relations and morphisms. Several tactics that deal with
-equality in Coq can also work with the registered relations. The exact
+equality in Rocq can also work with the registered relations. The exact
 list of tactics will be given :ref:`in this section <tactics-enabled-on-user-provided-relations>`.
 For instance, the tactic reflexivity can be used to solve a goal ``R n n`` whenever ``R``
 is an instance of a registered reflexive relation. However, the
@@ -216,7 +216,7 @@ They also support the :attr:`universes(polymorphic)` attributes.
 
    For Leibniz equality, we may declare:
 
-   .. coqdoc::
+   .. rocqdoc::
 
      Add Parametric Relation (A : Type) : A (@eq A)
        [reflexivity proved by @refl_equal A]
@@ -247,7 +247,7 @@ following command.
    homogeneous sets and we declare set equality as a parametric
    equivalence relation and union of two sets as a parametric morphism.
 
-   .. coqtop:: in
+   .. rocqtop:: in
 
       Require Export Setoid.
       Require Export Relation_Definitions.
@@ -286,7 +286,7 @@ following command.
    (maximally inserted) implicit arguments. If ``A`` is always set as
    maximally implicit in the previous example, one can write:
 
-   .. coqdoc::
+   .. rocqdoc::
 
       Add Parametric Relation A : (set A) eq_set
         reflexivity proved by eq_set_refl
@@ -304,12 +304,12 @@ following command.
    properties over ``eq_set`` and ``union`` can be established from the two
    declarations above.
 
-   .. coqtop:: in
+   .. rocqtop:: in
 
       Goal forall (S : set nat),
         eq_set (union (union S (empty nat)) S) (union S S).
 
-   .. coqtop:: in
+   .. rocqtop:: in
 
       Proof. intros. rewrite empty_neutral. reflexivity. Qed.
 
@@ -489,7 +489,7 @@ various combinations of properties on relations and morphisms are
 represented as records and instances of these classes are put in a
 hint database. For example, the declaration:
 
-.. coqdoc::
+.. rocqdoc::
 
    Add Parametric Relation (x1 : T1) ... (xn : Tn) : (A t1 ... tn) (Aeq t′1 ... t′m)
      [reflexivity proved by refl]
@@ -500,7 +500,7 @@ hint database. For example, the declaration:
 
 is equivalent to an instance declaration:
 
-.. coqdoc::
+.. rocqdoc::
 
    Instance id (x1 : T1) ... (xn : Tn) : @Equivalence (A t1 ... tn) (Aeq t′1 ... t′m) :=
      [Equivalence_Reflexive := refl]
@@ -508,7 +508,7 @@ is equivalent to an instance declaration:
      [Equivalence_Transitive := trans].
 
 The declaration itself amounts to the definition of an object of the record type
-``Coq.Classes.RelationClasses.Equivalence`` and a hint added to the
+``Stdlib.Classes.RelationClasses.Equivalence`` and a hint added to the
 of a typeclass named ``Proper``` defined in ``Classes.Morphisms``. See the
 documentation on :ref:`typeclasses` and the theories files in Classes for
 further explanations.
@@ -526,7 +526,7 @@ registered as parametric relations and morphisms.
 
 .. example:: First class setoids
 
-   .. coqtop:: in reset
+   .. rocqtop:: in reset
 
       Require Import Relation_Definitions Setoid.
 
@@ -686,16 +686,16 @@ declared as morphisms in the ``Classes.Morphisms_Prop`` module. For
 example, to declare that universal quantification is a morphism for
 logical equivalence:
 
-.. coqtop:: none
+.. rocqtop:: none
 
    Require Import Morphisms.
 
-.. coqtop:: in
+.. rocqtop:: in
 
    Instance all_iff_morphism (A : Type) :
             Proper (pointwise_relation A iff ==> iff) (@all A).
 
-.. coqtop:: all abort
+.. rocqtop:: all abort
 
    Proof. simpl_relation.
 
@@ -717,7 +717,7 @@ functional arguments (or whatever subrelation of the pointwise
 extension). For example, one could declare the ``map`` combinator on lists
 as a morphism:
 
-.. coqdoc::
+.. rocqdoc::
 
    Instance map_morphism `{Equivalence A eqA, Equivalence B eqB} :
             Proper ((eqA ==> eqB) ==> list_equiv eqA ==> list_equiv eqB) (@map A B).
@@ -756,15 +756,77 @@ Subrelations are implemented in ``Classes.Morphisms`` and are a prime
 example of a mostly user-space extension of the algorithm.
 
 
-Constant unfolding
-~~~~~~~~~~~~~~~~~~
+Constant unfolding during rewriting
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The resolution tactic is based on typeclasses and hence regards user-defined
-:term:`constants <constant>` as transparent by default. This may slow down the
-resolution due to a lot of unifications (all the declared ``Proper``
-instances are tried at each node of the search tree). To speed it up,
-declare your constant as rigid for proof search using the command
-:cmd:`Typeclasses Opaque`.
+By default, :tacn:`setoid_rewrite` and :tacn:`rewrite_strat` unfold global
+definitions during rewrite rule matching, but do not unfold local
+definitions. Unfolding definitions may slow down matching, whereas keeping
+definitions opaque may cause matches to be missed.  This behavior is
+configurable using transparency hints in the hint database ``rewrite``:
+
+  :n:`Hint {| Variables | Constants } {| Opaque | Transparent } : rewrite.`
+
+  :n:`Hint {| Opaque | Transparent } {+ @qualid } : rewrite.`
+
+The effect of these commands on rewriting is similar to that of :cmd:`Hint
+Transparent` and :cmd:`Hint Variables` on unification used by :tacn:`eauto` and
+related tactics. Note that the transparency information from database `rewrite`
+is used even when rewriting with individual lemmas.
+
+.. example::
+
+   .. rocqtop:: reset in
+
+      Require Setoid.
+      Definition f x y := 2*x + y.
+      Definition g x y := 2*x + y.
+
+      Goal forall
+        (double_f : forall x y, 2*f x y = f (2*x) y + y),
+        2 * g 1 8 = 20.
+      Proof.
+
+   .. rocqtop:: all
+
+        intros. (* By default, this rewrite succeeds by unifying f with g. *)
+          assert_succeeds (setoid_rewrite double_f).
+          assert_succeeds (rewrite_strat bottomup double_f).
+        set (x := g _). (* Hide left-hand side behind local definition. *)
+          assert_fails (setoid_rewrite double_f).
+          assert_fails (rewrite_strat bottomup double_f).
+        Hint Variables Transparent : rewrite. (* Now rewriting unfolds x. *)
+          assert_succeeds (setoid_rewrite double_f).
+          assert_succeeds (rewrite_strat bottomup double_f).
+        Hint Constants Opaque : rewrite. (* Disallow unfolding f and g. *)
+          assert_fails (setoid_rewrite double_f).
+          assert_fails (rewrite_strat bottomup double_f).
+        subst x. (* With x substituted, f and g are still distinct. *)
+          assert_fails (setoid_rewrite double_f).
+          assert_fails (rewrite_strat bottomup double_f).
+        Hint Transparent f g : rewrite. (* Allow unfolding f and g only. *)
+          assert_succeeds (setoid_rewrite double_f).
+          assert_succeeds (rewrite_strat bottomup double_f).
+
+   .. rocqtop:: none
+
+        exact eq_refl.
+      Qed.
+
+Constant unfolding during ``Proper``-instance search
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``Proper`` instances are resolved using typeclass search. By default, all
+constants are treated as transparent. This may slow down the resolution because
+:tacn:`typeclasses eauto` will do a lot of unifications (all the declared
+``Proper`` instances are tried at each node of the proof search tree).  To
+speed up the search, declare your non-abbreviation definitions as opaque in the
+hint database ``typeclass_instances``.
+
+  :n:`Hint {| Opaque | Transparent } {+ @qualid } : typeclass_instances.`
+
+For more information, see :cmd:`Typeclasses Opaque` and :tacn:`typeclasses
+eauto`.
 
 .. _strategies4rewriting:
 
@@ -882,13 +944,13 @@ are applied using the :tacn:`rewrite_strat` tactic.
    Innermost first.
    When there are multiple nested matches in a subterm, the innermost subterm
    is rewritten.  For :ref:`example <rewrite_strat_innermost_outermost>`,
-   rewriting :n:`(a + b) + c` with Nat.add_comm gives :n:`(b + a) + c`.
+   rewriting :n:`(a && b) && c` with `andbC` gives :n:`(b && a) && c`.
 
 :n:`outermost @rewstrategy1`
    Outermost first.
    When there are multiple nested matches in a subterm, the outermost subterm
    is rewritten.  For :ref:`example <rewrite_strat_innermost_outermost>`,
-   rewriting :n:`(a + b) + c` with Nat.add_comm gives :n:`c + (a + b)`.
+   rewriting :n:`(a && b) && c` with `andbC` gives :n:`c && (a && b)`.
 
 :n:`bottomup @rewstrategy1`
    bottom-up
@@ -974,26 +1036,27 @@ on success. It is stronger than the tactic ``fold``.
 
 .. example:: :n:`innermost` and :n:`outermost`
 
-   The type of `Nat.add_comm` is `forall n m : nat, n + m = m + n`.
+   The type of `andbC` is `forall a b : bool, a && b = b && a`.
 
-   .. coqtop:: all
+   .. rocqtop:: all
 
-      Require Import Coq.Arith.Arith.
+      Require Import ssrbool.
       Set Printing Parentheses.
-      Goal forall a b c: nat, a + b + c = 0.
-      rewrite_strat innermost Nat.add_comm.
+      Local Open Scope bool_scope.
+      Goal forall a b c : bool, a && b && c = true.
+      rewrite_strat innermost andbC.
 
-   .. coqtop:: none
+   .. rocqtop:: none
 
       Abort.
-      Goal forall a b c: nat, a + b + c = 0.
+      Goal forall a b c : bool, a && b && c = true.
 
    Using :n:`outermost` instead gives this result:
 
-   .. coqtop:: all
+   .. rocqtop:: all
 
-      rewrite_strat outermost Nat.add_comm.
+      rewrite_strat outermost andbC.
 
-   .. coqtop:: none
+   .. rocqtop:: none
 
       Abort.

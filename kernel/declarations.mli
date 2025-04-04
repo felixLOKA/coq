@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -17,26 +17,29 @@ open Constr
 
 (** {6 Representation of constants (Definition/Axiom) } *)
 
-(** Non-universe polymorphic mode polymorphism (Coq 8.2+): inductives
-    and constants hiding inductives are implicitly polymorphic when
-    applied to parameters, on the universes appearing in the whnf of
-    their parameters and their conclusion, in a template style.
+(** Template polymorphism: provides universe polymorphism and sort
+    polymorphism (restricted to above prop qualities), with implicit instances
+    and inferring the universes from the types of parameters instead.
 
-    In truly universe polymorphic mode, we always use RegularArity.
+    The data other than [mind_template] in the inductive bodies is
+    instantiated to the default universes (e.g. [mind_user_arity],
+    [mind_sort], the constructor data, etc).
 *)
 
-type template_arity = {
-  template_level : Sorts.t;
-}
-
 type template_universes = {
-  template_param_arguments : bool list;
-  template_context : Univ.ContextSet.t;
+  (** For each LocalAssum parameter (in regular order, not rel_context order),
+      tell whether it binds a quality or a universe level
+      (read from the sort, NB it is possible to bind a qvar next to a constant universe)
+      (the binders are DeBruijn levels as with universe polymorphism,
+      but may be instantiated with algebraics) *)
+  template_param_arguments : Sorts.t option list;
+  (** Inductive sort with abstracted universes. *)
+  template_concl : Sorts.t;
+  template_context : UVars.AbstractContext.t;
+  (** Template_defaults qualities are all QType.
+      Also the universes are all levels so we can use Instance. *)
+  template_defaults : UVars.Instance.t;
 }
-
-type ('a, 'b) declaration_arity =
-  | RegularArity of 'a
-  | TemplateArity of 'b
 
 (** Inlining level of parameters at functor applications.
     None means no inlining *)
@@ -159,13 +162,6 @@ type record_info =
 | FakeRecord
 | PrimRecord of (Id.t * Label.t array * Sorts.relevance array * types array) array
 
-type regular_inductive_arity = {
-  mind_user_arity : types;
-  mind_sort : Sorts.t;
-}
-
-type inductive_arity = (regular_inductive_arity, template_arity) declaration_arity
-
 type squash_info =
   | AlwaysSquashed
   | SometimesSquashed of Sorts.Quality.Set.t
@@ -190,7 +186,12 @@ type one_inductive_body = {
      a list in reverse order
      [[realdecl_i{r_i};...;realdecl_i1;paramdecl_m;...;paramdecl_1]]. *)
 
-    mind_arity : inductive_arity; (** Arity sort and original user arity *)
+    mind_sort : Sorts.t; (** Arity sort *)
+
+    mind_user_arity : types;
+    (** Original user arity, convertible to [mkArity (mind_arity_ctxt, mind_sort)].
+        As such it contains the parameters.
+        (not necessarily a syntactic arity, eg [relation A] instead of [A -> A -> Prop]) *)
 
     (* i index of the mutual, j index of the constructor *)
     mind_consnames : Id.t array; (** Names of the constructors: [cij] *)
@@ -236,6 +237,7 @@ type one_inductive_body = {
     mind_recargs : wf_paths; (** Signature of recursive arguments in the constructors *)
 
     mind_relevance : Sorts.relevance;
+    (* XXX this is redundant with mind_sort, is it actually worth keeping? *)
 
 (** {8 Datas for bytecode compilation } *)
 
@@ -320,7 +322,7 @@ type 'arg head_pattern =
 type pattern_elimination =
   | PEApp     of pattern_argument array
   | PECase    of inductive * instance_mask * pattern_argument * pattern_argument array
-  | PEProj    of Projection.t
+  | PEProj    of Projection.Repr.t
 
 and head_elimination = pattern_argument head_pattern * pattern_elimination list
 
@@ -343,6 +345,9 @@ type rewrite_rules_body = {
 }
 
 (** {6 Module declarations } *)
+
+type mod_body = [ `ModBody ]
+type mod_type = [ `ModType ]
 
 (** Functor expressions are forced to be on top of other expressions *)
 
@@ -375,12 +380,12 @@ type module_expression = (constr * UVars.AbstractContext.t option) functor_alg_e
 
 (** A component of a module structure *)
 
-type structure_field_body =
+type ('mod_body, 'mod_type) structure_field_body =
   | SFBconst of constant_body
   | SFBmind of mutual_inductive_body
   | SFBrules of rewrite_rules_body
-  | SFBmodule of module_body
-  | SFBmodtype of module_type_body
+  | SFBmodule of 'mod_body
+  | SFBmodtype of 'mod_type
 
 (** A module structure is a list of labeled components.
 
@@ -388,55 +393,4 @@ type structure_field_body =
     a [structure_body], once for a module ([SFBmodule] or [SFBmodtype])
     and once for an object ([SFBconst] or [SFBmind]) *)
 
-and structure_body = (Label.t * structure_field_body) list
-
-(** A module signature is a structure, with possibly functors on top of it *)
-
-and module_signature = (module_type_body,structure_body) functorize
-
-and module_implementation =
-  | Abstract (** no accessible implementation *)
-  | Algebraic of module_expression (** non-interactive algebraic expression *)
-  | Struct of structure_body (** interactive body living in the parameter context of [mod_type] *)
-  | FullStruct (** special case of [Struct] : the body is exactly [mod_type] *)
-
-and 'a generic_module_body =
-  { mod_mp : ModPath.t; (** absolute path of the module *)
-    mod_expr : 'a; (** implementation *)
-    mod_type : module_signature; (** expanded type *)
-    mod_type_alg : module_expression option; (** algebraic type *)
-    mod_delta : Mod_subst.delta_resolver; (**
-      quotiented set of equivalent constants and inductive names *)
-    mod_retroknowledge : 'a module_retroknowledge }
-
-(** For a module, there are five possible situations:
-    - [Declare Module M : T] then [mod_expr = Abstract; mod_type_alg = Some T]
-    - [Module M := E] then [mod_expr = Algebraic E; mod_type_alg = None]
-    - [Module M : T := E] then [mod_expr = Algebraic E; mod_type_alg = Some T]
-    - [Module M. ... End M] then [mod_expr = FullStruct; mod_type_alg = None]
-    - [Module M : T. ... End M] then [mod_expr = Struct; mod_type_alg = Some T]
-    And of course, all these situations may be functors or not. *)
-
-and module_body = module_implementation generic_module_body
-
-(** A [module_type_body] is just a [module_body] with no implementation and
-    also an empty [mod_retroknowledge]. Its [mod_type_alg] contains
-    the algebraic definition of this module type, or [None]
-    if it has been built interactively. *)
-
-and module_type_body = unit generic_module_body
-
-and _ module_retroknowledge =
-| ModBodyRK :
-  Retroknowledge.action list -> module_implementation module_retroknowledge
-| ModTypeRK : unit module_retroknowledge
-
-(** Extra invariants :
-
-    - No [MEwith] inside a [mod_expr] implementation : the 'with' syntax
-      is only supported for module types
-
-    - A module application is atomic, for instance ((M N) P) :
-      * the head of [MEapply] can only be another [MEapply] or a [MEident]
-      * the argument of [MEapply] is now directly forced to be a [ModPath.t].
-*)
+and ('mod_body, 'mod_type) structure_body = (Label.t * ('mod_body, 'mod_type) structure_field_body) list

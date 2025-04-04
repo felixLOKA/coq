@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -8,7 +8,7 @@
 (*         *     (see LICENSE file for the text of the license)         *)
 (************************************************************************)
 
-open Pcoq
+open Procq
 open Genredexpr
 open Vernacexpr
 
@@ -25,6 +25,7 @@ module Vernac_ :
     val fix_definition : fixpoint_expr Entry.t
     val noedit_mode : vernac_expr Entry.t
     val command_entry : vernac_expr Entry.t
+    val generic_tactic : Gentactic.raw_generic_tactic Entry.t
     val main_entry : vernac_control option Entry.t
     val red_expr : raw_red_expr Entry.t
     val hint_info : hint_info_expr Entry.t
@@ -50,7 +51,17 @@ val main_entry : proof_mode option -> vernac_control option Entry.t
   entry for parsing its tactics.
   *)
 
-val register_proof_mode : string -> Vernacexpr.vernac_expr Entry.t -> proof_mode
+type proof_mode_entry = ProofMode : {
+    command_entry : Vernacexpr.vernac_expr Entry.t;
+    wit_tactic_expr : ('raw,_,unit) Genarg.genarg_type;
+    tactic_expr_entry : 'raw Entry.t;
+} -> proof_mode_entry
+
+val register_proof_mode : string -> proof_mode_entry -> proof_mode
 val lookup_proof_mode : string -> proof_mode option
 val proof_mode_to_string : proof_mode -> string
-val list_proof_modes : unit -> Vernacexpr.vernac_expr Entry.t CString.Map.t
+val list_proof_modes : unit -> proof_mode_entry CString.Map.t
+
+val get_default_proof_mode : unit -> proof_mode
+
+val proof_mode_opt_name : string list

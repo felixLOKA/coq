@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -9,9 +9,6 @@
 (************************************************************************)
 
 open Goptions
-
-val vernac_set_append_option :
-  locality:option_locality -> stage:Summary.Stage.t ->option_name -> string -> unit
 
 val vernac_set_option :
   locality:option_locality ->

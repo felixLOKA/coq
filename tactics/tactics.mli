@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -149,7 +149,7 @@ val exact_proof      : Constrexpr.constr_expr -> unit Proofview.tactic
 type tactic_reduction = Reductionops.reduction_function
 type e_tactic_reduction = Reductionops.e_reduction_function
 
-type change_arg = patvar_map -> env -> evar_map -> evar_map * constr
+type change_arg = patvar_map -> env -> evar_map -> (evar_map * constr) Tacred.change
 
 val make_change_arg   : constr -> change_arg
 val reduct_in_hyp     : check:bool -> reorder:bool -> tactic_reduction -> hyp_location -> unit Proofview.tactic
@@ -230,7 +230,7 @@ val apply_delayed_in :
 (** {6 Elimination tactics. } *)
 
 val general_elim_clause : evars_flag -> unify_flags -> Id.t option ->
-  ((metavariable * Evd.clbinding) list * EConstr.t * EConstr.types) -> Constant.t -> unit Proofview.tactic
+  ((metavariable list * Unification.Meta.t) * EConstr.t * EConstr.types) -> Constant.t -> unit Proofview.tactic
 
 val default_elim  : evars_flag -> clear_flag -> constr with_bindings ->
   unit Proofview.tactic
@@ -343,7 +343,7 @@ val subst_one :
   (bool -> Id.t -> Id.t * constr * bool -> unit Proofview.tactic) Hook.t
 
 val declare_intro_decomp_eq :
-  ((int -> unit Proofview.tactic) -> Coqlib.coq_eq_data * types *
+  ((int -> unit Proofview.tactic) -> Rocqlib.rocq_eq_data * types *
    (types * constr * constr) ->
    constr * types -> unit Proofview.tactic) -> unit
 

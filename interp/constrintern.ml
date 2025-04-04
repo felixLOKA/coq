@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -61,19 +61,22 @@ let var_uid =
   let count = ref 0 in
   fun id -> incr count; Id.to_string id ^ ":" ^ string_of_int !count
 
-type var_internalization_data =
-    (* type of the "free" variable, for coqdoc, e.g. while typing the
-       constructor of JMeq, "JMeq" behaves as a variable of type Inductive *)
-    var_internalization_type *
-    (* signature of impargs of the variable *)
-    Impargs.implicit_status list *
-    (* subscopes of the args of the variable *)
-    scope_name list list *
-    (* unique ID for coqdoc links *)
-    var_unique_id
+type var_internalization_data = {
+  (* type of the "free" variable, for coqdoc, e.g. while typing the
+     constructor of JMeq, "JMeq" behaves as a variable of type Inductive *)
+  var_intern_typ : var_internalization_type;
+  (* signature of impargs of the variable *)
+  var_impls : Impargs.implicit_status list;
+  (* subscopes of the args of the variable *)
+  var_scopes : scope_name list list;
+  (* unique ID for coqdoc links *)
+  var_uid : var_unique_id;
+}
 
-type internalization_env =
-    (var_internalization_data) Id.Map.t
+let make_var_data var_intern_typ var_impls var_scopes var_uid =
+  {var_intern_typ; var_impls; var_scopes; var_uid}
+
+type internalization_env = var_internalization_data Id.Map.t
 
 type ltac_sign = {
   ltac_vars : Id.Set.t;
@@ -172,7 +175,7 @@ let empty_internalization_env = Id.Map.empty
 
 let compute_internalization_data env sigma ?silent id ty typ impl =
   let impl = compute_implicits_with_manual env sigma ?silent typ (is_implicit_args()) impl in
-  (ty, impl, compute_arguments_scope env sigma typ, var_uid id)
+  make_var_data ty impl (compute_arguments_scope env sigma typ) (var_uid id)
 
 let compute_internalization_env env sigma ?(impls=empty_internalization_env) ?force ty names =
   let force = match force with None -> List.map (fun _ -> Id.Set.empty) names | Some l -> l in
@@ -182,13 +185,13 @@ let compute_internalization_env env sigma ?(impls=empty_internalization_env) ?fo
   | _ -> impl in
   List.fold_left4
     (fun map id force_ids typ impl ->
-       let (ty, impls, scopes, uid) = compute_internalization_data env sigma id ty typ impl in
-       let impls = List.map (Option.map (f force_ids)) impls in
-       Id.Map.add id (ty, impls, scopes, uid) map)
+       let var_info = compute_internalization_data env sigma id ty typ impl in
+       let impls = List.map (Option.map (f force_ids)) var_info.var_impls in
+       Id.Map.add id {var_info with var_impls = impls} map)
     impls names force
 
 let implicits_of_decl_in_internalization_env id (int_env:internalization_env) =
-  let (_, impls, _, _) = Id.Map.find id int_env in impls
+  let {var_impls=impls} = Id.Map.find id int_env in impls
 
 (**********************************************************************)
 (* Contracting "{ _ }" in notations *)
@@ -305,21 +308,26 @@ let error_expect_binder_notation_type ?loc id =
 
 let set_notation_var_scope ?loc id (tmp_scope,subscopes as scopes) ntnbinders ntnvars =
   try
-    let _,idscopes,ntn_binding_ids,typ = Id.Map.find id ntnvars in
+    let {Genintern.ntnvar_typ=typ} as status = Id.Map.find id ntnvars in
     match typ with
     | Notation_term.NtnInternTypeOnlyBinder -> error_expect_binder_notation_type ?loc id
     | Notation_term.NtnInternTypeAny principal ->
-      let () = match !idscopes with
-      | None -> idscopes := Some scopes
+      let () = match status.ntnvar_scopes with
+      | None -> status.ntnvar_scopes <- Some scopes
       | Some (tmp_scope', subscopes') ->
         let s' = make_current_scope tmp_scope' subscopes' in
         let s = make_current_scope tmp_scope subscopes in
         if Option.is_empty principal && not (List.equal String.equal s' s) then
           warn_inconsistent_scope ?loc (id,s',s)
       in
-      let () = match !ntn_binding_ids with
-      | None -> ntn_binding_ids := Some ntnbinders
-      | Some ntnbinders' -> ntn_binding_ids := Some (Id.Set.inter ntnbinders ntnbinders')
+      let () = match status.ntnvar_binding_ids with
+      | None -> status.ntnvar_binding_ids <- Some ntnbinders
+      | Some ntnbinders' -> status.ntnvar_binding_ids <- Some (Id.Set.inter ntnbinders ntnbinders')
+      in
+      let () = match status.ntnvar_used with
+        | [] -> () (* not recording if notation var is used *)
+        | true :: _ -> () (* already marked used *)
+        | false :: rest -> status.ntnvar_used <- true :: rest
       in
       ()
  with Not_found ->
@@ -328,8 +336,8 @@ let set_notation_var_scope ?loc id (tmp_scope,subscopes as scopes) ntnbinders nt
 
 let set_var_is_binder ?loc id ntnvars =
   try
-    let used_as_binder,_,_,_ = Id.Map.find id ntnvars in
-    used_as_binder := true
+    let status = Id.Map.find id ntnvars in
+    status.Genintern.ntnvar_used_as_binder <- true
   with Not_found ->
     (* Not in a notation *)
     ()
@@ -513,7 +521,7 @@ let push_name_env ~dump ntnvars implargs env =
       set_var_is_binder ?loc id ntnvars;
       let uid = var_uid id in
       if dump then Dumpglob.dump_binding ?loc uid;
-      pure_push_name_env (id,(Variable,implargs,[],uid),Id.Map.mem id ntnvars) env
+      pure_push_name_env (id,(make_var_data Variable implargs [] uid),Id.Map.mem id ntnvars) env
 
 let remember_binders_impargs env bl =
   List.map_filter (fun (na,_,_,_,_) ->
@@ -595,7 +603,7 @@ let glob_local_binder_of_extended = DAst.with_loc_val (fun ?loc -> function
       let t = DAst.make ?loc @@ GHole (GBinderType na) in
       (na,None,Explicit,Some c,t)
   | GLocalPattern (_,_,_,_) ->
-      Loc.raise ?loc (Gramlib.Grammar.Error "Pattern with quote not allowed here.")
+      Loc.raise ?loc (Gramlib.Grammar.Error "Pattern with quote not allowed here")
   )
 
 let intern_cases_pattern_fwd = ref (fun _ -> failwith "intern_cases_pattern_fwd")
@@ -874,6 +882,40 @@ let rec adjust_env env = function
   | NRec _ | NSort _ | NProj _ | NInt _ | NFloat _ | NString _ | NArray _
   | NList _ | NBinderList _ -> env (* to be safe, but restart should be ok *)
 
+let subst_var loc intern_pat intern ntnvars binders (terms, binderopt, _terminopt) (renaming, env) id =
+  (* subst remembers the delimiters stack in the interpretation *)
+  (* of the notations *)
+  try
+    let (a,scopes) = Id.Map.find id terms in
+    intern (set_env_scopes env scopes) a
+  with Not_found ->
+  try
+    let (pat,bk),(onlyident,scopes) = Id.Map.find id binders in
+    let env = set_env_scopes env scopes in
+    let test_kind =
+      if onlyident then test_kind_ident_in_notation
+      else test_kind_pattern_in_notation in
+    let env,((disjpat,ids),id),bk,_ty = intern_pat test_kind ntnvars env bk pat in
+    (* TODO: use cast? *)
+    match disjpat with
+    | [pat] -> glob_constr_of_cases_pattern (Global.env()) pat
+    | _ -> user_err Pp.(str "Cannot turn a disjunctive pattern into a term.")
+  with Not_found ->
+  try
+    match binderopt with
+    | Some (x,binder) when Id.equal x id ->
+      let terms = terms_of_binders [binder] in
+      assert (List.length terms = 1);
+      intern env (List.hd terms)
+    | _ -> raise Not_found
+  with Not_found ->
+    DAst.make ?loc (
+      try
+        GVar (Id.Map.find id renaming)
+      with Not_found ->
+        (* Happens for local notation joint with inductive/fixpoint defs *)
+        GVar id)
+
 let instantiate_notation_constr loc intern intern_pat ntnvars subst infos c =
   let (terms,termlists,binders,binderlists) = subst in
   (* when called while defining a notation, avoid capturing the private binders
@@ -904,7 +946,7 @@ let instantiate_notation_constr loc intern intern_pat ntnvars subst infos c =
            DAst.make ?loc (GApp (DAst.make ?loc (GVar ldots_var), [aux_letin env (rest,terminator,iter)]))
         in
         aux_letin env (Option.get iteropt)
-    | NVar id -> subst_var subst' (renaming, env) id
+    | NVar id -> subst_var loc intern_pat intern ntnvars binders subst' (renaming, env) id
     | NList (x,y,iter,terminator,revert) ->
       let l,(scopt,subscopes) =
         (* All elements of the list are in scopes (scopt,subscopes) *)
@@ -938,14 +980,12 @@ let instantiate_notation_constr loc intern intern_pat ntnvars subst infos c =
       in
       DAst.make ?loc @@ GHole (knd)
     | NGenarg arg ->
-      let mk_env id (c, scopes) map =
+      let glob_of_term (c, scopes) =
         let nenv = set_env_scopes env scopes in
-        try
-          let gc = intern nenv c in
-          Id.Map.add id (gc) map
-        with Nametab.GlobalizationError _ -> map
+        let gc = intern nenv c in
+        gc
       in
-      let mk_env' ((c,_bk), (onlyident,(tmp_scope,subscopes))) =
+      let glob_of_binder ((c,_bk), (onlyident,(tmp_scope,subscopes))) =
         let nenv = {env with tmp_scope; scopes = subscopes @ env.scopes} in
         let test_kind =
           if onlyident then test_kind_ident_in_notation
@@ -956,10 +996,14 @@ let instantiate_notation_constr loc intern intern_pat ntnvars subst infos c =
         | [pat] -> (glob_constr_of_cases_pattern (Global.env()) pat)
         | _ -> error_cannot_coerce_disjunctive_pattern_term ?loc:c.loc ()
       in
-      let terms = Id.Map.fold mk_env terms Id.Map.empty in
-      let binders = Id.Map.map mk_env' binders in
-      let bindings = Id.Map.fold Id.Map.add terms binders in
-      let arg = Genintern.generic_substitute_notation avoid bindings arg in
+      let get_glob id =
+        match Id.Map.find_opt id terms with
+        | Some term -> Some (glob_of_term term)
+        | None -> match Id.Map.find_opt id binders with
+          | Some binder -> Some (glob_of_binder binder)
+          | None -> None
+      in
+      let arg = Genintern.generic_substitute_notation ntnvars get_glob arg in
       DAst.make ?loc @@ GGenarg arg
     | NBinderList (x,y,iter,terminator,revert) ->
       (try
@@ -984,39 +1028,6 @@ let instantiate_notation_constr loc intern intern_pat ntnvars subst infos c =
     | t ->
       glob_constr_of_notation_constr_with_binders ?loc
         (traverse_binder intern_pat ntnvars subst binderopt avoid) (aux subst') ~h:binder_status_fun subinfos t
-  and subst_var (terms, binderopt, _terminopt) (renaming, env) id =
-    (* subst remembers the delimiters stack in the interpretation *)
-    (* of the notations *)
-    try
-      let (a,scopes) = Id.Map.find id terms in
-      intern (set_env_scopes env scopes) a
-    with Not_found ->
-    try
-      let (pat,bk),(onlyident,scopes) = Id.Map.find id binders in
-      let env = set_env_scopes env scopes in
-      let test_kind =
-        if onlyident then test_kind_ident_in_notation
-        else test_kind_pattern_in_notation in
-      let env,((disjpat,ids),id),bk,_ty = intern_pat test_kind ntnvars env bk pat in
-      (* TODO: use cast? *)
-      match disjpat with
-      | [pat] -> glob_constr_of_cases_pattern (Global.env()) pat
-      | _ -> user_err Pp.(str "Cannot turn a disjunctive pattern into a term.")
-    with Not_found ->
-    try
-      match binderopt with
-      | Some (x,binder) when Id.equal x id ->
-         let terms = terms_of_binders [binder] in
-         assert (List.length terms = 1);
-         intern env (List.hd terms)
-      | _ -> raise Not_found
-    with Not_found ->
-    DAst.make ?loc (
-    try
-      GVar (Id.Map.find id renaming)
-    with Not_found ->
-      (* Happens for local notation joint with inductive/fixpoint defs *)
-      GVar id)
   in aux (terms,None,None) infos c
 
 (* Turning substitution coming from parsing and based on production
@@ -1148,7 +1159,7 @@ let intern_var env (ltacvars,ntnvars) namedctx loc id us =
   else
   (* Is [id] registered with implicit arguments *)
   try
-    let ty,_,_,uid = Id.Map.find id env.impls in
+    let {var_intern_typ=ty; var_uid=uid} = Id.Map.find id env.impls in
     let tys = string_of_ty ty in
     Dumpglob.dump_reference ?loc "<>" uid tys;
     gvar (loc,id) us
@@ -1291,7 +1302,7 @@ let find_appl_head_data env (_,ntnvars) c =
   match DAst.get c with
   | GVar id when not (Id.Map.mem id ntnvars) ->
     (try
-      let _,impls,argsc,_ = Id.Map.find id env.impls in
+      let {var_impls=impls; var_scopes=argsc} = Id.Map.find id env.impls in
       Some (CAst.make ?loc (GlobRef.VarRef id)), make_implicits_list impls, argsc
      with Not_found -> None, [], [])
   | GRef (ref,_) ->
@@ -2404,7 +2415,7 @@ let internalize globalenv env pattern_mode (_, ntnvars as lvar) c =
     | CGenarg gen ->
         let (ltacvars, ntnvars) = lvar in
         (* Preventively declare notation variables in ltac as non-bindings *)
-        Id.Map.iter (fun x (used_as_binder,_,_,_) -> used_as_binder := false) ntnvars;
+        Id.Map.iter (fun x status -> status.Genintern.ntnvar_used_as_binder <- false) ntnvars;
         let extra = ltacvars.ltac_extra in
         (* We inform ltac that the interning vars and the notation vars are bound *)
         (* but we could instead rely on the "intern_sign" *)
@@ -2789,11 +2800,18 @@ let intern_core kind env sigma ?strict_check ?(pattern_mode=false) ?(ltacvars=em
 let interp_notation_constr env ?(impls=empty_internalization_env) nenv a =
   let ids = extract_ids env in
   (* [vl] is intended to remember the scope of the free variables of [a] *)
+  let make_status scopes typ = {
+    Genintern.ntnvar_used = [];
+    ntnvar_used_as_binder = false;
+    ntnvar_scopes = scopes;
+    ntnvar_binding_ids = None;
+    ntnvar_typ = typ;
+  }
+  in
   let vl = Id.Map.map (function
-    | (NtnInternTypeAny None | NtnInternTypeOnlyBinder) as typ -> (ref false, ref None, ref None, typ)
-    | NtnInternTypeAny (Some scope) as typ ->
-        (ref false, ref (Some ([scope],[])), ref None, typ)
-    ) nenv.ninterp_var_type in
+    | (NtnInternTypeAny None | NtnInternTypeOnlyBinder) as typ -> make_status None typ
+    | NtnInternTypeAny (Some scope) as typ -> make_status (Some ([scope],[])) typ)
+    nenv.ninterp_var_type in
   let impls = Id.Map.fold (fun id _ impls -> Id.Map.remove id impls) nenv.ninterp_var_type impls in
   let c = internalize env
       {ids; strict_check = Some true;
@@ -2808,8 +2826,9 @@ let interp_notation_constr env ?(impls=empty_internalization_env) nenv a =
   let out_scope = function None -> [],[] | Some (a,l) -> a,l in
   let out_bindings = function None -> Id.Set.empty | Some a -> a in
   let unused = match reversible with NonInjective ids -> ids | _ -> [] in
-  let vars = Id.Map.mapi (fun id (used_as_binder, sc, ntn_binding_ids, typ) ->
-    (!used_as_binder && not (List.mem_f Id.equal id unused), out_scope !sc, out_bindings !ntn_binding_ids)) vl in
+  let vars = Id.Map.mapi (fun id status ->
+      (status.Genintern.ntnvar_used_as_binder && not (List.mem_f Id.equal id unused),
+       out_scope status.ntnvar_scopes, out_bindings status.ntnvar_binding_ids)) vl in
   (* Returns [a] and the ordered list of variables with their scopes *)
   vars, a, reversible
 
@@ -2855,9 +2874,9 @@ let impl_of_binder_kind na = function
   | Explicit -> CAst.make None
 
 let push_auto_implicit env sigma t int_env id =
-  let (ty,imps,sc,uid) = Id.Map.find id int_env.impls in
-  let imps = List.map (fun imp -> CAst.make (Option.map (fun imp -> (pi1 imp.impl_pos,imp.impl_max)) imp)) imps in
-  let imps = compute_internalization_data env sigma ~silent:false id ty t imps in (* add automatic implicit arguments to manual ones *)
+  let var_info = Id.Map.find id int_env.impls in
+  let imps = List.map (fun imp -> CAst.make (Option.map (fun imp -> (pi1 imp.impl_pos,imp.impl_max)) imp)) var_info.var_impls in
+  let imps = compute_internalization_data env sigma ~silent:false id var_info.var_intern_typ t imps in (* add automatic implicit arguments to manual ones *)
   { int_env with impls = Id.Map.add id imps int_env.impls }
 
 let interp_context_evars_gen ?(program_mode=false) ?(unconstrained_sorts = false) ?(impl_env=empty_internalization_env) ?(autoimp_enable=true) ~dump env sigma make_decl push_decl bl =
@@ -2868,11 +2887,12 @@ let interp_context_evars_gen ?(program_mode=false) ?(unconstrained_sorts = false
      extract_ids env in
   let int_env = default_internalization_env ids (bound_univs sigma) impl_env in
   let flags = { Pretyping.all_no_fail_flags with program_mode; unconstrained_sorts } in
-  let (int_env, (env, sigma, bl, impls)) =
+  let (int_env, (env, sigma, bl, impls, locs)) =
     List.fold_left
       (fun (int_env, acc) b ->
         let int_env, bl = intern_local_binder_aux ~dump (my_intern_constr env lvar) Id.Map.empty (int_env,[]) b in
-        let int_env, acc = List.fold_right (fun b' (int_env, (env,sigma,params,impls)) ->
+        let int_env, acc = List.fold_right (fun b' (int_env, (env,sigma,params,impls,locs)) ->
+          let loc = b'.CAst.loc in
           let (na, _, bk, b', t) = glob_local_binder_of_extended b' in
           let sigma, t =
               let t' = if Option.is_empty b' then locate_if_hole ?loc:(loc_of_glob_constr t) na t else t in (* useful? *)
@@ -2883,27 +2903,27 @@ let interp_context_evars_gen ?(program_mode=false) ?(unconstrained_sorts = false
           match b' with
           | None ->
             let int_env = if autoimp_enable then Name.fold_left (push_auto_implicit env sigma t) int_env na else int_env in
-            let d = make_decl (LocalAssum (make_annot na r,t)) in
+            let d = make_decl ?loc (LocalAssum (make_annot na r,t)) in
             let impls = impl_of_binder_kind na bk :: impls in
-            (int_env, (push_decl d env, sigma, d::params, impls))
+            (int_env, (push_decl d env, sigma, d::params, impls, loc::locs))
           | Some b ->
             assert (bk = Explicit);
             let sigma, c, _ = Pretyping.ise_pretype_gen flags env sigma empty_lvar (OfType t) b in
-            let d = make_decl (LocalDef (make_annot na r, c, t)) in
-            (int_env, (push_decl d env, sigma, d::params, impls)))
+            let d = make_decl ?loc (LocalDef (make_annot na r, c, t)) in
+            (int_env, (push_decl d env, sigma, d::params, impls, loc::locs)))
           bl (int_env,acc) in
         int_env, acc)
-      (int_env,(env,sigma,[],[])) bl
+      (int_env,(env,sigma,[],[],[])) bl
   in
-  sigma, (int_env.impls, ((env, bl), List.rev impls))
+  sigma, (int_env.impls, ((env, bl), List.rev impls, locs))
 
 let interp_named_context_evars ?program_mode ?unconstrained_sorts ?impl_env ?autoimp_enable env sigma bl =
-  let extract_name = function Name id -> id | Anonymous -> user_err Pp.(str "Unexpected anonymous variable.") in
-  let make_decl = Context.Named.Declaration.of_rel_decl extract_name in
+  let extract_name ?loc = function Name id -> id | Anonymous -> user_err ?loc Pp.(str "Unexpected anonymous variable.") in
+  let make_decl ?loc = Context.Named.Declaration.of_rel_decl (extract_name ?loc) in
   interp_context_evars_gen ?program_mode ?unconstrained_sorts  ?impl_env ?autoimp_enable ~dump:false env sigma make_decl EConstr.push_named bl
 
 let interp_context_evars ?program_mode ?unconstrained_sorts ?impl_env env sigma bl =
-  interp_context_evars_gen ?program_mode ?unconstrained_sorts ?impl_env ~autoimp_enable:false ~dump:true env sigma (fun d -> d) EConstr.push_rel bl
+  interp_context_evars_gen ?program_mode ?unconstrained_sorts ?impl_env ~autoimp_enable:false ~dump:true env sigma (fun ?loc d -> d) EConstr.push_rel bl
 
 (** Local universe and constraint declarations. *)
 

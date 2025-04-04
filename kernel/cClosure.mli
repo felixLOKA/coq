@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -37,7 +37,7 @@ type fterm =
   | FAtom of constr (** Metas and Sorts *)
   | FFlex of table_key
   | FInd of pinductive
-  | FConstruct of pconstructor
+  | FConstruct of pconstructor * fconstr array
   | FApp of fconstr * fconstr array
   | FProj of Projection.t * Sorts.relevance * fconstr
   | FFix of fixpoint * usubs
@@ -108,12 +108,6 @@ val inject : constr -> fconstr
 val mk_clos      : usubs -> constr -> fconstr
 val mk_clos_vect : usubs -> constr array -> fconstr array
 
-(** mk_atom: prevents a term from being evaluated *)
-val mk_atom : constr -> fconstr
-
-(** mk_red: makes a reducible term (used in ring) *)
-val mk_red : fterm -> fconstr
-
 val zip : fconstr -> stack -> fconstr
 
 val fterm_of : fconstr -> fterm
@@ -181,16 +175,15 @@ val skip_irrelevant_stack : clos_infos -> stack -> stack
 
 val eta_expand_stack : clos_infos -> Name.t binder_annot -> stack -> stack
 
-(** [eta_expand_ind_stack env ind c s t] computes stacks corresponding
-    to the conversion of the eta expansion of t, considered as an inhabitant
-    of ind, and the Constructor c of this inductive type applied to arguments
-    s.
+(** [eta_expand_ind_stack env ind c t] computes stacks corresponding
+    to the conversion of the eta expansion of [t], considered as an inhabitant
+    of [ind], and the Constructor [c] of this inductive type containing its arguments.
     Assumes [t] is a rigid term, and not a constructor. [ind] is the inductive
-    of the constructor term [c]
+    of the constructor term [c].
     @raise Not_found if the inductive is not a primitive record, or if the
     constructor is partially applied.
  *)
-val eta_expand_ind_stack : env -> pinductive -> fconstr -> stack ->
+val eta_expand_ind_stack : env -> pinductive -> fconstr ->
    (fconstr * stack) -> stack * stack
 
 (** Conversion auxiliary functions to do step by step normalisation *)

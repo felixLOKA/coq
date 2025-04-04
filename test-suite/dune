@@ -9,7 +9,7 @@
 
 (rule
  (targets test_suite_config.inc)
- (action (with-stdout-to %{targets} (run tools/coq_config_to_make.exe))))
+ (action (with-stdout-to %{targets} (run tools/coq_config_to_make.exe %{bin:coqc}))))
 
 (rule
  (targets summary.log)
@@ -21,18 +21,14 @@
    ; when TIMED is set, used to print the timing table
    ../tools/make-one-time-file.py
    ../tools/TimeFileMaker.py
-   ; Stuff for the compat script test
-   ../dev/header.ml
-   ../dev/tools/update-compat.py
-   ../doc/stdlib/index-list.html.template
-   ../sysinit/coqargs.ml
    ; For the changelog test
    ../config/coq_config.py
    (source_tree doc/changelog)
+   (package rocq-runtime)
    (package coq-core)
-   (package coq-stdlib)
-   ; For fake_ide
-   (package coqide-server)
+   (package rocq-core)
+   (package coqide-server) ; For fake_ide
+   (package rocq-devtools) ; For bench-render
    (source_tree .))
    ; Finer-grained dependencies would look like this and be generated
    ; by coqdep; that would allow tests to be run incrementally.

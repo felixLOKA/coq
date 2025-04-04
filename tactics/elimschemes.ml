@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -98,7 +98,7 @@ let weaken_sort_scheme env evd sort npars term ty =
           let ctx = LocalAssum (n, t) :: ctx in
           if Int.equal np 0 then
             let osort, t' = change_sort_arity (EConstr.ESorts.kind !evdref sort) t in
-              evdref := (if false then Evd.set_eq_sort else Evd.set_leq_sort) env !evdref sort (EConstr.ESorts.make osort);
+              evdref := Evd.set_leq_sort !evdref sort (EConstr.ESorts.make osort);
               mkProd (n, t', c),
               mkLambda (n, t', mkApp(term, Context.Rel.instance mkRel 0 ctx))
           else
@@ -129,7 +129,7 @@ let optimize_non_type_induction_scheme kind dep sort env _handle ind _ =
     let npars =
       (* if a constructor of [ind] contains a recursive call, the scheme
          is generalized only wrt recursively uniform parameters *)
-      if (Inductiveops.mis_is_recursive_subset [ind] mip.mind_recargs)
+      if (Inductiveops.mis_is_recursive_subset env [ind] (Rtree.Kind.make mip.mind_recargs))
       then
         mib.mind_nparams_rec
       else

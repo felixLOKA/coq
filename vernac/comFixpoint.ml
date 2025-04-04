@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -69,7 +69,12 @@ let rec partial_order cmp = function
       in link y
     in browse (partial_order cmp rest) [] xge
 
-let non_full_mutual_message x xge y yge isfix rest =
+let string_of_kind = function
+  | Decls.IsDefinition Fixpoint -> "fixpoint"
+  | IsDefinition CoFixpoint -> "cofixpoint"
+  | _ -> "declaration"
+
+let non_full_mutual_message x xge y yge kind rest =
   let reason =
     if Id.List.mem x yge then
       Id.print y ++ str " depends on " ++ Id.print x ++ strbrk " but not conversely"
@@ -78,44 +83,42 @@ let non_full_mutual_message x xge y yge isfix rest =
     else
       Id.print y ++ str " and " ++ Id.print x ++ strbrk " are not mutually dependent" in
   let e = if List.is_empty rest then reason else strbrk "e.g., " ++ reason in
-  let k = Decls.(match isfix with Fixpoint -> "defined fixpoint" | CoFixpoint -> "defined cofixpoint" | _ -> "dependent definition") in
   let w =
-    if isfix <> Decls.CoFixpoint
+    if kind <> Decls.IsDefinition CoFixpoint
     then strbrk "Well-foundedness check may fail unexpectedly." ++ fnl()
     else mt () in
-  strbrk "Not a fully mutually " ++ str k ++ fnl () ++
+  strbrk "Not a fully mutually defined " ++ str (string_of_kind kind) ++ fnl () ++
   str "(" ++ e ++ str ")." ++ fnl () ++ w
 
 let warn_non_full_mutual =
   CWarnings.create ~name:"non-full-mutual" ~category:CWarnings.CoreCategories.fixpoints
-         (fun (x,xge,y,yge,isfix,rest) ->
-          non_full_mutual_message x xge y yge isfix rest)
+         (fun (x,xge,y,yge,kind,rest) ->
+          non_full_mutual_message x xge y yge kind rest)
 
 let warn_non_recursive =
   CWarnings.create ~name:"non-recursive" ~category:CWarnings.CoreCategories.fixpoints
-         (fun (x,isfix) ->
-          let k = Decls.(match isfix with Fixpoint -> "fixpoint" | CoFixpoint -> "cofixpoint" | _ -> "definition") in
-          strbrk "Not a truly recursive " ++ str k ++ str ".")
+         (fun (x,kind) ->
+          strbrk "Not a truly recursive " ++ str (string_of_kind kind) ++ str ".")
 
-let check_true_recursivity env evd ~isfix fixl =
+let check_true_recursivity env evd ~kind fixl =
   let names = List.map fst fixl in
   let preorder =
     List.map (fun (id,def) ->
-      (id, List.filter (fun id' -> Termops.occur_var env evd id' def) names))
+      (id.CAst.v, List.filter_map (fun {CAst.v=id'} -> if Termops.occur_var env evd id' def then Some id' else None) names))
       fixl in
   let po = partial_order Id.equal preorder in
   match List.filter (function (_,Inr _) -> true | _ -> false) po with
     | (x,Inr xge)::(y,Inr yge)::rest ->
-       warn_non_full_mutual (x,xge,y,yge,isfix,rest)
+       warn_non_full_mutual (x,xge,y,yge,kind,rest)
     | _ ->
   match po with
-    | [x,Inr []] -> warn_non_recursive (x,isfix)
+    | [x,Inr []] -> warn_non_recursive (x,kind)
     | _ -> ()
 
 (*****************************************************)
 (* Utilities for Program Fixpoint with wf or measure *)
 
-open Coqlib
+open Rocqlib
 let init_constant sigma rf = Evd.fresh_global sigma rf
 let fix_sub_ref () = lib_ref "program.wf.fix_sub"
 let measure_on_R_ref () = lib_ref "program.wf.mr"
@@ -130,7 +133,7 @@ let ensure_program () =
   with NotFoundRef r ->
     CErrors.user_err
       Pp.(str r ++ spc() ++ str "not registered," ++ spc() ++
-          str "you should try requiring library Coq.Program.Wf.")
+          str "you should try requiring library Corelib.Program.Wf.")
 
 let recproofid = Id.of_string "recproof"
 let argname = Id.of_string "recarg"
@@ -161,7 +164,8 @@ let encapsulate_Fix_sub env sigma recname ctx body ccl (extradecl, rel, relargty
   (* Making Fix_sub ready to take the extended body as argument *)
   let sigma, fix_sub =
     let sigma, fix_sub_term = Evd.fresh_global (Global.env ()) sigma fix_sub_ref in
-    let sigma, wf_proof = Evarutil.new_evar env sigma
+    let typeclass_candidate = Typeclasses.is_maybe_class_type sigma wf_type in
+    let sigma, wf_proof = Evarutil.new_evar ~typeclass_candidate env sigma
         ~src:(Loc.tag @@ Evar_kinds.QuestionMark {
             Evar_kinds.default_question_mark with Evar_kinds.qm_obligation=Evar_kinds.Define false;
           }) wf_type in
@@ -175,7 +179,7 @@ let encapsulate_Fix_sub env sigma recname ctx body ccl (extradecl, rel, relargty
     let sigma, ss_term = mkSubset sigma (Name argid') tuple_type (make_applied_rel (mkRel 1) (mkRel 2)) in
     sigma, RelDecl.LocalAssum (make_annot (Name argid') ERelevance.relevant, ss_term) in
   let sigma, fix_sub_F_sub_ctx =
-    let sigma, proj = Evd.fresh_global (Global.env ()) sigma (delayed_force build_sigma).Coqlib.proj1 in
+    let sigma, proj = Evd.fresh_global (Global.env ()) sigma (delayed_force build_sigma).Rocqlib.proj1 in
     let wfargpred = mkLambda (make_annot (Name argid') ERelevance.relevant, tuple_type, make_applied_rel (mkRel 1) (mkRel 3)) in
     let projection = (* in wfarg :: arg :: before *)
       mkApp (proj, [| tuple_type ; wfargpred ; mkRel 1 |])
@@ -194,7 +198,7 @@ let encapsulate_Fix_sub env sigma recname ctx body ccl (extradecl, rel, relargty
        [fun ctx (recproof : rel (measure ctx) (measure tupled_context)) => argid' (tuple_value,recproof)]
        of type
        [forall ctx (recproof : rel (measure ctx) (measure tupled_context)) => ccl] *)
-    let sigma, intro = Evd.fresh_global (Global.env ()) sigma (delayed_force build_sigma).Coqlib.intro in
+    let sigma, intro = Evd.fresh_global (Global.env ()) sigma (delayed_force build_sigma).Rocqlib.intro in
     let app =
       let wfpred = mkLambda (make_annot (Name argid') ERelevance.relevant, tuple_type, make_applied_rel (mkRel 1) (mkRel (2 * len + 4))) in
       (* Build the sig pair [exist _ tuple_value recproof] *)
@@ -212,7 +216,7 @@ let encapsulate_Fix_sub env sigma recname ctx body ccl (extradecl, rel, relargty
   let sigma, fix_sub = Typing.solve_evars env sigma fix_sub in
   sigma, tupled_ctx, tuple_value, mkApp (fix_sub, [|intern_body_lam|])
 
-let build_wellfounded env sigma poly udecl recname ctx body ccl impls rel_measure =
+let build_wellfounded env sigma poly udecl {CAst.v=recname; loc} ctx body ccl impls rel_measure =
   let len = Context.Rel.length ctx in
   (* Restore body in the context of binders + extradecl *)
   let _, body = decompose_lambda_n_decls sigma (len + 1) body in
@@ -250,7 +254,7 @@ let build_wellfounded env sigma poly udecl recname ctx body ccl impls rel_measur
         let ty = Term.it_mkProd_or_LetIn ccl ctx in
         let ce = Declare.definition_entry ~types:ty ~univs body in
         (* FIXME: include locality *)
-        let c = Declare.declare_constant ~name:recname ~kind:Decls.(IsDefinition Definition) (DefinitionEntry ce) in
+        let c = Declare.declare_constant ?loc ~name:recname ~kind:Decls.(IsDefinition Definition) (DefinitionEntry ce) in
         let gr = GlobRef.ConstRef c in
         if Impargs.is_implicit_args () || not (List.is_empty impls) then
           Impargs.declare_manual_implicits false gr impls
@@ -259,7 +263,7 @@ let build_wellfounded env sigma poly udecl recname ctx body ccl impls rel_measur
     else
       None, impls
   in
-  sigma, recname_func, body, typ, impls, obls, hook
+  sigma, CAst.make ?loc recname_func, body, typ, impls, obls, hook
 
 (*********************************)
 (* Interpretation of Co/Fixpoint *)
@@ -328,12 +332,12 @@ let interp_rec_annot ~program_mode ~function_mode env sigma fixl ctxl ccll rec_o
        fixpoints ?) *)
     | CFixRecOrder fix_orders ->
       let fixwf, possible_guard = List.split (List.map4 (find_rec_annot ~program_mode ~function_mode env sigma) fixl ctxl ccll fix_orders) in
-      Decls.Fixpoint, fixwf, {possibly_cofix = false; possible_fix_indices = possible_guard}
-    | CCoFixRecOrder -> Decls.CoFixpoint, nowf (), {possibly_cofix = true; possible_fix_indices = List.map (fun _ -> []) fixl}
-    | CUnknownRecOrder -> Decls.Definition, nowf (), RecLemmas.find_mutually_recursive_statements sigma ctxl ccll
+      fixwf, {possibly_cofix = false; possible_fix_indices = possible_guard}
+    | CCoFixRecOrder -> nowf (), {possibly_cofix = true; possible_fix_indices = List.map (fun _ -> []) fixl}
+    | CUnknownRecOrder -> nowf (), RecLemmas.find_mutually_recursive_statements sigma ctxl ccll
 
 let interp_fix_context ~program_mode env sigma {Vernacexpr.binders} =
-  let sigma, (impl_env, ((env', ctx), imps)) = interp_context_evars ~program_mode env sigma binders in
+  let sigma, (impl_env, ((env', ctx), imps, _locs)) = interp_context_evars ~program_mode env sigma binders in
   sigma, (env', ctx, impl_env, imps)
 
 let interp_fix_ccl ~program_mode sigma impls env fix =
@@ -363,7 +367,7 @@ let build_dummy_fix_type sigma ctx ccl (_, extradecl) =
 let encapsulate env sigma r t =
   (* Would probably be overkill to use a specific fix_proto in SProp when in SProp?? *)
   let fix_proto sigma =
-    Evd.fresh_global (Global.env ()) sigma (Coqlib.lib_ref "program.tactic.fix_proto") in
+    Evd.fresh_global (Global.env ()) sigma (Rocqlib.lib_ref "program.tactic.fix_proto") in
   let fix_proto_relevance = EConstr.ERelevance.relevant in
   let sigma, sort = Typing.type_of ~refresh:true env sigma t in
   try
@@ -374,7 +378,7 @@ let encapsulate env sigma r t =
   with e when CErrors.noncritical e -> sigma, r, t
 
 type ('constr, 'relevance) fix_data = {
-  fixnames : Names.Id.t list;
+  fixnames : Names.lident list;
   fixrs    : 'relevance list;
   fixdefs  : 'constr option list;
   fixtypes : 'constr list;
@@ -413,7 +417,8 @@ let interp_wf ~program_mode env sigma recname ctx ccl = function
 let interp_mutual_definition env ~program_mode ~function_mode rec_order fixl =
   let open Context.Named.Declaration in
   let open EConstr in
-  let fixnames = List.map (fun fix -> fix.Vernacexpr.fname.CAst.v) fixl in
+  let fixlnames = List.map (fun fix -> fix.Vernacexpr.fname) fixl in
+  let fixnames = List.map (fun na -> na.CAst.v) fixlnames in
 
   (* Interp arities allowing for unresolved types *)
   let sigma, decl = interp_mutual_univ_decl_opt env (List.map (fun Vernacexpr.{univs} -> univs) fixl) in
@@ -423,7 +428,7 @@ let interp_mutual_definition env ~program_mode ~function_mode rec_order fixl =
   let sigma, (fixccls,fixrs,fixcclimps) =
     on_snd List.split3 @@
       List.fold_left3_map (interp_fix_ccl ~program_mode) sigma fixctximpenvs fixenv fixl in
-  let fixkind, fixwfs, possible_guard = interp_rec_annot ~program_mode ~function_mode env sigma fixl fixctxs fixccls rec_order in
+  let fixwfs, possible_guard = interp_rec_annot ~program_mode ~function_mode env sigma fixl fixctxs fixccls rec_order in
   let sigma, (fixextras, fixwfs, fixwfimps) =
     on_snd List.split3 @@ (List.fold_left4_map (interp_wf ~program_mode env) sigma fixnames fixctxs fixccls fixwfs) in
   let fixtypes = List.map3 (build_fix_type sigma) fixctxs fixccls fixextras in
@@ -455,19 +460,15 @@ let interp_mutual_definition env ~program_mode ~function_mode rec_order fixl =
         sigma fixctximpenvs fixextras fixctxs fixl fixccls)
       () in
 
-  (* Instantiate evars and check all are resolved *)
-  let sigma = Evarconv.solve_unif_constraints_with_heuristics env sigma in
-  let sigma = Evd.minimize_universes sigma in
-
   (* Build the fix declaration block *)
-  let fix = {fixnames;fixrs;fixdefs;fixtypes;fixctxs;fiximps;fixntns;fixwfs} in
-  (env, rec_sign, sigma), (fix, fixkind, possible_guard, decl)
+  let fix = {fixnames=fixlnames;fixrs;fixdefs;fixtypes;fixctxs;fiximps;fixntns;fixwfs} in
+  (env, rec_sign, sigma), (fix, possible_guard, decl)
 
-let check_recursive ~isfix env evd {fixnames;fixdefs;fixwfs} =
+let check_recursive ~kind env evd {fixnames;fixdefs;fixwfs} =
   (* TO MOVE AT FINAL DEFINITION TIME? *)
   if List.for_all Option.has_some fixdefs && List.for_all Option.is_empty fixwfs then begin
     let fixdefs = List.map Option.get fixdefs in
-    check_true_recursivity env evd ~isfix (List.combine fixnames fixdefs)
+    check_true_recursivity env evd ~kind (List.combine fixnames fixdefs)
   end
 
 let ground_fixpoint env evd {fixnames;fixrs;fixdefs;fixtypes;fixctxs;fiximps;fixntns;fixwfs} =
@@ -481,15 +482,18 @@ let ground_fixpoint env evd {fixnames;fixrs;fixdefs;fixtypes;fixctxs;fiximps;fix
 
 let interp_fixpoint_short rec_order fixpoint_exprl =
   let env = Global.env () in
-  let (_, _, sigma),(fix, _, _, _) = interp_mutual_definition ~program_mode:false ~function_mode:true env (CFixRecOrder rec_order) fixpoint_exprl in
+  let (_, _, sigma),(fix, _, _) = interp_mutual_definition ~program_mode:false ~function_mode:true env (CFixRecOrder rec_order) fixpoint_exprl in
+  (* Instantiate evars and check all are resolved *)
+  let sigma = Evarconv.solve_unif_constraints_with_heuristics env sigma in
+  let sigma = Evd.minimize_universes sigma in
   let sigma = Pretyping.(solve_remaining_evars all_no_fail_flags env sigma) in
   let typel = (ground_fixpoint env sigma fix).fixtypes in
   typel, sigma
 
 let build_recthms {fixnames;fixtypes;fixctxs;fiximps} =
-  List.map4 (fun name typ ctx impargs ->
+  List.map4 (fun {CAst.v=name; loc} typ ctx impargs ->
       let args = List.map Context.Rel.Declaration.get_name ctx in
-      Declare.CInfo.make ~name ~typ ~args ~impargs ()
+      Declare.CInfo.make ?loc ~name ~typ ~args ~impargs ()
     ) fixnames fixtypes fixctxs fiximps
 
 let collect_evars_of_term evd c ty =
@@ -499,7 +503,7 @@ let collect_evars env sigma rec_sign recname def typ =
   (* Generalize by the recursive prototypes  *)
   let deps = collect_evars_of_term sigma def typ in
   let evars, _, def, typ =
-    RetrieveObl.retrieve_obligations env recname sigma
+    RetrieveObl.retrieve_obligations env recname.CAst.v sigma
       (List.length rec_sign) ~deps def typ in
   (Some def, typ, evars)
 
@@ -517,7 +521,7 @@ let build_program_fixpoint env sigma rec_sign possible_guard fixnames fixrs fixd
   (* An early check of guardedness before working on the obligations *)
   let () =
     let fixdecls =
-      Array.of_list (List.map2 (fun x r -> Context.make_annot (Name x) r) fixnames fixrs),
+      Array.of_list (List.map2 (fun x r -> Context.make_annot (Name x.CAst.v) r) fixnames fixrs),
       Array.of_list fixtypes,
       Array.of_list fixdefs
     in
@@ -540,13 +544,25 @@ let finish_regular env sigma use_inference_hook fix =
   let sigma = Pretyping.(solve_remaining_evars ?hook:inference_hook all_no_fail_flags env sigma) in
   sigma, ground_fixpoint env sigma fix, [], None
 
-let do_mutually_recursive ?pm ~program_mode ?(use_inference_hook=false) ?scope ?clearbody ~poly ?typing_flags ?user_warns ?using (rec_order, fixl)
+let do_mutually_recursive ?pm ~refine ~program_mode ?(use_inference_hook=false) ?scope ?clearbody ~kind ~poly ?typing_flags ?user_warns ?using (rec_order, fixl)
   : Declare.OblState.t option * Declare.Proof.t option =
   let env = Global.env () in
   let env = Environ.update_typing_flags ?typing_flags env in
-  let (env,rec_sign,sigma),(fix,isfix,possible_guard,udecl) = interp_mutual_definition env ~program_mode ~function_mode:false rec_order fixl in
-  check_recursive ~isfix env sigma fix;
-  let kind = Decls.IsDefinition isfix in
+  let (env,rec_sign,sigma),(fix,possible_guard,udecl) = interp_mutual_definition env ~program_mode ~function_mode:false rec_order fixl in
+  check_recursive ~kind env sigma fix;
+
+  if refine then
+    let info = Declare.Info.make ?scope ?clearbody ~kind ~poly ~udecl ?typing_flags ?user_warns ~ntns:fix.fixntns () in
+    let cinfo = build_recthms fix in
+    let possible_guard = (possible_guard, fix.fixrs) in
+    let lemma = Declare.Proof.start_mutual_definitions_refine ~info ~cinfo ~bodies:fix.fixdefs ~possible_guard ?using sigma in
+    None, Some lemma
+  else
+
+  (* Instantiate evars and check all are resolved *)
+  let sigma = Evarconv.solve_unif_constraints_with_heuristics env sigma in
+  let sigma = Evd.minimize_universes sigma in
+
   let sigma, ({fixdefs=bodies;fixrs;fixtypes;fixwfs} as fix), obls, hook =
     match pm with
     | Some pm -> finish_obligations env sigma rec_sign possible_guard poly udecl fix

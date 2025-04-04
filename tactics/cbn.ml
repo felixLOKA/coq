@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *   INRIA, CNRS and contributors - Copyright 1999-2019       *)
 (* <O___,, *       (see CREDITS file for the list of authors)           *)
 (*   \VV/  **************************************************************)
@@ -403,10 +403,6 @@ end
 (*** Reduction Functions Operators ***)
 (*************************************)
 
-let safe_meta_value sigma ev =
-  try Some (Evd.meta_value sigma ev)
-  with Not_found -> None
-
 (*************************************)
 (*** Reduction using bindingss ***)
 (*************************************)
@@ -594,13 +590,13 @@ let rec match_arg_pattern whrec env sigma ctx psubst p t =
 and match_rigid_arg_pattern whrec env sigma ctx psubst p t =
   match [@ocaml.warning "-4"] p, EConstr.kind sigma t with
   | PHInd (ind, pu), Ind (ind', u) ->
-    if Ind.CanOrd.equal ind ind' then match_einstance sigma pu u psubst else raise PatternFailure
+    if QInd.equal env ind ind' then match_einstance sigma pu u psubst else raise PatternFailure
   | PHConstr (constr, pu), Construct (constr', u) ->
-    if Construct.CanOrd.equal constr constr' then match_einstance sigma pu u psubst else raise PatternFailure
+    if QConstruct.equal env constr constr' then match_einstance sigma pu u psubst else raise PatternFailure
   | PHRel i, Rel n when i = n -> psubst
   | PHSort ps, Sort s -> match_sort ps (ESorts.kind sigma s) psubst
   | PHSymbol (c, pu), Const (c', u) ->
-    if Constant.CanOrd.equal c c' then match_einstance sigma pu u psubst else raise PatternFailure
+    if QConstant.equal env c c' then match_einstance sigma pu u psubst else raise PatternFailure
   | PHInt i, Int i' ->
     if Uint63.equal i i' then psubst else raise PatternFailure
   | PHFloat f, Float f' ->
@@ -649,7 +645,7 @@ and apply_rule whrec env sigma ctx psubst es stk =
       let psubst = List.fold_left2 (match_arg_pattern whrec env sigma ctx) psubst pargs args in
       apply_rule whrec env sigma ctx psubst e s
   | Declarations.PECase (pind, pu, pret, pbrs) :: e, Stack.Case ((ci, u, pms, p, iv, brs), cst_l) :: s ->
-      if not @@ Ind.CanOrd.equal pind ci.ci_ind then raise PatternFailure;
+      if not @@ QInd.equal env pind ci.ci_ind then raise PatternFailure;
       let dummy = mkProp in
       let psubst = match_einstance sigma pu u psubst in
       let (_, _, _, ((ntys_ret, ret), _), _, _, brs) = EConstr.annotate_case env sigma (ci, u, pms, p, NoInvert, dummy, brs) in
@@ -657,7 +653,7 @@ and apply_rule whrec env sigma ctx psubst es stk =
       let psubst = Array.fold_left2 (fun psubst pat (ctx', br) -> match_arg_pattern whrec env sigma (ctx' @ ctx) psubst pat br) psubst pbrs brs in
       apply_rule whrec env sigma ctx psubst e s
   | Declarations.PEProj proj :: e, Stack.Proj (proj', r, cst_l') :: s ->
-      if not @@ Projection.CanOrd.equal proj proj' then raise PatternFailure;
+      if not @@ QProjection.Repr.equal env proj (Projection.repr proj') then raise PatternFailure;
       apply_rule whrec env sigma ctx psubst e s
   | _, _ -> raise PatternFailure
 
@@ -709,11 +705,7 @@ let whd_state_gen ?csts flags env sigma =
       | LocalDef (_,body,_) ->
         whrec (Cst_stack.add_cst (mkVar id) cst_l) (body, stack)
       | _ -> fold ())
-    | Evar ev -> fold ()
-    | Meta ev ->
-      (match safe_meta_value sigma ev with
-      | Some body -> whrec cst_l (body, stack)
-      | None -> fold ())
+    | Evar _ | Meta _ -> fold ()
     | Const (c,u as const) ->
       Reductionops.reduction_effect_hook env sigma c
          (lazy (EConstr.to_constr sigma (Stack.zip sigma (x,fst (Stack.strip_app stack)))));
@@ -831,29 +823,19 @@ let whd_state_gen ?csts flags env sigma =
                  let stack' = (c, Stack.Proj (p, r, cst_l) :: stack) in
                  whrec Cst_stack.empty(* cst_l *) stack'
                | curr :: remains ->
-                 if curr == 0 then (* Try to reduce the record argument *)
+                 match Stack.strip_n_app curr (Stack.append_app [|c|] stack) with
+                 | None -> fold ()
+                 | Some (bef,arg,s') ->
                    let cst_l = Stack.Cst
                        { const=Stack.Cst_proj (p,r);
-                         volatile; curr; remains;
-                         params=Stack.empty;
+                         curr;
+                         remains;
+                         volatile;
+                         params=bef;
                          cst_l;
                        }
                    in
-                   whrec Cst_stack.empty (c, cst_l::stack)
-                 else
-                   match Stack.strip_n_app curr stack with
-                   | None -> fold ()
-                   | Some (bef,arg,s') ->
-                     let cst_l = Stack.Cst
-                         { const=Stack.Cst_proj (p,r);
-                           curr;
-                           remains;
-                           volatile;
-                           params=Stack.append_app [|c|] bef;
-                           cst_l;
-                         }
-                     in
-                     whrec Cst_stack.empty (arg,cst_l::s')
+                   whrec Cst_stack.empty (arg,cst_l::s')
            end)
 
     | LetIn (_,b,_,c) when RedFlags.red_set flags RedFlags.fZETA ->
@@ -961,6 +943,39 @@ let whd_state_gen ?csts flags env sigma =
                | Some t -> whrec cst_l' (t,s)
                | None -> ((mkApp (mkConstU kn, args), s), cst_l)
              end
+        |args, (Stack.Cst {const;curr;remains;volatile;params=s';cst_l} :: s'') ->
+          let x' = Stack.zip sigma (x, args) in
+          begin match remains with
+          | [] ->
+            (match const with
+            | Stack.Cst_const const ->
+              (match constant_opt_value_in env const with
+              | None -> fold ()
+              | Some body ->
+                let const = (fst const, EInstance.make (snd const)) in
+                let body = EConstr.of_constr body in
+                let cst_l = Cst_stack.add_cst ~volatile (mkConstU const) cst_l in
+                whrec cst_l (body, s' @ (Stack.append_app [|x'|] s'')))
+            | Stack.Cst_proj (p,r) ->
+              let stack = s' @ (Stack.append_app [|x'|] s'') in
+              match Stack.strip_n_app 0 stack with
+              | None -> assert false
+              | Some (_,arg,s'') ->
+                whrec Cst_stack.empty (arg, Stack.Proj (p,r,cst_l) :: s''))
+          | next :: remains' -> match Stack.strip_n_app (next-curr-1) s'' with
+            | None -> fold ()
+            | Some (bef,arg,s''') ->
+              let cst_l = Stack.Cst
+                  { const;
+                    curr=next;
+                    volatile;
+                    remains=remains';
+                    params=s' @ (Stack.append_app [|x'|] bef);
+                    cst_l;
+                  }
+              in
+              whrec Cst_stack.empty (arg, cst_l :: s''')
+          end
        | _ -> fold ()
       end
 

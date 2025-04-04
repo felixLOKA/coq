@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -151,6 +151,12 @@ constraint 'a = <
 >
 
 (** Possible arguments of a tactic definition *)
+
+type ('a,'b,'c,'occvar) may_eval =
+  | ConstrTerm of 'a
+  | ConstrEval of ('a,'b,'c,'occvar) red_expr_gen * 'a
+  | ConstrContext of Names.lident * 'a
+  | ConstrTypeOf of 'a
 
 type 'a gen_tactic_arg =
   | TacGeneric     of string option * 'lev generic_argument

@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -64,6 +64,8 @@ val it_mkLambda_or_LetIn_name : env -> evar_map -> constr -> rel_context -> cons
 (*********************************************************************
    Fresh names *)
 
+val mangle_id : Id.t -> Id.t
+
 (** Avoid clashing with a name satisfying some predicate *)
 val next_ident_away_from : Id.t -> (Id.t -> bool) -> Id.t
 
@@ -90,7 +92,7 @@ val next_ident_away_in_goal : Environ.env -> Id.t -> Id.Set.t -> Id.t
 
 (** Avoid clashing with a name already used in current module
    but tolerate overwriting section variables, as in goals *)
-val next_global_ident_away : Id.t -> Id.Set.t -> Id.t
+val next_global_ident_away : Safe_typing.safe_environment -> Id.t -> Id.Set.t -> Id.t
 
 (** Default is [default_non_dependent_ident] *)
 val next_name_away  : Name.t -> Id.Set.t -> Id.t

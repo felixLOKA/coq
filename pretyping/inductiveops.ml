@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -106,20 +106,30 @@ let relevance_of_inductive_type env (IndType (indf, _)) =
 let mkAppliedInd (IndType ((ind,params), realargs)) =
   applist (mkIndU ind, params @ realargs)
 
+let dest_recarg p = match Rtree.Kind.kind p with
+| Rtree.Kind.Node (ra, _) -> ra
+| Rtree.Kind.Var _ -> assert false
+
+let dest_subterms p = match Rtree.Kind.kind p with
+| Rtree.Kind.Node (ra, cstrs) ->
+  let () = assert (match ra with Norec -> false | _ -> true) in
+  cstrs
+| Rtree.Kind.Var _ -> assert false
+
 (* Does not consider imbricated or mutually recursive types *)
-let mis_is_recursive_subset listind rarg =
+let mis_is_recursive_subset env listind rarg =
   let one_is_rec rvec =
-    List.exists
+    Array.exists
       (fun ra ->
         match dest_recarg ra with
-          | Mrec (RecArgInd ind) -> List.exists (Names.Ind.CanOrd.equal ind) listind
+          | Mrec (RecArgInd ind) -> List.exists (fun ind' -> QInd.equal env ind ind') listind
           | Mrec (RecArgPrim _) | Norec -> false) rvec
   in
   Array.exists one_is_rec (dest_subterms rarg)
 
-let mis_is_recursive ((ind,_),mib,mip) =
-  mis_is_recursive_subset (List.init mib.mind_ntypes (fun i -> (ind,i)))
-    mip.mind_recargs
+let mis_is_recursive env ((ind,_),mib,mip) =
+  mis_is_recursive_subset env (List.init mib.mind_ntypes (fun i -> (ind,i)))
+    (Rtree.Kind.make mip.mind_recargs)
 
 let mis_nf_constructor_type ((_,j),u) (mib,mip) =
   let nconstr = Array.length mip.mind_consnames in
@@ -255,58 +265,56 @@ let quality_leq q q' =
 type squash = SquashToSet | SquashToQuality of Sorts.Quality.t
 
 let is_squashed sigma ((_,mip),u) =
-  match mip.mind_arity with
-  | TemplateArity _ -> None (* template is never squashed *)
-  | RegularArity a ->
-    match mip.mind_squashed with
-    | None -> None
-    | Some squash ->
-      let u = EConstr.Unsafe.to_instance u in
-      let indq = EConstr.ESorts.quality sigma
-          (EConstr.ESorts.make @@ UVars.subst_instance_sort u a.mind_sort)
-      in
-      match squash with
-      | AlwaysSquashed -> begin match a.mind_sort with
-          | Sorts.Set -> Some SquashToSet
-          | _ -> Some (SquashToQuality indq)
-        end
-      | SometimesSquashed squash ->
-        (* impredicative set squashes are always AlwaysSquashed,
-           so here if inds=Set it is a sort poly squash (see "foo6" in test sort_poly.v) *)
-        if Sorts.Quality.Set.for_all (fun q ->
-            let q = UVars.subst_instance_quality u q in
-            let q = UState.nf_quality (Evd.ustate sigma) q in
-            quality_leq q indq) squash
-        then None
-        else Some (SquashToQuality indq)
+  let s = mip.mind_sort in
+  match mip.mind_squashed with
+  | None -> None
+  | Some squash ->
+    let u = EConstr.Unsafe.to_instance u in
+    let indq = EConstr.ESorts.quality sigma
+        (EConstr.ESorts.make @@ UVars.subst_instance_sort u s)
+    in
+    match squash with
+    | AlwaysSquashed -> begin match s with
+        | Sorts.Set -> Some SquashToSet
+        | _ -> Some (SquashToQuality indq)
+      end
+    | SometimesSquashed squash ->
+      (* impredicative set squashes are always AlwaysSquashed,
+         so here if inds=Set it is a sort poly squash (see "foo6" in test sort_poly.v) *)
+      if Sorts.Quality.Set.for_all (fun q ->
+          let q = UVars.subst_instance_quality u q in
+          let q = UState.nf_quality (Evd.ustate sigma) q in
+          quality_leq q indq) squash
+      then None
+      else Some (SquashToQuality indq)
 
-let squash_elim_sort env sigma squash rtnsort = match squash with
+let squash_elim_sort sigma squash rtnsort = match squash with
 | SquashToSet ->
   (* Squashed inductive in Set, only happens with impredicative Set *)
   begin match ESorts.kind sigma rtnsort with
   | Set | SProp | Prop -> sigma
   | QSort _ | Type _ ->
-    Evd.set_eq_sort env sigma rtnsort ESorts.set
+    Evd.set_eq_sort sigma rtnsort ESorts.set
   end
 | SquashToQuality (QConstant QProp) ->
   (* Squashed inductive in Prop, return sort must be Prop or SProp *)
   begin match ESorts.kind sigma rtnsort with
   | SProp | Prop -> sigma
   | QSort _ | Type _ | Set ->
-    Evd.set_eq_sort env sigma rtnsort ESorts.prop
+    Evd.set_eq_sort sigma rtnsort ESorts.prop
   end
 | SquashToQuality (QConstant QSProp) ->
   (* Squashed inductive in SProp, return sort must be SProp. *)
   begin match ESorts.kind sigma rtnsort with
   | SProp -> sigma
   | Type _ | Set | Prop | QSort _ ->
-    Evd.set_eq_sort env sigma rtnsort ESorts.sprop
+    Evd.set_eq_sort sigma rtnsort ESorts.sprop
   end
 | SquashToQuality (QConstant QType) ->
   (* Sort poly squash to type *)
-  Evd.set_leq_sort env sigma ESorts.set rtnsort
+  Evd.set_leq_sort sigma ESorts.set rtnsort
 | SquashToQuality (QVar q) ->
-  Evd.set_leq_sort env sigma (ESorts.make (Sorts.qsort q Univ.Universe.type0)) rtnsort
+  Evd.set_leq_sort sigma (ESorts.make (Sorts.qsort q Univ.Universe.type0)) rtnsort
 
 let is_allowed_elimination sigma ((mib,_),_ as specifu) s =
   let open Sorts in
@@ -335,7 +343,7 @@ let make_allowed_elimination env sigma ((mib,_),_ as specifu) s =
       begin match EConstr.ESorts.kind sigma s with
       | SProp|Prop|Set -> Some sigma
       | QSort _ | Type _ ->
-        try Some (Evd.set_leq_sort env sigma s ESorts.set)
+        try Some (Evd.set_leq_sort sigma s ESorts.set)
         with UGraph.UniverseInconsistency _ -> None
       end
     | Some (SquashToQuality indq) ->
@@ -343,15 +351,13 @@ let make_allowed_elimination env sigma ((mib,_),_ as specifu) s =
       if quality_leq sq indq then Some sigma
       else
         let mk q = ESorts.make @@ Sorts.make q Univ.Universe.type0 in
-        try Some (Evd.set_leq_sort env sigma (mk sq) (mk indq))
+        try Some (Evd.set_leq_sort sigma (mk sq) (mk indq))
         with UGraph.UniverseInconsistency _ -> None
 
 (* XXX questionable for sort poly inductives *)
 let elim_sort (_,mip) =
   if Option.is_empty mip.mind_squashed then Sorts.InType
-  else match mip.mind_arity with
-    | TemplateArity _ -> assert false (* never squashed *)
-    | RegularArity s -> Sorts.family s.mind_sort
+  else Sorts.family mip.mind_sort
 
 let top_allowed_sort env (kn,i as ind) =
   let specif = Inductive.lookup_mind_specif env ind in
@@ -445,6 +451,12 @@ let make_case_invert env sigma (IndType (((ind,u),params),indices)) ~case_releva
   then Constr.CaseInvert {indices=Array.of_list indices}
   else Constr.NoInvert
 
+let error_not_allowed_dependent_analysis env isrec i =
+  let open Pp in
+  str "Dependent " ++ str (if isrec then "induction" else "case analysis") ++
+  strbrk " is not allowed for " ++ Termops.pr_global_env env (IndRef i) ++ str "." ++
+  str "Primitive records must have eta conversion to allow dependent elimination."
+
 let make_project env sigma ind pred c branches ps =
   assert(Array.length branches == 1);
   let na, ty, t = destLambda sigma pred in
@@ -452,9 +464,7 @@ let make_project env sigma ind pred c branches ps =
   let () =
     if (* dependent *) not (Vars.noccurn sigma 1 t) &&
          not (has_dependent_elim specif) then
-      user_err
-        Pp.(str"Dependent case analysis not allowed" ++
-              str" on inductive type " ++ Termops.pr_global_env env (IndRef ind) ++ str ".")
+      user_err (error_not_allowed_dependent_analysis env false ind)
   in
   let branch = branches.(0) in
   let ctx, br = decompose_lambda_n_decls sigma mip.mind_consnrealdecls.(0) branch in
@@ -709,60 +719,6 @@ let arity_of_case_predicate env (ind,params) dep k =
   let mind = build_dependent_inductive env (ind,params) in
   let concl = if dep then mkArrow mind r (mkSort k) else mkSort k in
   it_mkProd_or_LetIn concl arsign
-
-(***********************************************)
-(* Inferring the sort of parameters of a polymorphic inductive type
-   knowing the sort of the conclusion *)
-
-let univ_level_mem l s = match s with
-| Prop | Set | SProp -> false
-| Type u -> Univ.univ_level_mem l u
-| QSort (_, u) -> assert false (* template cannot contain sort variables *)
-
-(* Compute the inductive argument types: replace the sorts
-   that appear in the type of the inductive by the sort of the
-   conclusion, and the other ones by fresh universes. *)
-let rec instantiate_universes env evdref scl is = function
-  | (LocalDef _ as d)::sign, exp ->
-    EConstr.of_rel_decl d :: instantiate_universes env evdref scl is (sign, exp)
-  | d::sign, false::exp ->
-    EConstr.of_rel_decl d :: instantiate_universes env evdref scl is (sign, exp)
-  | (LocalAssum (na,ty))::sign, true::exp ->
-      let ctx,s = Reduction.dest_arity env ty in
-      let l = match s with Type u -> Option.get @@ Univ.Universe.level u | _ -> assert false in
-      let u = Univ.Universe.make l in
-      let s =
-        (* Does the sort of parameter [u] appear in (or equal)
-           the sort of inductive [is] ? *)
-        if univ_level_mem l is then
-          scl (* constrained sort: replace by scl *)
-        else
-          (* unconstrained sort: replace by fresh universe *)
-          let evm, s = Evd.new_sort_variable Evd.univ_flexible !evdref in
-          let evm = Evd.set_leq_sort env evm s (EConstr.ESorts.make (Sorts.sort_of_univ u)) in
-            evdref := evm; s
-      in
-      let ctx = EConstr.of_rel_context ctx in
-      let na = EConstr.of_binder_annot na in
-      (LocalAssum (na, mkArity (ctx, s))) :: instantiate_universes env evdref scl is (sign, exp)
-  | sign, [] -> EConstr.of_rel_context sign (* Uniform parameters are exhausted *)
-  | [], _ -> assert false
-
-let type_of_inductive_knowing_conclusion env sigma ((mib,mip),u) conclty =
-  match mip.mind_arity with
-  | RegularArity s -> sigma, subst_instance_constr u (EConstr.of_constr s.mind_user_arity)
-  | TemplateArity ar ->
-    let templ = match mib.mind_template with
-    | None -> assert false
-    | Some t -> t
-    in
-    let _,scl = splay_arity env sigma conclty in
-    let ctx = List.rev mip.mind_arity_ctxt in
-    let evdref = ref sigma in
-    let ctx =
-      instantiate_universes
-        env evdref scl ar.template_level (ctx,templ.template_param_arguments) in
-    !evdref, mkArity (List.rev ctx, scl)
 
 let type_of_projection_constant env (p,u) =
   let _, pty = lookup_projection p env in

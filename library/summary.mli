@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -22,7 +22,7 @@ module Stage : sig
 
 end
 
-(** Types of global Coq states. The ['a] type should be pure and marshallable by
+(** Types of global Rocq states. The ['a] type should be pure and marshallable by
     the standard OCaml marshalling function. *)
 type 'a summary_declaration = {
   stage : Stage.t;
@@ -30,7 +30,7 @@ type 'a summary_declaration = {
   unfreeze_function : 'a -> unit;
   init_function : unit -> unit }
 
-(** For tables registered during the launch of coqtop, the [init_function]
+(** For tables registered during the launch of rocq repl, the [init_function]
     will be run only once, during an [init_summaries] done at the end of
     coqtop initialization. For tables registered later (for instance
     during a plugin dynlink), [init_function] is used when unfreezing
@@ -71,10 +71,9 @@ val ref_tag : ?stage:Stage.t -> name:string -> 'a -> 'a ref * 'a Dyn.tag
     because its unfreeze may load ML code and hence add summary
     entries.  Thus is has to be recognizable, and handled properly.
 
-    The args correspond to Mltop.PluginSpec.t , that is to say,
-    the optional legacy plugin name, and the findlib name for the plugin.
-   *)
-val declare_ml_modules_summary : (string option * string) list summary_declaration -> unit
+    The args correspond to Mltop.PluginSpec.t , that is to say, the
+    findlib name for the plugin.  *)
+val declare_ml_modules_summary : string list summary_declaration -> unit
 
 (** For global tables registered statically before the end of coqtop
     launch, the following empty [init_function] could be used. *)

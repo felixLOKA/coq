@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -13,6 +13,7 @@ open Constr
 open Univ
 open UVars
 open Declarations
+open Mod_declarations
 
 (** Unsafe environments. We define here a datatype for environments.
    Since typing is not yet defined, it is not possible to check the
@@ -40,19 +41,6 @@ type constant_key = constant_body * (link_info ref * key)
 
 type mind_key = mutual_inductive_body * link_info ref
 
-module Globals : sig
-  type t
-
-  type view =
-    { constants : constant_key Cmap_env.t
-    ; inductives : mind_key Mindmap_env.t
-    ; modules : module_body MPmap.t
-    ; modtypes : module_type_body MPmap.t
-    }
-
-  val view : t -> view
-end
-
 type named_context_val = private {
   env_named_ctx : Constr.named_context;
   env_named_map : Constr.named_declaration Id.Map.t;
@@ -66,25 +54,8 @@ type rel_context_val = private {
   env_rel_map : Constr.rel_declaration Range.t;
 }
 
-type env = private {
-  env_globals       : Globals.t;
-  env_named_context : named_context_val; (* section variables *)
-  env_rel_context   : rel_context_val;
-  env_nb_rel        : int;
-  env_universes : UGraph.t;
-  env_qualities : Sorts.QVar.Set.t;
-  irr_constants : Sorts.relevance Cmap_env.t
-(** [irr_constants] is a cache of the relevances which are not Relevant.
-    In other words, [const_relevance == Option.default Relevant (find_opt con irr_constants)]. *);
-  irr_inds : Sorts.relevance Indmap_env.t
-(** [irr_inds] is a cache of the relevances which are not Relevant. cf [irr_constants]. *);
-  symb_pats : rewrite_rule list Cmap_env.t;
-  env_typing_flags  : typing_flags;
-  vm_library : Vmlibrary.t;
-  retroknowledge : Retroknowledge.retroknowledge;
-  rewrite_rules_allowed : bool;
-  (** Allow rewrite rules (breaks e.g. SR) *)
-}
+type env
+(** Type of global environments. *)
 
 type rewrule_not_allowed = Symb | Rule
 exception RewriteRulesNotAllowed of rewrule_not_allowed
@@ -97,7 +68,9 @@ val eq_named_context_val : named_context_val -> named_context_val -> bool
 val empty_env : env
 
 val universes     : env -> UGraph.t
+val qualities     : env -> Sorts.QVar.Set.t
 val rel_context   : env -> Constr.rel_context
+val rel_context_val : env -> rel_context_val
 val named_context : env -> Constr.named_context
 val named_context_val : env -> named_context_val
 
@@ -203,10 +176,12 @@ val lookup_constant_key :  Constant.t -> env -> constant_key
    raises an anomaly if the required path is not found *)
 val lookup_constant    : Constant.t -> env -> constant_body
 val evaluable_constant : Constant.t -> env -> bool
+val constant_relevance : Constant.t -> env -> Sorts.relevance
 
 val mem_constant : Constant.t -> env -> bool
 
 val add_rewrite_rules : (Constant.t * rewrite_rule) list -> env -> env
+val lookup_rewrite_rules : Constant.t -> env -> rewrite_rule list
 
 (** New-style polymorphism *)
 val polymorphic_constant  : Constant.t -> env -> bool
@@ -274,6 +249,8 @@ val lookup_mind : MutInd.t -> env -> mutual_inductive_body
 
 val mem_mind : MutInd.t -> env -> bool
 
+val ind_relevance : inductive -> env -> Sorts.relevance
+
 (** The universe context associated to the inductive, empty if not
     polymorphic *)
 val mind_context : env -> MutInd.t -> AbstractContext.t
@@ -339,10 +316,10 @@ module QGlobRef : QNameS with type t = GlobRef.t
 
 (** {5 Modules } *)
 
-val add_modtype : module_type_body -> env -> env
+val add_modtype : ModPath.t -> module_type_body -> env -> env
 
 (** [shallow_add_module] does not add module components *)
-val shallow_add_module : module_body -> env -> env
+val shallow_add_module : ModPath.t -> module_body -> env -> env
 
 val lookup_module : ModPath.t -> env -> module_body
 val lookup_modtype : ModPath.t -> env -> module_type_body
@@ -365,8 +342,8 @@ val push_context_set : ?strict:bool -> ContextSet.t -> env -> env
     context set to the environment. It does not fail even if one of the
     universes is already declared. *)
 
-val push_floating_context_set : ContextSet.t -> env -> env
-(** Same as above but keep the universes floating for template. Do not use. *)
+val push_qualities : Sorts.QVar.Set.t -> env -> env
+(** Add the qualities to the environment. Only used in higher layers. *)
 
 val push_subgraph : ContextSet.t -> env -> env
 (** [push_subgraph univs env] adds the universes and constraints in
@@ -456,3 +433,32 @@ val no_link_info : link_info
 
 (** Primitives *)
 val set_retroknowledge : env -> Retroknowledge.retroknowledge -> env
+val retroknowledge : env -> Retroknowledge.retroknowledge
+
+module Internal : sig
+  (** Makes the qvars treated as above prop.
+      Do not use outside kernel inductive typechecking. *)
+  val push_template_context : UContext.t -> env -> env
+
+  val is_above_prop : env -> Sorts.QVar.t -> bool
+
+  module View :
+  sig
+    type t = {
+      env_constants : constant_key Cmap_env.t;
+      env_inductives : mind_key Mindmap_env.t;
+      env_modules : module_body MPmap.t;
+      env_modtypes : module_type_body MPmap.t;
+      env_named_context : named_context_val;
+      env_rel_context   : rel_context_val;
+      env_universes : UGraph.t;
+      env_qualities : Sorts.QVar.Set.t;
+      env_symb_pats : rewrite_rule list Cmap_env.t;
+      env_typing_flags  : typing_flags;
+    }
+
+    val view : env -> t
+  end
+  (** View type only used by Serlib. Do not use otherwise. *)
+
+end

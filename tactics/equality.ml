@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -33,7 +33,7 @@ open Hipattern
 open Tacticals
 open Tactics
 open Tacred
-open Coqlib
+open Rocqlib
 open Declarations
 open Indrec
 open Ind_tables
@@ -137,7 +137,8 @@ let instantiate_lemma_all env flags eqclause l2r concl =
   let () = if arglen < 2 then user_err Pp.(str "The term provided is not an applied relation.") in
   let c1 = args.(arglen - 2) in
   let c2 = args.(arglen - 1) in
-  w_unify_to_subterm_all ~flags env (Clenv.clenv_evd eqclause)
+  let metas = Clenv.clenv_meta_list eqclause in
+  w_unify_to_subterm_all ~metas ~flags env (Clenv.clenv_evd eqclause)
     ((if l2r then c1 else c2),concl)
 
 let rewrite_conv_closed_core_unif_flags = {
@@ -261,12 +262,12 @@ let general_elim_clause with_evars frzevars tac cls c (ctx, eqn, args) l l2r eli
       (* we would have to take the clenv_value *)
       let newevars = lazy (Evarutil.undefined_evars_of_term sigma (Clenv.clenv_type rew)) in
       let flags = make_flags frzevars sigma flags newevars in
-      let metas = Evd.meta_list (Clenv.clenv_evd rew) in
-      let submetas = List.map (fun mv -> mv, Evd.Metamap.find mv metas) (Clenv.clenv_arguments rew) in
+      let metas = Clenv.clenv_meta_list rew in
+      let submetas = (Clenv.clenv_arguments rew, metas) in
       general_elim_clause with_evars flags cls (submetas, c, Clenv.clenv_type rew) elim
       end
     in
-    Proofview.Unsafe.tclEVARS (Evd.clear_metas (Clenv.clenv_evd rew)) <*>
+    Proofview.Unsafe.tclEVARS (Clenv.clenv_evd rew) <*>
     elim_wrapper cls rewrite_elim
   in
   let strat, tac =
@@ -285,8 +286,8 @@ let general_elim_clause with_evars frzevars tac cls c (ctx, eqn, args) l l2r eli
     in
     let ty = it_mkProd_or_LetIn (applist (eqn, args)) ctx in
     let eqclause = Clenv.make_clenv_binding env sigma (c, ty) l in
-    let try_clause evd' =
-      let clenv = Clenv.update_clenv_evd eqclause evd' in
+    let try_clause (metas, evd') =
+      let clenv = Clenv.update_clenv_evd eqclause evd' metas in
       let clenv = Clenv.clenv_pose_dependent_evars ~with_evars:true clenv in
       side_tac (general_elim_clause0 clenv) tac
     in
@@ -333,7 +334,7 @@ let eq_elimination_ref l2r sort =
       | InSProp -> "core.eq.sind"
       | InSet | InType | InQSort -> "core.eq.rect"
   in
-  Coqlib.lib_ref_opt name
+  Rocqlib.lib_ref_opt name
 
 (* find_elim determines which elimination principle is necessary to
    eliminate lbeq on sort_of_gl. *)
@@ -342,7 +343,7 @@ let find_elim lft2rgt dep cls ((_, hdcncl, _) as t) =
   Proofview.Goal.enter_one begin fun gl ->
   let env = Proofview.Goal.env gl in
   let sigma = project gl in
-  let is_global_exists gr c = match Coqlib.lib_ref_opt gr with
+  let is_global_exists gr c = match Rocqlib.lib_ref_opt gr with
     | Some gr -> isRefX env sigma gr c
     | None -> false
   in
@@ -585,11 +586,11 @@ let rewriteRL c =
 (* Replacing tactics *)
 
 let classes_dirpath =
-  DirPath.make (List.map Id.of_string ["Classes";"Coq"])
+  DirPath.make (List.map Id.of_string ["Classes";"Corelib"])
 
 let init_setoid () =
-  if is_dirpath_prefix_of classes_dirpath (Lib.cwd ()) then ()
-  else check_required_library ["Coq";"Setoids";"Setoid"]
+  if is_dirpath_prefix_of classes_dirpath (Libnames.dirpath_of_path @@ Lib.cwd ()) then ()
+  else check_required_library ["Corelib";"Setoids";"Setoid"]
 
 let check_setoid cl =
   let concloccs = Locusops.occurrences_map (fun x -> x) cl.concl_occs in
@@ -929,9 +930,9 @@ let descend_then env sigma head dirn =
 
  *)
 
-let build_coq_False () = pf_constr_of_global (lib_ref "core.False.type")
-let build_coq_True () = pf_constr_of_global (lib_ref "core.True.type")
-let build_coq_I () = pf_constr_of_global (lib_ref "core.True.I")
+let build_rocq_False () = pf_constr_of_global (lib_ref "core.False.type")
+let build_rocq_True () = pf_constr_of_global (lib_ref "core.True.type")
+let build_rocq_I () = pf_constr_of_global (lib_ref "core.True.I")
 
 let rec build_discriminator env sigma true_0 false_0 pos c = function
   | [] ->
@@ -981,7 +982,7 @@ let ind_scheme_of_eq lbeq to_kind =
 
 
 let discrimination_pf e (t,t1,t2) discriminator lbeq to_kind =
-  build_coq_I () >>= fun i ->
+  build_rocq_I () >>= fun i ->
   ind_scheme_of_eq lbeq to_kind >>= fun eq_elim ->
     pf_constr_of_global eq_elim >>= fun eq_elim ->
     Proofview.tclEVARMAP >>= fun sigma ->
@@ -989,7 +990,7 @@ let discrimination_pf e (t,t1,t2) discriminator lbeq to_kind =
        (applist (eq_elim, [t;t1;mkNamedLambda sigma (make_annot e ERelevance.relevant) t discriminator;i;t2]))
 
 type equality = {
-  eq_data  : (coq_eq_data * (EConstr.t * EConstr.t * EConstr.t));
+  eq_data  : (rocq_eq_data * (EConstr.t * EConstr.t * EConstr.t));
   (* equality data + A : Type, t1 : A, t2 : A *)
   eq_term : EConstr.t;
   (* term [M : R A t1 t2] where [R] is the equality from above *)
@@ -1000,8 +1001,8 @@ type equality = {
 let eq_baseid = Id.of_string "e"
 
 let discr_positions env sigma { eq_data = (lbeq,(t,t1,t2)); eq_term = v; eq_evar = evs } cpath dirn =
-  build_coq_True () >>= fun true_0 ->
-  build_coq_False () >>= fun false_0 ->
+  build_rocq_True () >>= fun true_0 ->
+  build_rocq_False () >>= fun false_0 ->
   let false_ty = Retyping.get_type_of env sigma false_0 in
   let false_kind = Retyping.get_sort_family_of env sigma false_0 in
   let e = next_ident_away eq_baseid (vars_of_env env) in
@@ -1168,7 +1169,7 @@ let warn_inject_no_eqdep_dec =
   CWarnings.create ~name:"injection-missing-eqdep-dec" ~category:CWarnings.CoreCategories.tactics
     Pp.(fun (env,ind) ->
         str "The equality scheme for" ++ spc() ++ Printer.pr_inductive env ind ++ spc() ++
-        str "could not be used as Coq.Logic.Eqdep_dec has not been required.")
+        str "could not be used as Stdlib.Logic.Eqdep_dec has not been required.")
 
 let inject_if_homogenous_dependent_pair ty =
   Proofview.Goal.enter begin fun gl ->
@@ -1177,8 +1178,8 @@ let inject_if_homogenous_dependent_pair ty =
     let sigma = Tacmach.project gl in
     let eq,u,(t,t1,t2) = pf_apply find_this_eq_data_decompose gl ty in
     (* fetch the informations of the  pair *)
-    let sigTconstr   = Coqlib.(lib_ref "core.sigT.type") in
-    let existTconstr = Coqlib.lib_ref    "core.sigT.intro" in
+    let sigTconstr   = Rocqlib.(lib_ref "core.sigT.type") in
+    let existTconstr = Rocqlib.lib_ref    "core.sigT.intro" in
     (* check whether the equality deals with dep pairs or not *)
     let eqTypeDest = fst (decompose_app sigma t) in
     if not (isRefX env sigma sigTconstr eqTypeDest) then raise_notrace Exit;
@@ -1210,7 +1211,7 @@ let inject_if_homogenous_dependent_pair ty =
       [
        intro;
        onLastHyp (fun hyp ->
-        Tacticals.pf_constr_of_global Coqlib.(lib_ref "core.eq.type") >>= fun ceq ->
+        Tacticals.pf_constr_of_global Rocqlib.(lib_ref "core.eq.type") >>= fun ceq ->
         tclTHENS (cut (mkApp (ceq,new_eq_args)))
           [clear [destVar sigma hyp];
            Tacticals.pf_constr_of_global inj2 >>= fun inj2 ->
@@ -1552,7 +1553,7 @@ user = raise user error specific to rewrite
 (* Substitutions tactics (JCF) *)
 
 let restrict_to_eq_and_identity env eq = (* compatibility *)
-  let is_ref b = match Coqlib.lib_ref_opt b with
+  let is_ref b = match Rocqlib.lib_ref_opt b with
     | None -> false
     | Some b -> Environ.QGlobRef.equal env eq b
   in

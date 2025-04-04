@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -51,8 +51,11 @@ module SearchBlacklist =
         str "Search blacklist does " ++ (if b then mt () else str "not ") ++ str "include " ++ str s
      end)
 
+let { Goptions.get = blacklist_locals } =
+  Goptions.declare_bool_option_and_ref ~key:["Search";"Blacklist";"Locals"] ~value:true ()
+
 (* The functions iter_constructors and iter_declarations implement the behavior
-   needed for the Coq searching commands.
+   needed for the Rocq searching commands.
    These functions take as first argument the procedure
    that will be called to treat each entry.  This procedure receives the name
    of the object, the assumptions that will make it possible to print its type,
@@ -80,7 +83,7 @@ let generic_search env sigma (fn : GlobRef.t -> Decls.logical_kind option -> env
     | AtomicObject o ->
       let handler =
         DynHandle.add Declare.Internal.Constant.tag begin fun (id,obj) ->
-          let kn = KerName.make prefix.Nametab.obj_mp (Label.of_id id) in
+          let kn = KerName.make prefix.obj_mp (Label.of_id id) in
           let cst = Global.constant_of_delta_kn kn in
           let gr = GlobRef.ConstRef cst in
           let (typ, _) = Typeops.type_of_global_in_context (Global.env ()) gr in
@@ -88,7 +91,7 @@ let generic_search env sigma (fn : GlobRef.t -> Decls.logical_kind option -> env
           fn gr (Some kind) env sigma typ
         end @@
         DynHandle.add DeclareInd.Internal.objInductive begin fun (id,_) ->
-          let kn = KerName.make prefix.Nametab.obj_mp (Label.of_id id) in
+          let kn = KerName.make prefix.obj_mp (Label.of_id id) in
           let mind = Global.mind_of_delta_kn kn in
           let mib = Global.lookup_mind mind in
           let iter_packet i mip =
@@ -172,38 +175,44 @@ let prioritize_search seq fn =
 
 (** This function tries to see whether the conclusion matches a pattern.
     FIXME: this is quite dummy, we may find a more efficient algorithm. *)
-let rec pattern_filter pat ref env sigma typ =
+let rec pattern_filter pat env sigma typ =
   let typ = Termops.strip_outer_cast sigma typ in
   if Constr_matching.is_matching env sigma pat typ then true
   else match EConstr.kind sigma typ with
   | Prod (_, _, typ)
-  | LetIn (_, _, _, typ) -> pattern_filter pat ref env sigma typ
+  | LetIn (_, _, _, typ) -> pattern_filter pat env sigma typ
   | _ -> false
 
 let full_name_of_reference ref =
   let (dir,id) = repr_path (Nametab.path_of_global ref) in
   DirPath.to_string dir ^ "." ^ Id.to_string id
 
-(** Whether a reference is blacklisted *)
-let blacklist_filter ref kind env sigma typ =
-  let name = full_name_of_reference ref in
-  let is_not_bl str = not (String.string_contains ~where:name ~what:str) in
-  CString.Set.for_all is_not_bl (SearchBlacklist.v ())
+let is_local_ref : GlobRef.t -> bool = function
+  | ConstRef c -> Declare.is_local_constant c
+  | IndRef _ | ConstructRef _ | VarRef _ -> false
 
-let module_filter mods ref kind env sigma typ =
+(** Whether a reference is blacklisted *)
+let blacklist_filter : filter_function = fun ref kind env sigma typ ->
+  if blacklist_locals() && is_local_ref ref then false
+  else
+    let name = full_name_of_reference ref in
+    let is_not_bl str = not (String.string_contains ~where:name ~what:str) in
+    CString.Set.for_all is_not_bl (SearchBlacklist.v ())
+
+let module_filter : _ -> filter_function = fun mods ref kind env sigma typ ->
   let sp = Nametab.path_of_global ref in
-  let sl = dirpath sp in
+  let sl = pop_dirpath @@ dirpath_of_path sp in
+  let is_inside md = is_dirpath_prefix_of (dirpath_of_path md) sl in
   match mods with
   | SearchOutside mods ->
-    let is_outside md = not (is_dirpath_prefix_of md sl) in
+    let is_outside md = not (is_inside md) in
     List.for_all is_outside mods
   | SearchInside mods ->
-    let is_inside md = is_dirpath_prefix_of md sl in
     List.is_empty mods || List.exists is_inside mods
 
 let name_of_reference ref = Id.to_string (Nametab.basename_of_global ref)
 
-let search_filter query gr kind env sigma typ = match query with
+let search_filter : _ -> filter_function = fun query gr kind env sigma typ -> match query with
 | GlobSearchSubPattern (where,head,pat) ->
   let open Context.Rel.Declaration in
   let rec collect env hyps typ =
@@ -230,7 +239,7 @@ let search_filter query gr kind env sigma typ = match query with
 let search_pattern env sigma pat mods pr_search =
   let filter ref kind env sigma typ =
     module_filter mods ref kind env sigma typ &&
-    pattern_filter pat ref env sigma (EConstr.of_constr typ) &&
+    pattern_filter pat env sigma (EConstr.of_constr typ) &&
     blacklist_filter ref kind env sigma typ
   in
   let iter ref kind env sigma typ =
@@ -240,7 +249,7 @@ let search_pattern env sigma pat mods pr_search =
 
 (** SearchRewrite *)
 
-let eq () = Coqlib.(lib_ref "core.eq.type")
+let eq () = Rocqlib.(lib_ref "core.eq.type")
 
 let rewrite_pat1 pat =
   PApp (PRef (eq ()), [| PMeta None; pat; PMeta None |])
@@ -253,8 +262,8 @@ let search_rewrite env sigma pat mods pr_search =
   let pat2 = rewrite_pat2 pat in
   let filter ref kind env sigma typ =
     module_filter mods ref kind env sigma typ &&
-    (pattern_filter pat1 ref env sigma (EConstr.of_constr typ) ||
-       pattern_filter pat2 ref env sigma (EConstr.of_constr typ)) &&
+    (pattern_filter pat1 env sigma (EConstr.of_constr typ) ||
+       pattern_filter pat2 env sigma (EConstr.of_constr typ)) &&
     blacklist_filter ref kind env sigma typ
   in
   let iter ref kind env sigma typ =
@@ -283,7 +292,7 @@ type search_constraint =
   | Name_Pattern of Str.regexp
   | Type_Pattern of Pattern.constr_pattern
   | SubType_Pattern of Pattern.constr_pattern
-  | In_Module of Names.DirPath.t
+  | In_Module of full_path
   | Include_Blacklist
 
 type 'a coq_object = {
@@ -310,9 +319,9 @@ let interface_search env sigma =
   let (name, tpe, subtpe, mods, blacklist) =
     extract_flags [] [] [] [] false flags
   in
-  let filter_function ref env sigma constr =
+  let filter_function ref kind env sigma constr =
     let id = Names.Id.to_string (Nametab.basename_of_global ref) in
-    let path = Libnames.dirpath (Nametab.path_of_global ref) in
+    let path = pop_dirpath @@ dirpath_of_path (Nametab.path_of_global ref) in
     let toggle x b = if x then b else not b in
     let match_name (regexp, flag) =
       toggle (Str.string_match regexp id 0) flag
@@ -326,7 +335,7 @@ let interface_search env sigma =
            env sigma pat (EConstr.of_constr constr)) flag
     in
     let match_module (mdl, flag) =
-      toggle (Libnames.is_dirpath_prefix_of mdl path) flag
+      toggle (Libnames.is_dirpath_prefix_of (dirpath_of_path mdl) path) flag
     in
     List.for_all match_name name &&
     List.for_all match_type tpe &&
@@ -359,7 +368,7 @@ let interface_search env sigma =
     ans := answer :: !ans;
   in
   let iter ref kind env sigma typ =
-    if filter_function ref env sigma typ then print_function ref env sigma typ
+    if filter_function ref kind env sigma typ then print_function ref env sigma typ
   in
   let () = generic_search env sigma iter in
   !ans

@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -18,7 +18,7 @@ open Declarations
 open Declareops
 open Environ
 open Reductionops
-open Inductive
+open Retyping
 open Inductiveops
 open Namegen
 open Miniml
@@ -47,7 +47,7 @@ let sort_of env sg c =
 
 (*S Generation of flags and signatures. *)
 
-(* The type [flag] gives us information about any Coq term:
+(* The type [flag] gives us information about any Rocq term:
    \begin{itemize}
    \item [TypeScheme] denotes a type scheme, that is
      something that will become a type after enough applications.
@@ -205,7 +205,7 @@ let sign_with_implicits r s nb_params =
 
 (*S Management of type variable contexts. *)
 
-(* A De Bruijn variable context (db) is a context for translating Coq [Rel]
+(* A De Bruijn variable context (db) is a context for translating Rocq [Rel]
    into ML type [Tvar]. *)
 
 (*s From a type signature toward a type variable context (db). *)
@@ -224,12 +224,12 @@ let rec db_from_ind dbmap i =
   if Int.equal i 0 then []
   else (try Int.Map.find i dbmap with Not_found -> 0)::(db_from_ind dbmap (i-1))
 
-(*s [parse_ind_args] builds a map: [i->j] iff the i-th Coq argument
+(*s [parse_ind_args] builds a map: [i->j] iff the i-th Rocq argument
   of a constructor corresponds to the j-th type var of the ML inductive. *)
 
 (* \begin{itemize}
    \item [si] : signature of the inductive
-   \item [i] :  counter of Coq args for [(I args)]
+   \item [i] :  counter of Rocq args for [(I args)]
    \item [j] : counter of ML type vars
    \item [relmax] : total args number of the constructor
    \end{itemize} *)
@@ -326,9 +326,9 @@ let fake_match_projection env p =
 (*S Extraction of a type. *)
 
 (* [extract_type env db c args] is used to produce an ML type from the
-   coq term [(c args)], which is supposed to be a Coq type. *)
+   coq term [(c args)], which is supposed to be a Rocq type. *)
 
-(* [db] is a context for translating Coq [Rel] into ML type [Tvar]. *)
+(* [db] is a context for translating Rocq [Rel] into ML type [Tvar]. *)
 
 (* [j] stands for the next ML type var. [j=0] means we do not
    generate ML type var anymore (in subterms for example). *)
@@ -437,12 +437,12 @@ and extract_type_app env sg db (r,s) args =
 
 (*S Extraction of a type scheme. *)
 
-(* [extract_type_scheme env db c p] works on a Coq term [c] which is
-  an informative type scheme. It means that [c] is not a Coq type, but will
+(* [extract_type_scheme env db c p] works on a Rocq term [c] which is
+  an informative type scheme. It means that [c] is not a Rocq type, but will
   be when applied to sufficiently many arguments ([p] in fact).
   This function decomposes p lambdas, with eta-expansion if needed. *)
 
-(* [db] is a context for translating Coq [Rel] into ML type [Tvar]. *)
+(* [db] is a context for translating Rocq [Rel] into ML type [Tvar]. *)
 
 and extract_type_scheme env sg db c p =
   if Int.equal p 0 then extract_type env sg db 0 c []
@@ -469,9 +469,8 @@ and extract_ind env kn = (* kn is supposed to be in long form *)
   | None ->
      try
        extract_really_ind env kn mib
-     with SingletonInductiveBecomesProp id ->
-       (* TODO : which inductive is concerned in the block ? *)
-       error_singleton_become_prop id (Some (GlobRef.IndRef (kn,0)))
+     with SingletonInductiveBecomesProp ind ->
+       error_singleton_become_prop ind
 
 (* Then the real function *)
 
@@ -609,7 +608,7 @@ and extract_really_ind env kn mib =
 (*s [extract_type_cons] extracts the type of an inductive
   constructor toward the corresponding list of ML types.
 
-   - [db] is a context for translating Coq [Rel] into ML type [Tvar]
+   - [db] is a context for translating Rocq [Rel] into ML type [Tvar]
    - [dbmap] is a translation map (produced by a call to [parse_in_args])
    - [i] is the rank of the current product (initially [params_nb+1])
 *)
@@ -623,7 +622,7 @@ and extract_type_cons env sg db dbmap c i =
         (extract_type env sg db 0 t []) :: l
     | _ -> []
 
-(*s Recording the ML type abbreviation of a Coq type scheme constant. *)
+(*s Recording the ML type abbreviation of a Rocq type scheme constant. *)
 
 and mlt_env env r = let open GlobRef in match r with
   | IndRef _ | ConstructRef _ | VarRef _ -> None
@@ -860,7 +859,7 @@ and extract_cst_app env sg mle mlt kn args =
    \item In ML, constructor arguments are uncurryfied.
    \item We managed to suppress logical parts inside inductive definitions,
    but they must appears outside (for partial applications for instance)
-   \item We also suppressed all Coq parameters to the inductives, since
+   \item We also suppressed all Rocq parameters to the inductives, since
    they are fixed, and thus are not used for the computation.
    \end{itemize} *)
 
@@ -1061,7 +1060,7 @@ let extract_std_constant env sg kn body typ =
   let mle = List.fold_left Mlenv.push_std_type Mlenv.empty l in
   (* The lambdas names. *)
   let ids = List.map (fun (n,_) -> Id (id_of_name n.binder_name)) rels in
-  (* The according Coq environment. *)
+  (* The according Rocq environment. *)
   let env = push_rels_assum rels env in
   (* The real extraction: *)
   let e = extract_term env sg mle t' c [] in
@@ -1101,8 +1100,8 @@ let extract_fixpoint env sg vkn (fi,ti,ci) =
                    (EConstr.Vars.substl sub ci.(i)) ti.(i) in
         terms.(i) <- e;
         types.(i) <- t;
-      with SingletonInductiveBecomesProp id ->
-        error_singleton_become_prop id (Some (GlobRef.ConstRef vkn.(i)))
+      with SingletonInductiveBecomesProp ind ->
+        error_singleton_become_prop ind
   done;
   current_fixpoints := [];
   Dfix (Array.map (fun kn -> GlobRef.ConstRef kn) vkn, terms, types)
@@ -1167,8 +1166,8 @@ let extract_constant access env kn cb =
             add_opaque r;
             if access_opaque () then mk_def (get_opaque access env c)
             else mk_ax ())
-  with SingletonInductiveBecomesProp id ->
-    error_singleton_become_prop id (Some (GlobRef.ConstRef kn))
+  with SingletonInductiveBecomesProp ind ->
+    error_singleton_become_prop ind
 
 let extract_constant_spec env kn cb =
   let sg = Evd.from_env env in
@@ -1192,8 +1191,8 @@ let extract_constant_spec env kn cb =
     | (Info, Default) ->
         let t = snd (record_constant_type env sg kn (Some typ)) in
         Sval (r, type_expunge env t)
-  with SingletonInductiveBecomesProp id ->
-    error_singleton_become_prop id (Some (GlobRef.ConstRef kn))
+  with SingletonInductiveBecomesProp ind ->
+    error_singleton_become_prop ind
 
 let extract_with_type env sg c =
   try
@@ -1205,8 +1204,8 @@ let extract_with_type env sg c =
         let t = extract_type_scheme env sg db c (List.length s) in
         Some (vl, t)
     | _ -> None
-  with SingletonInductiveBecomesProp id ->
-    error_singleton_become_prop id None
+  with SingletonInductiveBecomesProp ind ->
+    error_singleton_become_prop ind
 
 let extract_constr env sg c =
   reset_meta_count ();
@@ -1218,8 +1217,8 @@ let extract_constr env sg c =
     | (Info,Default) ->
        let mlt = extract_type env sg [] 1 typ [] in
        extract_term env sg Mlenv.empty mlt c [], mlt
-  with SingletonInductiveBecomesProp id ->
-    error_singleton_become_prop id None
+  with SingletonInductiveBecomesProp ind ->
+    error_singleton_become_prop ind
 
 let extract_inductive env kn =
   let ind = extract_ind env kn in

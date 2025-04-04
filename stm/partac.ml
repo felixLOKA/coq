@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -135,6 +135,12 @@ end = struct (* {{{ *)
       let noncrit = CErrors.noncritical e in
       RespError (noncrit, CErrors.print e ++ spc() ++ str "(for goal "++int r_goalno ++ str ")")
 
+  let perform r : response =
+    NewProfile.profile "partac.perform"
+      ~args:(fun () -> ["goalno", `Intlit (string_of_int r.r_goalno)])
+      (fun () -> perform r)
+      ()
+
   let name_of_task { t_name } = t_name
   let name_of_request { r_name } = r_name
 
@@ -183,11 +189,11 @@ let get_results res =
        str (CString.plural (List.length missing) "goal") ++
        spc () ++ prlist_with_sep spc int missing ++ str ")")
 
-let enable_par ~nworkers = ComTactic.set_par_implementation
+let enable_par ~spawn_args ~nworkers = ComTactic.set_par_implementation
   (fun ~pstate ~info t_ast ~abstract ~with_end_tac ->
     let t_state = Vernacstate.freeze_full_state () in
     let t_state = Vernacstate.Stm.make_shallow t_state in
-    TaskQueue.with_n_workers nworkers CoqworkmgrApi.High (fun queue ->
+    TaskQueue.with_n_workers ~spawn_args nworkers CoqworkmgrApi.High (fun queue ->
     Declare.Proof.map pstate ~f:(fun p ->
     let open TacTask in
     let results = (Proof.data p).Proof.goals |> CList.map_i (fun i g ->
@@ -201,6 +207,9 @@ let enable_par ~nworkers = ComTactic.set_par_implementation
     TaskQueue.join queue;
     let results = get_results results in
     let p,_,() =
-      Proof.run_tactic (Global.env())
-      (assign_tac ~abstract results) p in
+      NewProfile.profile "partac.assign" (fun () ->
+          Proof.run_tactic (Global.env())
+            (assign_tac ~abstract results) p)
+        ()
+    in
     p)))

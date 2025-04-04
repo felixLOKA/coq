@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -138,39 +138,6 @@ match evar_ident evk sigma with
   str "?" ++ Id.print (evar_suggested_name env sigma evk)
 | Some id ->
   str "?" ++ Id.print id
-
-let pr_instance_status (sc,typ) =
-  let open Evd in
-  begin match sc with
-  | IsSubType -> str " [or a subtype of it]"
-  | IsSuperType -> str " [or a supertype of it]"
-  | Conv -> mt ()
-  end ++
-  begin match typ with
-  | CoerceToType -> str " [up to coercion]"
-  | TypeNotProcessed -> mt ()
-  | TypeProcessed -> str " [type is checked]"
-  end
-
-let pr_meta_map env sigma =
-  let open Evd in
-  let print_constr = Internal.print_kconstr in
-  let pr_name = function
-      Name id -> str"[" ++ Id.print id ++ str"]"
-    | _ -> mt() in
-  let pr_meta_binding = function
-    | (mv,Cltyp (na,b)) ->
-        hov 0
-          (pr_meta mv ++ pr_name na ++ str " : " ++
-           print_constr env sigma b.rebus ++ fnl ())
-    | (mv,Clval(na,(b,s),t)) ->
-        hov 0
-          (pr_meta mv ++ pr_name na ++ str " := " ++
-           print_constr env sigma b.rebus ++
-           str " : " ++ print_constr env sigma t.rebus ++
-           spc () ++ pr_instance_status s ++ fnl ())
-  in
-  prlist pr_meta_binding (Evd.Metamap.bindings (meta_list sigma))
 
 let pr_decl env sigma (decl,ok) =
   let open NamedDecl in
@@ -360,16 +327,12 @@ let pr_evar_map_gen with_univs pr_evars env sigma =
     else
       str "OBLIGATIONS:" ++ brk (0, 1) ++
       prlist_with_sep spc Evar.print (Evar.Set.elements evars) ++ fnl ()
-  and metas =
-    if Evd.Metamap.is_empty (Evd.meta_list sigma) then mt ()
-    else
-      str "METAS:" ++ brk (0, 1) ++ pr_meta_map env sigma
   and shelf =
     str "SHELF:" ++ brk (0, 1) ++ Evd.pr_shelf sigma ++ fnl ()
   and future_goals =
     str "FUTURE GOALS STACK:" ++ brk (0, 1) ++ Evd.pr_future_goals_stack sigma ++ fnl ()
   in
-  evs ++ svs ++ cstrs ++ typeclasses ++ obligations ++ metas ++ shelf ++ future_goals
+  evs ++ svs ++ cstrs ++ typeclasses ++ obligations ++ shelf ++ future_goals
 
 let pr_evar_list env sigma l =
   let open Evd in
@@ -445,9 +408,6 @@ let pr_evar_map ?(with_univs=true) depth env sigma =
 
 let pr_evar_map_filter ?(with_univs=true) filter env sigma =
   pr_evar_map_gen with_univs (fun sigma -> pr_evar_by_filter filter env sigma) env sigma
-
-let pr_metaset metas =
-  str "[" ++ pr_sequence pr_meta (Evd.Metaset.elements metas) ++ str "]"
 
 (* [Rel (n+m);...;Rel(n+1)] *)
 let rel_vect n m = Array.init m (fun i -> mkRel(n+m-i))
@@ -779,24 +739,39 @@ let fold_constr_with_full_binders env sigma g f n acc c =
 exception Occur
 
 let occur_meta sigma c =
-  let rec occrec c = match EConstr.kind sigma c with
+  let rec occrec h c =
+    let h, knd = EConstr.Expand.kind sigma h c in
+    match knd with
     | Meta _ -> raise Occur
-    | Evar (_, args) -> SList.Skip.iter occrec args
-    | _ -> EConstr.iter sigma occrec c
-  in try occrec c; false with Occur -> true
+    | Evar (evk, args) ->
+      let evi = Evd.find_undefined sigma evk in
+      let args = EConstr.Expand.expand_instance ~skip:true evi h args in
+      SList.Skip.iter (fun c -> occrec h c) args
+    | _ -> EConstr.Expand.iter sigma occrec h knd
+  in
+  let h, c = EConstr.Expand.make c in
+  try occrec h c; false with Occur -> true
 
 let occur_existential sigma c =
-  let rec occrec c = match EConstr.kind sigma c with
+  let rec occrec h c =
+    let h, knd = EConstr.Expand.kind sigma h c in
+    match knd with
     | Evar _ -> raise Occur
-    | _ -> EConstr.iter sigma occrec c
-  in try occrec c; false with Occur -> true
+    | _ -> EConstr.Expand.iter sigma occrec h knd
+  in
+  let h, c = EConstr.Expand.make c in
+  try occrec h c; false with Occur -> true
 
 let occur_meta_or_existential sigma c =
-  let rec occrec c = match EConstr.kind sigma c with
+  let rec occrec h c =
+    let h, knd = EConstr.Expand.kind sigma h c in
+    match knd with
     | Evar _ -> raise Occur
     | Meta _ -> raise Occur
-    | _ -> EConstr.iter sigma occrec c
-  in try occrec c; false with Occur -> true
+    | _ -> EConstr.Expand.iter sigma occrec h knd
+  in
+  let h, c = EConstr.Expand.make c in
+  try occrec h c; false with Occur -> true
 
 let occur_metavariable sigma m c =
   let rec occrec c = match EConstr.kind sigma c with
@@ -1095,6 +1070,13 @@ let global_of_constr sigma c =
 let is_global = EConstr.isRefX
 
 let isGlobalRef = EConstr.isRef
+
+let is_template_polymorphic_ref env sigma f =
+  match EConstr.kind sigma f with
+  | Ind (ind, u) | Construct ((ind, _), u) ->
+    if not (EConstr.EInstance.is_empty u) then false
+    else Environ.template_polymorphic_ind ind env
+  | _ -> false
 
 let is_template_polymorphic_ind env sigma f =
   match EConstr.kind sigma f with

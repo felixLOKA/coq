@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -28,6 +28,8 @@ module G = AcyclicGraph.Make(struct
 type t = {
   graph: G.t;
   type_in_type : bool;
+  (* above_prop only for checking template poly! *)
+  above_prop_qvars : Sorts.QVar.Set.t;
 }
 
 (* Universe inconsistency: error raised when trying to enforce a relation
@@ -75,7 +77,11 @@ let check_eq g u v =
 let check_eq_level g u v =
   u == v || type_in_type g || G.check_eq g.graph u v
 
-let empty_universes = {graph=G.empty; type_in_type=false}
+let empty_universes = {
+  graph=G.empty;
+  type_in_type=false;
+  above_prop_qvars=Sorts.QVar.Set.empty;
+}
 
 let initial_universes =
   let big_rank = 1000000 in
@@ -109,7 +115,7 @@ let enforce_constraint cst g = match enforce_constraint0 cst g with
 
 let merge_constraints csts g = Constraints.fold enforce_constraint csts g
 
-let check_constraint { graph = g; type_in_type } (u,d,v) =
+let check_constraint { graph = g; type_in_type; _ } (u,d,v) =
   type_in_type
   || match d with
   | Le -> G.check_leq g u v
@@ -156,20 +162,11 @@ let enforce_leq_alg u v g =
     let e = UniverseInconsistency (None, (c, mk u, mk v, Some (Path e))) in
     raise e
 
-module Bound =
-struct
-  type t = Prop | Set
-end
-
 exception AlreadyDeclared = G.AlreadyDeclared
-let add_universe u ~lbound ~strict g = match lbound with
-| Bound.Set ->
+let add_universe u ~strict g =
   let graph = G.add u g.graph in
   let d = if strict then Lt else Le in
   enforce_constraint (Level.set, d, u) { g with graph }
-| Bound.Prop ->
-  (* Do not actually add any constraint. This is a hack for template. *)
-  { g with graph = G.add u g.graph }
 
 let check_declared_universes g l =
   G.check_declared g.graph l
@@ -190,7 +187,7 @@ let check_subtype univs ctxT ctx =
     let inst = UContext.instance uctx in
     let cst = UContext.constraints uctx in
     let cstT = UContext.constraints (AbstractContext.repr ctxT) in
-    let push accu v = add_universe v ~lbound:Bound.Set ~strict:false accu in
+    let push accu v = add_universe v ~strict:false accu in
     let univs = Array.fold_left push univs (snd (Instance.to_array inst)) in
     let univs = merge_constraints cstT univs in
     check_constraints cst univs
@@ -232,18 +229,23 @@ let check_eq_sort ugraph s1 s2 = match s1, s2 with
   QVar.equal q1 q2 && check_eq ugraph u1 u2
 | (QSort _, (Type _ | Set)) | ((Type _ | Set), QSort _) -> false
 
+let is_above_prop ugraph q =
+  Sorts.QVar.Set.mem q ugraph.above_prop_qvars
+
 let check_leq_sort ugraph s1 s2 = match s1, s2 with
 | (SProp, SProp) | (Prop, Prop) | (Set, Set) -> true
 | (SProp, _) -> type_in_type ugraph
 | (Prop, SProp) -> type_in_type ugraph
 | (Prop, (Set | Type _)) -> true
-| (Prop, QSort _) -> false
+| (Prop, QSort (q,_)) -> is_above_prop ugraph q
 | (_, (SProp | Prop)) -> type_in_type ugraph
 | (Type _ | Set), (Type _ | Set) ->
   check_leq ugraph (get_algebraic s1) (get_algebraic s2)
 | QSort (q1, u1), QSort (q2, u2) ->
   QVar.equal q1 q2 && check_leq ugraph u1 u2
-| (QSort _, (Type _ | Set)) | ((Type _ | Set), QSort _) -> false
+| QSort (q, _), Set -> is_above_prop ugraph q
+| QSort (q, u1), Type u2 -> is_above_prop ugraph q && check_leq ugraph u1 u2
+| ((Type _ | Set), QSort _) -> false
 
 (** Pretty-printing *)
 
@@ -302,3 +304,12 @@ let explain_universe_inconsistency default_prq default_prl (printers, (o,u,v,p) 
   in
     str "Cannot enforce" ++ spc() ++ pr_uni u ++ spc() ++
       pr_rel o ++ spc() ++ pr_uni v ++ reason
+
+module Internal = struct
+
+  let add_template_qvars qvars g =
+    assert (Sorts.QVar.Set.is_empty g.above_prop_qvars);
+    {g with above_prop_qvars=qvars}
+
+  let is_above_prop = is_above_prop
+end

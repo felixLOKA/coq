@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -158,7 +158,7 @@ let dirpath_of_global = let open GlobRef in function
 let qualid_of_global ?loc env r =
   Libnames.make_qualid ?loc (dirpath_of_global r) (id_of_global env r)
 
-let safe_gen f env sigma c =
+let safe_extern_wrapper f env sigma c =
   let orig_extern_ref = Constrextern.get_extern_reference () in
   let extern_ref ?loc vars r =
     try orig_extern_ref vars r
@@ -169,10 +169,14 @@ let safe_gen f env sigma c =
   try
     let p = f env sigma c in
     Constrextern.set_extern_reference orig_extern_ref;
-    p
+    Some p
   with e when CErrors.noncritical e ->
     Constrextern.set_extern_reference orig_extern_ref;
-    str "??"
+    None
+
+let safe_gen f env sigma c = match safe_extern_wrapper f env sigma c with
+| None -> str "??"
+| Some v -> v
 
 let safe_pr_lconstr_env = safe_gen pr_lconstr_env
 let safe_pr_constr_env = safe_gen pr_constr_env
@@ -187,7 +191,7 @@ let universe_binders_with_opt_names orig names =
   let qorig, uorig as orig = Array.to_list qorig, Array.to_list uorig in
   let qdecl, udecl = match names with
   | None -> orig
-  | Some (qdecl,udecl) ->
+  | Some (gref, (qdecl, udecl)) ->
     try
       let qs =
         List.map2 (fun orig {CAst.v = na} ->
@@ -205,6 +209,7 @@ let universe_binders_with_opt_names orig names =
     with Invalid_argument _ ->
       let open UnivGen in
       raise (UniverseLengthMismatch {
+          gref;
           actual = List.length qorig, List.length uorig;
           expect = List.length qdecl, List.length udecl;
         })
@@ -241,7 +246,7 @@ let universe_binders_with_opt_names orig names =
 
 let pr_universe_ctx_set sigma c =
   if !Detyping.print_universes && not (Univ.ContextSet.is_empty c) then
-    fnl()++pr_in_comment (v 0 (Univ.pr_universe_context_set (Termops.pr_evd_level sigma) c))
+    fnl()++pr_in_comment (v 0 (Univ.ContextSet.pr (Termops.pr_evd_level sigma) c))
   else
     mt()
 
@@ -263,7 +268,7 @@ let pr_abstract_universe_ctx sigma ?variance ?priv c =
     let prqvar u = Termops.pr_evd_qvar sigma u in
     let prlev u = Termops.pr_evd_level sigma u in
     let pub = (if has_priv then str "Public universes:" ++ fnl() else mt()) ++ v 0 (UVars.pr_abstract_universe_context prqvar prlev ?variance c) in
-    let priv = if has_priv then fnl() ++ str "Private universes:" ++ fnl() ++ v 0 (Univ.pr_universe_context_set prlev priv) else mt() in
+    let priv = if has_priv then fnl() ++ str "Private universes:" ++ fnl() ++ v 0 (Univ.ContextSet.pr prlev priv) else mt() in
     fnl()++pr_in_comment (pub ++ priv)
   else
     mt()
@@ -278,20 +283,25 @@ let pr_universes sigma ?variance ?priv = function
 let pr_global_env = Nametab.pr_global_env
 let pr_global = pr_global_env Id.Set.empty
 
-let pr_universe_instance_constraints evd inst csts =
+let pr_universe_instance_binder evd inst csts =
   let open Univ in
   let prqvar = Termops.pr_evd_qvar evd in
   let prlev = Termops.pr_evd_level evd in
-  let pcsts = if Constraints.is_empty csts then mt()
-    else str " |= " ++
-         prlist_with_sep (fun () -> str "," ++ spc())
+  let pcsts = if Constraints.is_empty csts then begin
+      if fst (UVars.Instance.length inst) = 0 then mt()
+      else str " |"
+    end
+    else strbrk " | " ++
+         prlist_with_sep pr_comma
            (fun (u,d,v) -> hov 0 (prlev u ++ pr_constraint_type d ++ prlev v))
            (Constraints.elements csts)
   in
   str"@{" ++ UVars.Instance.pr prqvar prlev inst ++ pcsts ++ str"}"
 
 let pr_universe_instance evd inst =
-  pr_universe_instance_constraints evd inst Univ.Constraints.empty
+  let prqvar = Termops.pr_evd_qvar evd in
+  let prlev = Termops.pr_evd_level evd in
+  str "@{" ++ UVars.Instance.pr prqvar prlev inst ++ str "}"
 
 let pr_puniverses f env sigma (c,u) =
   if !Constrextern.print_universes

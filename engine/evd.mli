@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -15,7 +15,7 @@ open Constr
 open Environ
 
 (** This file defines the pervasive unification state used everywhere
-    in Coq tactic engine. It is very low-level and most of the
+    in Rocq tactic engine. It is very low-level and most of the
     functions exported here are irrelevant to the standard API user.
     Consider using {!Evarutil} or {!Proofview} instead.
 
@@ -189,7 +189,7 @@ val has_shelved : evar_map -> bool
 
 val new_pure_evar :
   ?src:Evar_kinds.t Loc.located -> ?filter:Filter.t ->
-  ?relevance:erelevance ->
+  relevance:erelevance ->
   ?abstract_arguments:Abstraction.t -> ?candidates:econstr list ->
   ?name:Id.t ->
   ?typeclass_candidate:bool ->
@@ -283,8 +283,6 @@ val drop_all_defined : evar_map -> evar_map
 val drop_new_defined : original:evar_map -> evar_map -> evar_map
 (** Drop the defined evars in the second evar map which did not exist in the first. *)
 
-val is_maybe_typeclass_hook : (evar_map -> constr -> bool) Hook.t
-
 (** {6 Instantiating partial terms} *)
 
 exception NotInstantiatedEvar
@@ -293,13 +291,9 @@ val existential_value : evar_map -> econstr pexistential -> econstr
 (** [existential_value sigma ev] raises [NotInstantiatedEvar] if [ev] has
     no body and [Not_found] if it does not exist in [sigma] *)
 
-val existential_value0 : evar_map -> existential -> constr
-
 val existential_type_opt : evar_map -> econstr pexistential -> etypes option
 
 val existential_type : evar_map -> econstr pexistential -> etypes
-
-val existential_type0 : evar_map -> existential -> types
 
 val existential_opt_value : evar_map -> econstr pexistential -> econstr option
 (** Same as {!existential_value} but returns an option instead of raising an
@@ -377,8 +371,6 @@ val evar_key : Id.t -> evar_map -> Evar.t
 
 val evar_names : evar_map -> Nameops.Fresh.t
 
-val evar_source_of_meta : metavariable -> evar_map -> Evar_kinds.t located
-
 val dependent_evar_ident : Evar.t -> evar_map -> Id.t
 
 (** {5 Side-effects} *)
@@ -449,6 +441,10 @@ val unshelve : evar_map -> Evar.t list -> evar_map
 val given_up : evar_map -> Evar.Set.t
 
 val shelf : evar_map -> Evar.t list
+(** All evars in the shelf (not just the shallowest shelf) *)
+
+val mem_shelf : Evar.t -> evar_map -> bool
+(** [true] if the evar is in the shelf (not necessarily in the shallowest shelf) *)
 
 val pr_shelf : evar_map -> Pp.t
 
@@ -485,62 +481,6 @@ val set_extra_data : Store.t -> evar_map -> evar_map
 module MonadR : Monad.S with type +'a t = evar_map -> evar_map * 'a
 module Monad  : Monad.S with type +'a t = evar_map -> 'a * evar_map
 
-(** {5 Meta machinery}
-
-    These functions are almost deprecated. They were used before the
-    introduction of the full-fledged evar calculus. In an ideal world, they
-    should be removed. Alas, some parts of the code still use them. Do not use
-    in newly-written code. *)
-
-module Metaset : Set.S with type elt = metavariable
-module Metamap : Map.ExtS with type key = metavariable and module Set := Metaset
-
-type 'a freelisted = {
-  rebus : 'a;
-  freemetas : Metaset.t }
-
-val metavars_of : econstr -> Metaset.t
-val mk_freelisted : econstr -> econstr freelisted
-val map_fl : ('a -> 'b) -> 'a freelisted -> 'b freelisted
-
-(** Status of an instance found by unification wrt to the meta it solves:
-  - a supertype of the meta (e.g. the solution to ?X <= T is a supertype of ?X)
-  - a subtype of the meta (e.g. the solution to T <= ?X is a supertype of ?X)
-  - a term that can be eta-expanded n times while still being a solution
-    (e.g. the solution [P] to [?X u v = P u v] can be eta-expanded twice)
-*)
-
-type instance_constraint = IsSuperType | IsSubType | Conv
-
-val eq_instance_constraint :
-  instance_constraint -> instance_constraint -> bool
-
-(** Status of the unification of the type of an instance against the type of
-     the meta it instantiates:
-   - CoerceToType means that the unification of types has not been done
-     and that a coercion can still be inserted: the meta should not be
-     substituted freely (this happens for instance given via the
-     "with" binding clause).
-   - TypeProcessed means that the information obtainable from the
-     unification of types has been extracted.
-   - TypeNotProcessed means that the unification of types has not been
-     done but it is known that no coercion may be inserted: the meta
-     can be substituted freely.
-*)
-
-type instance_typing_status =
-    CoerceToType | TypeNotProcessed | TypeProcessed
-
-(** Status of an instance together with the status of its type unification *)
-
-type instance_status = instance_constraint * instance_typing_status
-
-(** Clausal environments *)
-
-type clbinding =
-  | Cltyp of Name.t * econstr freelisted
-  | Clval of Name.t * (econstr freelisted * instance_status) * econstr freelisted
-
 (** Unification constraints *)
 type conv_pb = Conversion.conv_pb
 type evar_constraint = conv_pb * env * econstr * econstr
@@ -570,33 +510,6 @@ val evars_of_named_context : evar_map -> (econstr, etypes, erelevance) Context.N
 
 val evars_of_filtered_evar_info : evar_map -> 'a evar_info -> Evar.Set.t
 
-(** Metas *)
-val meta_list : evar_map -> clbinding Metamap.t
-
-val meta_value     : evar_map -> metavariable -> econstr
-(** [meta_fvalue] raises [Not_found] if meta not in map or [Anomaly] if
-   meta has no value *)
-
-val meta_opt_fvalue : evar_map -> metavariable -> (econstr freelisted * instance_status) option
-val meta_ftype     : evar_map -> metavariable -> etypes freelisted
-val meta_name      : evar_map -> metavariable -> Name.t
-val meta_declare   :
-  metavariable -> etypes -> ?name:Name.t -> evar_map -> evar_map
-val meta_assign    : metavariable -> econstr * instance_status -> evar_map -> evar_map
-val meta_reassign  : metavariable -> econstr * instance_status -> evar_map -> evar_map
-
-val clear_metas : evar_map -> evar_map
-
-(** [meta_merge evd1 evd2] returns [evd2] extended with the metas of [evd1] *)
-val meta_merge : clbinding Metamap.t -> evar_map -> evar_map
-
-val map_metas_fvalue : (econstr -> econstr) -> evar_map -> evar_map
-val map_metas : (econstr -> econstr) -> evar_map -> evar_map
-
-type metabinding = metavariable * econstr * instance_status
-
-val retract_coercible_metas : evar_map -> metabinding list * evar_map
-
 (** {5 FIXME: Nothing to do here} *)
 
 (*********************************************************
@@ -624,11 +537,13 @@ val univ_flexible_alg : rigid
 
 type 'a in_ustate = 'a * UState.t
 
-val restrict_universe_context : ?lbound:UGraph.Bound.t -> evar_map -> Univ.Level.Set.t -> evar_map
+val restrict_universe_context : evar_map -> Univ.Level.Set.t -> evar_map
 
 (** Raises Not_found if not a name for a universe in this map. *)
 val universe_of_name : evar_map -> Id.t -> Univ.Level.t
 val quality_of_name : evar_map -> Id.t -> Sorts.QVar.t
+
+val is_rigid_qvar : evar_map -> Sorts.QVar.t -> bool
 
 val is_relevance_irrelevant : evar_map -> erelevance -> bool
 (** Whether the relevance is irrelevant modulo qstate *)
@@ -651,12 +566,15 @@ val is_flexible_level : evar_map -> Univ.Level.t -> bool
 
 val normalize_universe_instance : evar_map -> UVars.Instance.t -> UVars.Instance.t
 
-val set_leq_sort : env -> evar_map -> esorts -> esorts -> evar_map
-val set_eq_sort : env -> evar_map -> esorts -> esorts -> evar_map
+val set_leq_sort : evar_map -> esorts -> esorts -> evar_map
+val set_eq_sort : evar_map -> esorts -> esorts -> evar_map
 val set_eq_level : evar_map -> Univ.Level.t -> Univ.Level.t -> evar_map
 val set_leq_level : evar_map -> Univ.Level.t -> Univ.Level.t -> evar_map
 val set_eq_instances : ?flex:bool ->
   evar_map -> UVars.Instance.t -> UVars.Instance.t -> evar_map
+
+val set_eq_qualities : evar_map -> Sorts.Quality.t -> Sorts.Quality.t -> evar_map
+val set_above_prop : evar_map -> Sorts.Quality.t -> evar_map
 
 val check_eq : evar_map -> esorts -> esorts -> bool
 val check_leq : evar_map -> esorts -> esorts -> bool
@@ -666,7 +584,7 @@ val check_qconstraints : evar_map -> Sorts.QConstraints.t -> bool
 val check_quconstraints : evar_map -> Sorts.QUConstraints.t -> bool
 
 val ustate : evar_map -> UState.t
-val evar_universe_context : evar_map -> UState.t [@@deprecated "(8.21) Use [Evd.ustate]"]
+val evar_universe_context : evar_map -> UState.t [@@deprecated "(9.0) Use [Evd.ustate]"]
 
 val universe_context_set : evar_map -> Univ.ContextSet.t
 val sort_context_set : evar_map -> UnivGen.sort_context_set
@@ -701,12 +619,12 @@ val with_sort_context_set : ?loc:Loc.t -> rigid -> evar_map -> 'a UnivGen.in_sor
 
 val nf_univ_variables : evar_map -> evar_map
 
-val collapse_sort_variables : evar_map -> evar_map
+val collapse_sort_variables : ?except:Sorts.QVar.Set.t -> evar_map -> evar_map
 
 val fix_undefined_variables : evar_map -> evar_map
 
-(** Universe minimization *)
-val minimize_universes : ?lbound:UGraph.Bound.t -> evar_map -> evar_map
+(** Universe minimization (collapse_sort_variables is true by default) *)
+val minimize_universes : ?collapse_sort_variables:bool -> evar_map -> evar_map
 
 (** Lift [UState.update_sigma_univs] *)
 val update_sigma_univs : UGraph.t -> evar_map -> evar_map
@@ -817,4 +735,15 @@ module MiniEConstr : sig
     (t, t, ERelevance.t) Context.Named.pt
   val of_rel_context : (Constr.t, Constr.types, Sorts.relevance) Context.Rel.pt ->
     (t, t, ERelevance.t) Context.Rel.pt
+end
+
+(** Only used as EConstr internals *)
+module Expand : sig
+  open MiniEConstr
+  type handle
+  val empty_handle : handle
+  val liftn_handle : int -> handle -> handle
+  val kind : evar_map -> handle -> econstr -> handle * (econstr, econstr, ESorts.t, EInstance.t, ERelevance.t) Constr.kind_of_term
+  val expand : evar_map -> handle -> econstr -> econstr
+  val expand_instance : skip:bool -> undefined evar_info -> handle -> econstr SList.t -> econstr SList.t
 end

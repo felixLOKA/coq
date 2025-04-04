@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -74,8 +74,9 @@ end
 module CInfo : sig
   type 'constr t
 
-  val make :
-    name : Id.t
+  val make
+    : ?loc:Loc.t
+    -> name:Id.t
     -> typ:'constr
     -> ?args:Name.t list
     -> ?impargs:Impargs.manual_implicits
@@ -193,7 +194,7 @@ module Proof : sig
      both of them. Please, get in touch with the developers if you
      would like to experiment with multi-goal dependent proofs so we
      can use your input on the design of the new API. *)
-  val start_derive : f:Id.t -> name:Id.t -> info:Info.t -> cinfo:unit CInfo.t list -> Proofview.telescope -> t
+  val start_derive : name:Id.t -> info:Info.t -> cinfo:unit CInfo.t list -> Proofview.telescope -> t
 
   val start_equations :
        name:Id.t
@@ -207,7 +208,7 @@ module Proof : sig
   (** Pretty much internal, used by the Lemma vernaculars *)
   val start_definition
     :  info:Info.t
-    -> cinfo:Constr.t CInfo.t
+    -> cinfo:EConstr.t CInfo.t
     -> ?using:Vernacexpr.section_subset_expr
     -> Evd.evar_map
     -> t
@@ -218,6 +219,16 @@ module Proof : sig
     -> cinfo:Constr.t CInfo.t list
     -> bodies:Constr.t option list
     -> possible_guard:(Pretyping.possible_guard * Sorts.relevance list)
+    -> ?using:Vernacexpr.section_subset_expr
+    -> Evd.evar_map
+    -> t
+
+  (** Pretty much internal, used by mutual Lemma / Fixpoint vernaculars with #[refine] *)
+  val start_mutual_definitions_refine
+    :  info:Info.t
+    -> cinfo:EConstr.t CInfo.t list
+    -> bodies:EConstr.t option list
+    -> possible_guard:(Pretyping.possible_guard * Evd.erelevance list)
     -> ?using:Vernacexpr.section_subset_expr
     -> Evd.evar_map
     -> t
@@ -255,7 +266,7 @@ module Proof : sig
   val map_fold_endline : f:(unit Proofview.tactic -> Proof.t -> Proof.t * 'a) -> t -> t * 'a
 
   (** Sets the tactic to be used when a tactic line is closed with [...] *)
-  val set_endline_tactic : Genarg.glob_generic_argument -> t -> t
+  val set_endline_tactic : Gentactic.glob_generic_tactic -> t -> t
 
   val definition_scope : t -> Locality.definition_scope
 
@@ -380,7 +391,8 @@ val symbol_entry
     for removal from the public API, use higher-level declare APIs
     instead *)
 val declare_entry
-  :  name:Id.t
+  : ?loc:Loc.t
+  -> name:Id.t
   -> ?scope:Locality.definition_scope
   -> kind:Decls.logical_kind
   -> ?user_warns:Globnames.extended_global_reference UserWarn.with_qf
@@ -437,7 +449,8 @@ val prepare_parameter
   for removal from the public API, use higher-level declare APIs
   instead *)
 val declare_constant
-  :  ?local:Locality.import_status
+  : ?loc:Loc.t
+  -> ?local:Locality.import_status
   -> name:Id.t
   -> kind:Decls.logical_kind
   -> ?typing_flags:Declarations.typing_flags
@@ -476,7 +489,7 @@ val build_by_tactic
 
 (** {2 Program mode API} *)
 
-(** Coq's Program mode support. This mode extends declarations of
+(** Rocq's Program mode support. This mode extends declarations of
    constants and fixpoints with [Program Definition] and [Program
    Fixpoint] to support incremental construction of terms using
    delayed proofs, called "obligations"
@@ -586,16 +599,16 @@ val add_mutual_definitions :
   -> RetrieveObl.obligation_info list
   -> OblState.t
 
-(** Implementation of the [Obligation n of id : typ with tac] command *)
+(** Implementation of the [Obligation n of id with tac] command *)
 val obligation :
-     int * Names.Id.t option * Constrexpr.constr_expr option
+     int * Names.Id.t option
   -> pm:OblState.t
-  -> Genarg.glob_generic_argument option
+  -> Gentactic.glob_generic_tactic option
   -> Proof.t
 
 (** Implementation of the [Next Obligation of id with tac] and [Final Obligation of id with tac] commands *)
 val next_obligation :
-  pm:OblState.t -> ?final:bool -> Names.Id.t option -> Genarg.glob_generic_argument option -> Proof.t
+  pm:OblState.t -> ?final:bool -> Names.Id.t option -> Gentactic.glob_generic_tactic option -> Proof.t
 
 (** Implementation of the [Solve Obligations of id with tac] command *)
 val solve_obligations :
@@ -622,6 +635,8 @@ val program_inference_hook : Environ.env -> Evd.evar_map -> Evar.t -> (Evd.evar_
 end
 
 val is_local_constant : Constant.t -> bool
+(** [true] on constants declared Local and not from the current
+    interactive module (or its parents). *)
 
 (** {6 For internal support, do not use}  *)
 

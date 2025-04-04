@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -24,37 +24,37 @@ open Tac2intern
 
 module Pltac =
 struct
-let ltac2_expr = Pcoq.Entry.make "ltac2_expr"
-let tac2expr_in_env = Pcoq.Entry.make "tac2expr_in_env"
+let ltac2_expr = Procq.Entry.make "ltac2_expr"
+let tac2expr_in_env = Procq.Entry.make "tac2expr_in_env"
 
-let q_ident = Pcoq.Entry.make "q_ident"
-let q_bindings = Pcoq.Entry.make "q_bindings"
-let q_with_bindings = Pcoq.Entry.make "q_with_bindings"
-let q_intropattern = Pcoq.Entry.make "q_intropattern"
-let q_intropatterns = Pcoq.Entry.make "q_intropatterns"
-let q_destruction_arg = Pcoq.Entry.make "q_destruction_arg"
-let q_induction_clause = Pcoq.Entry.make "q_induction_clause"
-let q_conversion = Pcoq.Entry.make "q_conversion"
-let q_orient = Pcoq.Entry.make "q_orient"
-let q_rewriting = Pcoq.Entry.make "q_rewriting"
-let q_clause = Pcoq.Entry.make "q_clause"
-let q_dispatch = Pcoq.Entry.make "q_dispatch"
-let q_occurrences = Pcoq.Entry.make "q_occurrences"
-let q_reference = Pcoq.Entry.make "q_reference"
-let q_strategy_flag = Pcoq.Entry.make "q_strategy_flag"
-let q_constr_matching = Pcoq.Entry.make "q_constr_matching"
-let q_goal_matching = Pcoq.Entry.make "q_goal_matching"
-let q_hintdb = Pcoq.Entry.make "q_hintdb"
-let q_move_location = Pcoq.Entry.make "q_move_location"
-let q_pose = Pcoq.Entry.make "q_pose"
-let q_assert = Pcoq.Entry.make "q_assert"
+let q_ident = Procq.Entry.make "q_ident"
+let q_bindings = Procq.Entry.make "q_bindings"
+let q_with_bindings = Procq.Entry.make "q_with_bindings"
+let q_intropattern = Procq.Entry.make "q_intropattern"
+let q_intropatterns = Procq.Entry.make "q_intropatterns"
+let q_destruction_arg = Procq.Entry.make "q_destruction_arg"
+let q_induction_clause = Procq.Entry.make "q_induction_clause"
+let q_conversion = Procq.Entry.make "q_conversion"
+let q_orient = Procq.Entry.make "q_orient"
+let q_rewriting = Procq.Entry.make "q_rewriting"
+let q_clause = Procq.Entry.make "q_clause"
+let q_dispatch = Procq.Entry.make "q_dispatch"
+let q_occurrences = Procq.Entry.make "q_occurrences"
+let q_reference = Procq.Entry.make "q_reference"
+let q_strategy_flag = Procq.Entry.make "q_strategy_flag"
+let q_constr_matching = Procq.Entry.make "q_constr_matching"
+let q_goal_matching = Procq.Entry.make "q_goal_matching"
+let q_hintdb = Procq.Entry.make "q_hintdb"
+let q_move_location = Procq.Entry.make "q_move_location"
+let q_pose = Procq.Entry.make "q_pose"
+let q_assert = Procq.Entry.make "q_assert"
 end
 
 let () =
   let entries = [
-    Pcoq.Entry.Any Pltac.ltac2_expr;
+    Procq.Entry.Any Pltac.ltac2_expr;
   ] in
-  Pcoq.register_grammars_by_name "ltac2" entries
+  Procq.register_grammars_by_name "ltac2" entries
 
 (** Tactic definition *)
 
@@ -128,7 +128,7 @@ let push_typedef visibility sp kn (_, def) = match def with
   Tac2env.push_type visibility sp kn
 | GTydAlg { galg_constructors = cstrs } ->
   (* Register constructors *)
-  let iter (c, _) =
+  let iter (warn, c, _) =
     let spc = change_sp_label sp c in
     let knc = change_kn_label kn c in
     Tac2env.push_constructor visibility spc knc
@@ -159,7 +159,7 @@ let define_typedef kn (params, def as qdef) = match def with
   (* Define constructors *)
   let constant = ref 0 in
   let nonconstant = ref 0 in
-  let iter (c, args) =
+  let iter (warn, c, args) =
     let knc = change_kn_label kn c in
     let tag = if List.is_empty args then next constant else next nonconstant in
     let data = {
@@ -168,7 +168,7 @@ let define_typedef kn (params, def as qdef) = match def with
       cdata_args = args;
       cdata_indx = Some tag;
     } in
-    Tac2env.define_constructor knc data
+    Tac2env.define_constructor ?warn knc data
   in
   Tac2env.define_type kn qdef;
   List.iter iter cstrs
@@ -220,6 +220,7 @@ let inTypDef : Id.t -> typdef -> obj =
 (** Type extension *)
 
 type extension_data = {
+  edata_warn : UserWarn.t option;
   edata_name : Id.t;
   edata_args : int glb_typexpr list;
 }
@@ -233,7 +234,7 @@ type typext = {
 
 let push_typext vis prefix def =
   let iter data =
-    let spc = Libnames.make_path prefix.obj_dir data.edata_name in
+    let spc = Libnames.add_path_suffix prefix.obj_path data.edata_name in
     let knc = KerName.make prefix.obj_mp (Label.of_id data.edata_name) in
     Tac2env.push_constructor vis spc knc
   in
@@ -248,7 +249,7 @@ let define_typext mp def =
       cdata_args = data.edata_args;
       cdata_indx = None;
     } in
-    Tac2env.define_constructor knc cdata
+    Tac2env.define_constructor ?warn:data.edata_warn knc cdata
   in
   List.iter iter def.typext_expr
 
@@ -342,6 +343,15 @@ let check_value ?loc e =
       (str "Tactic definition must be a syntactical value." ++ spc() ++
        str "Consider using a thunk.")
 
+let check_ltac_exists {loc;v=id} =
+  let kn = Lib.make_kn id in
+  let exists =
+    try let _ = Tac2env.interp_global kn in true with Not_found -> false
+  in
+  if exists then
+    user_err ?loc (str "Tactic " ++ Names.Id.print id ++ str " already exists")
+
+
 let register_ltac ?deprecation ?(local = false) ?(mut = false) isrec tactics =
   let map ({loc;v=na}, e) =
     let id = match na with
@@ -356,18 +366,11 @@ let register_ltac ?deprecation ?(local = false) ?(mut = false) isrec tactics =
   let tactics =
     if isrec then inline_rec_tactic tactics else tactics
   in
-  let map ({loc;v=id}, ({loc=eloc} as e)) =
+  let map (lid, ({loc=eloc} as e)) =
     let (e, t) = intern ~strict:true [] e in
     let () = check_value ?loc:eloc e in
-    let kn = Lib.make_kn id in
-    let exists =
-      try let _ = Tac2env.interp_global kn in true with Not_found -> false
-    in
-    let () =
-      if exists then
-        user_err ?loc (str "Tactic " ++ Names.Id.print id ++ str " already exists")
-    in
-    (id, e, t)
+    let () = check_ltac_exists lid in
+    (lid.v, e, t)
   in
   let defs = List.map map tactics in
   let iter (id, e, t) =
@@ -416,21 +419,21 @@ let register_typedef ?(local = false) ?(abstract=false) isrec types =
         user_err ?loc (str "The type abbreviation " ++ Id.print id ++
           str " cannot be recursive")
     | CTydAlg cs ->
-      let same_name (id1, _) (id2, _) = Id.equal id1 id2 in
+      let same_name (_, id1, _) (_, id2, _) = Id.equal id1 id2 in
       let () = match List.duplicates same_name cs with
       | [] -> ()
-      | (id, _) :: _ ->
+      | (_, id, _) :: _ ->
         user_err (str "Multiple definitions of the constructor " ++ Id.print id)
       in
       let () =
-        let check_uppercase_ident (id,_) =
+        let check_uppercase_ident (_,id,_) =
           if not (Tac2env.is_constructor_id id)
           then user_err (str "Constructor name should start with an uppercase letter " ++ Id.print id)
         in
         List.iter check_uppercase_ident cs
       in
       let () =
-        let check_existing_ctor (id, _) =
+        let check_existing_ctor (_, id, _) =
           let (_, kn) = Lib.make_foname id in
           try let _ = Tac2env.interp_constructor kn in
             user_err (str "Constructor already defined in this module " ++ Id.print id)
@@ -479,7 +482,8 @@ let register_typedef ?(local = false) ?(abstract=false) isrec types =
   let iter (id, def) = Lib.add_leaf (inTypDef id def) in
   List.iter iter types
 
-let register_primitive ?deprecation ?(local = false) {loc;v=id} t ml =
+let register_primitive ?deprecation ?(local = false) ({loc;v=id} as lid) t ml =
+  let () = check_ltac_exists lid in
   let t = intern_open_type t in
   let () =
     try let _ = Tac2env.interp_primitive ml in () with Not_found ->
@@ -516,13 +520,13 @@ let register_open ?(local = false) qid (params, def) =
   | CTydOpn -> ()
   | CTydAlg def ->
     let () =
-      let same_name (id1, _) (id2, _) = Id.equal id1 id2 in
+      let same_name (_, id1, _) (_, id2, _) = Id.equal id1 id2 in
       let () = match List.duplicates same_name def with
         | [] -> ()
-        | (id, _) :: _ ->
+        | (_, id, _) :: _ ->
           user_err (str "Multiple definitions of the constructor " ++ Id.print id)
       in
-      let check_existing_ctor (id, _) =
+      let check_existing_ctor (_, id, _) =
           let (_, kn) = Lib.make_foname id in
           try let _ = Tac2env.interp_constructor kn in
             user_err (str "Constructor already defined in this module " ++ Id.print id)
@@ -538,11 +542,12 @@ let register_open ?(local = false) qid (params, def) =
       | GTydDef (Some t) -> t
       | _ -> assert false
     in
-    let map (id, tpe) =
+    let map (atts, id, tpe) =
       if not (Tac2env.is_constructor_id id)
       then user_err (str "Constructor name should start with an uppercase letter " ++ Id.print id) ;
+      let warn = Attributes.parse Attributes.user_warns atts in
       let tpe = List.map intern_type tpe in
-      { edata_name = id; edata_args = tpe }
+      { edata_warn = warn; edata_name = id; edata_args = tpe }
     in
     let def = List.map map def in
     let def = {
@@ -579,7 +584,7 @@ type 'a token =
 | TacNonTerm of Name.t * 'a
 
 type scope_rule =
-| ScopeRule : (raw_tacexpr, _, 'a) Pcoq.Symbol.t * ('a -> raw_tacexpr) -> scope_rule
+| ScopeRule : (raw_tacexpr, _, 'a) Procq.Symbol.t * ('a -> raw_tacexpr) -> scope_rule
 
 type scope_interpretation = sexpr list -> scope_rule
 
@@ -604,7 +609,7 @@ let parse_scope = function
     CErrors.user_err ?loc (str "Unknown scope" ++ spc () ++ Names.Id.print id)
 | SexprStr {v=str} ->
   let v_unit = CAst.make @@ CTacCst (AbsKn (Tuple 0)) in
-  ScopeRule (Pcoq.Symbol.token (Tok.PIDENT (Some str)), (fun _ -> v_unit))
+  ScopeRule (Procq.Symbol.token (Tok.PIDENT (Some str)), (fun _ -> v_unit))
 | tok ->
   let loc = loc_of_token tok in
   CErrors.user_err ?loc (str "Invalid parsing token")
@@ -650,19 +655,19 @@ type synext = {
 
 type krule =
 | KRule :
-  (raw_tacexpr, _, 'act, Loc.t -> raw_tacexpr) Pcoq.Rule.t *
+  (raw_tacexpr, _, 'act, Loc.t -> raw_tacexpr) Procq.Rule.t *
   ((Loc.t -> (Name.t * raw_tacexpr) list -> raw_tacexpr) -> 'act) -> krule
 
 let rec get_rule (tok : scope_rule token list) : krule = match tok with
-| [] -> KRule (Pcoq.Rule.stop, fun k loc -> k loc [])
+| [] -> KRule (Procq.Rule.stop, fun k loc -> k loc [])
 | TacNonTerm (na, ScopeRule (scope, inj)) :: tok ->
   let KRule (rule, act) = get_rule tok in
-  let rule = Pcoq.Rule.next rule scope in
+  let rule = Procq.Rule.next rule scope in
   let act k e = act (fun loc acc -> k loc ((na, inj e) :: acc)) in
   KRule (rule, act)
 | TacTerm t :: tok ->
   let KRule (rule, act) = get_rule tok in
-  let rule = Pcoq.(Rule.next rule (Symbol.token (Pcoq.terminal t))) in
+  let rule = Procq.(Rule.next rule (Symbol.token (Procq.terminal t))) in
   let act k _ = act k in
   KRule (rule, act)
 
@@ -674,7 +679,7 @@ let deprecated_ltac2_notation =
 
 (* This is a hack to preserve the level 4 entry which is initially empty. The
    grammar engine has the great idea to silently delete empty levels on rule
-   removal, so we have to work around this using the Pcoq API.
+   removal, so we have to work around this using the Procq API.
    FIXME: we should really keep those levels around instead. *)
 let get_reinit = function
 | 4 -> Some (Gramlib.Gramext.LeftA, Gramlib.Gramext.After "5")
@@ -694,23 +699,23 @@ let perform_notation syn st =
     let bnd = List.map map args in
     CAst.make ~loc @@ CTacSyn (bnd, syn.synext_kn)
   in
-  let rule = Pcoq.Production.make rule (act mk) in
+  let rule = Procq.Production.make rule (act mk) in
   let pos = Some (string_of_int syn.synext_lev) in
-  let rule = Pcoq.Reuse (pos, [rule]) in
+  let rule = Procq.Reuse (pos, [rule]) in
   match get_reinit syn.synext_lev with
   | None ->
-    ([Pcoq.ExtendRule (Pltac.ltac2_expr, rule)], st)
+    ([Procq.ExtendRule (Pltac.ltac2_expr, rule)], st)
   | Some reinit ->
-    ([Pcoq.ExtendRuleReinit (Pltac.ltac2_expr, reinit, rule)], st)
+    ([Procq.ExtendRuleReinit (Pltac.ltac2_expr, reinit, rule)], st)
 
 let ltac2_notation =
-  Pcoq.create_grammar_command "ltac2-notation" { gext_fun = perform_notation; gext_eq = (==) (* FIXME *) }
+  Procq.create_grammar_command "ltac2-notation" { gext_fun = perform_notation; gext_eq = (==) (* FIXME *) }
 
 let cache_synext syn =
-  Pcoq.extend_grammar_command ltac2_notation syn
+  Procq.extend_grammar_command ltac2_notation syn
 
 let open_synext i syn =
-  if Int.equal i 1 then Pcoq.extend_grammar_command ltac2_notation syn
+  if Int.equal i 1 then Procq.extend_grammar_command ltac2_notation syn
 
 let subst_synext (subst, syn) =
   let kn = Mod_subst.subst_kn subst syn.synext_kn in
@@ -940,21 +945,15 @@ let perform_eval ~pstate e =
   let env = Global.env () in
   let (e, ty) = Tac2intern.intern ~strict:false [] e in
   let v = Tac2interp.interp Tac2interp.empty_environment e in
-  let selector, proof =
+  let proof =
     match pstate with
     | None ->
       let sigma = Evd.from_env env in
       let name, poly = Id.of_string "ltac2", false in
-      Goal_select.SelectAll, Proof.start ~name ~poly sigma []
+      Proof.start ~name ~poly sigma []
     | Some pstate ->
-      Goal_select.get_default_goal_selector (),
       Declare.Proof.get pstate
   in
-  let nosuchgoal =
-    let info = Exninfo.reify () in
-    Proofview.tclZERO ~info (Proof.SuggestNoSuchGoals (1,proof))
-  in
-  let v = Goal_select.tclSELECT ~nosuchgoal selector v in
   let (proof, _, ans) = Proof.run_tactic (Global.env ()) v proof in
   let { Proof.sigma } = Proof.data proof in
   let name = int_name () in
@@ -1008,7 +1007,7 @@ let pr_frame = function
 
 let () = register_handler begin function
 | Tac2interp.LtacError (kn, args) ->
-  let t_exn = KerName.make Tac2env.coq_prefix (Label.make "exn") in
+  let t_exn = KerName.make Tac2env.rocq_prefix (Label.make "exn") in
   let v = Tac2ffi.of_open (kn, args) in
   let t = GTypRef (Other t_exn, []) in
   let c = Tac2print.pr_valexpr (Global.env ()) Evd.empty v t in
@@ -1065,7 +1064,8 @@ let print_type ~print_def qid kn =
       | GTydDef (Some t) -> pr_glbtype name t
       | GTydAlg { galg_constructors = [] } -> str "[ ]"
       | GTydAlg { galg_constructors = ctors } ->
-        let pr_ctor (id, argtys) =
+        let pr_ctor (_, id, argtys) =
+          (* XXX print warning atrtribute? *)
           hov 0
             (Id.print id ++ if CList.is_empty argtys then mt()
              else spc() ++surround (prlist_with_sep pr_comma (pr_glbtype name) argtys))
@@ -1235,7 +1235,7 @@ let ltac2_interp e =
   let tac = Tac2interp.interp Tac2interp.empty_environment e in
   Proofview.tclIGNORE tac
 
-let ComTactic.Interpreter ltac2_interp = ComTactic.register_tactic_interpreter "coq-core.plugins.ltac2" ltac2_interp
+let ComTactic.Interpreter ltac2_interp = ComTactic.register_tactic_interpreter "rocq-runtime.plugins.ltac2" ltac2_interp
 
 let call ~pstate g ~with_end_tac tac =
   let g = Option.default (Goal_select.get_default_goal_selector()) g in
@@ -1244,12 +1244,12 @@ let call ~pstate g ~with_end_tac tac =
 let call_par ~pstate ~with_end_tac tac =
   ComTactic.solve_parallel ~pstate ~info:None (ltac2_interp tac) ~abstract:false ~with_end_tac
 
-(** Primitive algebraic types than can't be defined Coq-side *)
+(** Primitive algebraic types than can't be defined Rocq-side *)
 
 let register_prim_alg name params def =
   let id = Id.of_string name in
-  let def = List.map (fun (cstr, tpe) -> (Id.of_string_soft cstr, tpe)) def in
-  let getn (const, nonconst) (c, args) = match args with
+  let def = List.map (fun (cstr, tpe) -> (None, Id.of_string_soft cstr, tpe)) def in
+  let getn (const, nonconst) (_, c, args) = match args with
   | [] -> (succ const, nonconst)
   | _ :: _ -> (const, succ nonconst)
   in
@@ -1263,7 +1263,7 @@ let register_prim_alg name params def =
   let def = { typdef_local = false; typdef_abstract = false; typdef_expr = def } in
   Lib.add_leaf (inTypDef id def)
 
-let coq_def n = KerName.make Tac2env.coq_prefix (Label.make n)
+let rocq_def n = KerName.make Tac2env.rocq_prefix (Label.make n)
 
 let def_unit = {
   typdef_local = false;
@@ -1271,7 +1271,7 @@ let def_unit = {
   typdef_expr = 0, GTydDef (Some (GTypRef (Tuple 0, [])));
 }
 
-let t_list = coq_def "list"
+let t_list = rocq_def "list"
 
 let () = Mltop.declare_cache_obj begin fun () ->
   let unit = Id.of_string "unit" in
@@ -1280,4 +1280,4 @@ let () = Mltop.declare_cache_obj begin fun () ->
     ("[]", []);
     ("::", [GTypVar 0; GTypRef (Other t_list, [GTypVar 0])]);
   ];
-end "coq-core.plugins.ltac2"
+end "rocq-runtime.plugins.ltac2"

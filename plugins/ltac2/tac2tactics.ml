@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -171,7 +171,7 @@ let change pat c cl =
   Proofview.Goal.enter begin fun gl ->
   let c subst env sigma =
     let subst = Array.map_of_list snd (Id.Map.bindings subst) in
-    delayed_of_tactic (Tac2ffi.app_fun1 c (array constr) constr subst) env sigma
+    Tacred.Changed (delayed_of_tactic (Tac2ffi.app_fun1 c (array constr) constr subst) env sigma)
   in
   let cl = mk_clause cl in
   Tactics.change ~check:true pat c cl
@@ -461,3 +461,5 @@ let contradiction c =
 let congruence n l = Cc_core_plugin.Cctac.congruence_tac n (Option.default [] l)
 
 let simple_congruence n l = Cc_core_plugin.Cctac.simple_congruence_tac n (Option.default [] l)
+
+let f_equal = Cc_core_plugin.Cctac.f_equal

@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -25,7 +25,7 @@
     If you absolutely must pass an option to your new system, then do
    so as a functional argument so flags are exposed to unit
    testing. Then, register such parameters with the proper
-   state-handling mechanism of the top-level subsystem of Coq.
+   state-handling mechanism of the top-level subsystem of Rocq.
 
  *)
 
@@ -55,8 +55,8 @@ val beautify : bool ref
 val beautify_file : bool ref
 val record_comments : bool ref
 
-(* Coq quiet mode. Note that normal mode is called "verbose" here,
-   whereas [quiet] suppresses normal output such as goals in coqtop *)
+(* Rocq quiet mode. Note that normal mode is called "verbose" here,
+   whereas [quiet] suppresses normal output such as goals in rocq repl *)
 val quiet : bool ref
 val silently : ('a -> 'b) -> 'a -> 'b
 val verbosely : ('a -> 'b) -> 'a -> 'b
@@ -93,10 +93,6 @@ val with_extra_values : 'c list ref -> 'c list -> ('a -> 'b) -> 'a -> 'b
 val set_inline_level : int -> unit
 val get_inline_level : unit -> int
 val default_inline_level : int
-
-(** Global profile_ltac flag  *)
-val profile_ltac : bool ref
-val profile_ltac_cutoff : float ref
 
 (** Default output directory *)
 val output_directory : CUnix.physical_path option ref

@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -56,6 +56,7 @@ let print_basename cst = pr_global (GlobRef.ConstRef cst)
 let print_ref env reduce ref udecl =
   let typ, univs = Typeops.type_of_global_in_context env ref in
   let inst = UVars.make_abstract_instance univs in
+  let udecl = Option.map (fun x -> ref, x) udecl in
   let bl = Printer.universe_binders_with_opt_names (Environ.universes_of_global env ref) udecl in
   let sigma = Evd.from_ctx (UState.of_names bl) in
   let typ =
@@ -74,7 +75,7 @@ let print_ref env reduce ref udecl =
   in
   let inst =
     if Environ.is_polymorphic env ref
-    then Printer.pr_universe_instance sigma inst
+    then Printer.pr_universe_instance_binder sigma inst Univ.Constraints.empty
     else mt ()
   in
   let priv = None in (* We deliberately don't print private univs in About. *)
@@ -174,13 +175,13 @@ let print_opacity env ref =
         match s with
           | FullyOpaque -> str "opaque"
           | TransparentMaybeOpacified Conv_oracle.Opaque ->
-              str "basically transparent but considered opaque for reduction"
+              str "opaque but may be made transparent"
           | TransparentMaybeOpacified lev when Conv_oracle.is_transparent lev ->
               str "transparent"
           | TransparentMaybeOpacified (Conv_oracle.Level n) ->
-              str "transparent (with expansion weight " ++ int n ++ str ")"
+              str "transparent (level " ++ int n ++ str ")"
           | TransparentMaybeOpacified Conv_oracle.Expand ->
-              str "transparent (with minimal expansion weight)"]
+              str "transparent (expand)"]
 
 (** Printing coercion status *)
 
@@ -193,43 +194,39 @@ let print_if_is_coercion ref =
 
 (** Printing polymorphic status *)
 
+(* XXX TODO print based on the actual binders not from the monomorphic data *)
 let template_poly_variables env ind =
   let mib, mip = Inductive.lookup_mind_specif env ind in
   match mib.mind_template with
-  | None -> []
-  | Some { template_param_arguments } ->
-    let rec fold acc ctx template = match ctx, template with
-      | _, [] -> acc
-      | LocalDef _ :: ctx, _ -> fold acc ctx template
-      | LocalAssum _ :: ctx, false :: template -> fold acc ctx template
-      | LocalAssum (_,t) :: ctx, true :: template ->
-        let _, s = Term.destArity t in
-        let u = match s with Type u -> Option.get @@ Univ.Universe.level u | _ -> assert false in
-        let acc = Univ.Level.Set.add u acc in
-        fold acc ctx template
-      | [], _ :: _ -> assert false
+  | None -> assert false
+  | Some { template_defaults; template_concl } ->
+    let pseudo_poly = match template_concl with
+      | QSort (q, _) when Option.has_some (Sorts.QVar.var_index q) -> true
+      | _ -> false
     in
-    Univ.Level.Set.elements @@
-    fold Univ.Level.Set.empty (List.rev mib.mind_params_ctxt) template_param_arguments
-
+    let _, vars = UVars.Instance.levels template_defaults in
+    Univ.Level.Set.elements vars, pseudo_poly
 
 let get_template_poly_variables env = function
   | GlobRef.IndRef ind | ConstructRef (ind,_) -> template_poly_variables env ind
-  | VarRef _ | ConstRef _ -> []
+  | VarRef _ | ConstRef _ -> assert false
 
-let pr_template_variables = function
-  | [] -> mt ()
-  | vars -> str " on " ++ prlist_with_sep spc UnivNames.pr_level_with_global_universes vars
+let pr_template_variables env ref =
+  let vars, pseudo_sort_poly = get_template_poly_variables env ref in
+  str " on " ++ prlist_with_sep spc UnivNames.pr_level_with_global_universes vars
+  ++ spc() ++
+  (if pseudo_sort_poly
+   then str "(can be instantiated to Prop)"
+   else str "(cannot be instantiated to Prop)")
 
 let print_polymorphism env ref =
   let poly = Environ.is_polymorphic env ref in
   let template_poly = Environ.is_template_polymorphic env ref in
-  let template_variables = get_template_poly_variables env ref in
   [ pr_global ref ++ str " is " ++
       (if poly then str "universe polymorphic"
        else if template_poly then
          str "template universe polymorphic"
-         ++ if !Detyping.print_universes then h (pr_template_variables template_variables) else mt()
+         ++ if !Detyping.print_universes then h (pr_template_variables env ref) else mt()
        else str "not universe polymorphic") ]
 
 let print_squash env ref udecl = match ref with
@@ -239,15 +236,13 @@ let print_squash env ref udecl = match ref with
     | None -> []
     | Some squash ->
       let univs = Environ.universes_of_global env ref in
+      let udecl = Option.map (fun x -> ref, x) udecl in
       let bl = Printer.universe_binders_with_opt_names univs udecl in
       let sigma = Evd.from_ctx (UState.of_names bl) in
       let inst = if fst @@ UVars.AbstractContext.size univs = 0 then mt()
         else Printer.pr_universe_instance sigma (UVars.make_abstract_instance univs)
       in
-      let inds = match mip.mind_arity with
-        | TemplateArity _ -> assert false
-        | RegularArity a -> a.mind_sort
-      in
+      let inds = mip.mind_sort in
       let target = match inds with
           | SProp -> str "SProp"
           | Prop -> str "SProp or Prop"
@@ -382,7 +377,7 @@ let rec main_implicits i renames recargs scopes impls =
       | [], (None::_ | []) -> (Anonymous, Glob_term.Explicit)
     in
     let notation_scope = match scopes with
-      | scope :: _ -> List.map (fun s -> CAst.make (Constrexpr.DelimUnboundedScope, s)) scope
+      | scope :: _ -> List.map (fun s -> CAst.make (Constrexpr.DelimOnlyTmpScope, s)) scope
       | [] -> []
     in
     let status = {Vernacexpr.implicit_status; name; recarg_like; notation_scope} in
@@ -564,55 +559,76 @@ let print_section_variable_with_infos env sigma id =
   print_named_decl env sigma true id ++
   with_line_skip (print_name_infos env (GlobRef.VarRef id))
 
-let print_typed_body env evd ~impargs (val_0,typ) =
-  (pr_lconstr_env ~inctx:true env evd val_0 ++ fnl () ++ str "     : " ++ pr_ltype_env env evd ~impargs typ)
-
 let print_instance sigma cb =
   if Declareops.constant_is_polymorphic cb then
     let univs = Declareops.constant_polymorphic_context cb in
     let inst = UVars.make_abstract_instance univs in
-    pr_universe_instance sigma inst
+    pr_universe_instance_binder sigma inst Univ.Constraints.empty
   else mt()
 
 let print_constant env ~with_values with_implicit cst udecl =
   let cb = Environ.lookup_constant cst env in
   let typ = cb.const_type in
   let univs = cb.const_universes in
+  let udecl = Option.map (fun x -> GlobRef.ConstRef cst, x) udecl in
   let uctx =
     UState.of_names
       (Printer.universe_binders_with_opt_names (Declareops.constant_polymorphic_context cb) udecl)
   in
-  let val_0 = match cb.const_body with
-    (* XXX print something for primitives? for symbols? *)
-      | Undef _ | Symbol _ | Primitive _ -> None
-      | Def c -> Some ((if Option.has_some with_values then Some c else None), None)
-      | OpaqueDef o ->
-        match with_values with
-        | None -> Some (None, None)
+  let sigma = Evd.from_ctx uctx in
+  let impargs = if with_implicit then select_stronger_impargs (implicits_of_global (ConstRef cst)) else [] in
+  let impargs = List.map binding_kind_of_status impargs in
+  let pptyp = pr_ltype_env env sigma ~impargs typ in
+  let typonly = str " :" ++ spc() ++ pptyp in
+  let sep_body_typ = fnl() ++ str "     : " in
+  let withbody c =
+    str " =" ++ spc() ++
+    pr_lconstr_env ~inctx:true env sigma c ++
+    sep_body_typ ++
+    pptyp
+  in
+  let is_axiom, ppdata, priv = match cb.const_body with
+    | Undef _ ->
+      let ex p = CPrimitives.PTE p in
+      let prims = CPrimitives.[ex PT_int63; ex PT_float64; ex PT_string; ex PT_array] in
+      let is_prim (CPrimitives.PTE p) =
+        let test = match p with
+        | PT_int63 -> Environ.is_int63_type
+        | PT_float64 -> Environ.is_float64_type
+        | PT_string -> Environ.is_string_type
+        | PT_array -> Environ.is_array_type
+        in
+        if test env cst then Some (CPrimitives.prim_type_to_string p)
+        else None
+      in
+      let prim = List.find_map is_prim prims in
+      let pp = match prim with
+        | None -> typonly
+        | Some prim -> str " =" ++ spc() ++ str "#" ++ str prim ++ sep_body_typ ++ pptyp
+      in
+      true, pp, None
+    | Symbol _ -> true, typonly, None
+    | Def c ->
+      let pp = if Option.has_some with_values then withbody c else typonly in
+      false, pp, None
+    | OpaqueDef o -> begin match with_values with
+        | None -> false, typonly, None
         | Some access ->
           let c, priv = Global.force_proof access o in
           let priv = match priv with
             | PrivateMonomorphic () -> None
             | PrivatePolymorphic priv -> Some priv
           in
-          Some (Some c, priv)
+          false, withbody c, priv
+      end
+    | Primitive prim ->
+      let pp = str " =" ++ spc() ++ str "#" ++ str (CPrimitives.to_string prim) ++ sep_body_typ ++ pptyp in
+      (* do we want to print with is_axiom = false? *)
+      true, pp, None
   in
-  let sigma = Evd.from_ctx uctx in
-  let impargs = if with_implicit then select_stronger_impargs (implicits_of_global (ConstRef cst)) else [] in
-  let impargs = List.map binding_kind_of_status impargs in
-  let pr_ltype = pr_ltype_env env sigma in
-  hov 0 (
-    match val_0 with
-    | None ->
-        str"*** [ " ++
-        print_basename cst ++ print_instance sigma cb ++ str " :" ++ spc () ++ pr_ltype ~impargs typ ++
-        str" ]" ++
-        Printer.pr_universes sigma univs
-    | Some (optbody, priv) ->
-      print_basename cst ++ print_instance sigma cb ++
-      str (if Option.has_some optbody then " =" else " :") ++ spc() ++
-      (match optbody with Some c-> print_typed_body env sigma ~impargs (c,typ) | None -> pr_ltype ~impargs typ)++
-      Printer.pr_universes sigma univs ?priv)
+  let ppmain = print_basename cst ++ print_instance sigma cb ++ ppdata in
+  let ppmain = if is_axiom then str"*** [ " ++ ppmain ++ str" ]" else ppmain in
+  hov 0 (ppmain ++ Printer.pr_universes sigma univs ?priv)
 
 let print_constant_with_infos env access cst udecl =
   print_constant env ~with_values:(Some access) true cst udecl ++
@@ -655,15 +671,15 @@ let print_abbreviation access env sigma kn =
 
 (** Unused outside? *)
 
-let pr_prefix_name prefix = Id.print (snd (split_dirpath prefix.Nametab.obj_dir))
+let pr_prefix_name prefix = Id.print (basename prefix.obj_path)
 
 let print_library_node = function
   | Lib.OpenedSection (prefix, _) ->
     str " >>>>>>> Section " ++ pr_prefix_name prefix
   | Lib.OpenedModule (_,_,prefix,_) ->
     str " >>>>>>> Module " ++ pr_prefix_name prefix
-  | Lib.CompilingLibrary { Nametab.obj_dir; _ } ->
-    str " >>>>>>> Library " ++ DirPath.print obj_dir
+  | Lib.CompilingLibrary { obj_path; _ } ->
+    str " >>>>>>> Library " ++ pr_path obj_path
 
 (** Printing part of command [Check] *)
 
@@ -713,7 +729,7 @@ let print_library_leaf env sigma ~with_values mp lobj =
     Some (Printmod.print_module ~with_body:(Option.has_some with_values) (MPdot (mp,Label.of_id id)))
   | ModuleTypeObject (id,_) ->
     Some (print_modtype (MPdot (mp, Label.of_id id)))
-  | IncludeObject _ | KeepObject _ | ExportObject _ -> None
+  | IncludeObject _ | KeepObject _ | EscapeObject _ | ExportObject _ -> None
 
 let decr = Option.map ((+) (-1))
 
@@ -740,7 +756,7 @@ let print_context env sigma ~with_values =
     | (node, leaves) :: rest ->
       if is_done n then mt()
       else
-        let mp = (Lib.node_prefix node).Nametab.obj_mp in
+        let mp = (Lib.node_prefix node).obj_mp in
         let n, pleaves = print_leaves env sigma ~with_values mp n leaves in
         if is_done n then pleaves
         else prec n rest ++ pleaves
@@ -814,7 +830,7 @@ let print_full_pure_leaf access env sigma mp = function
 let print_full_pure_context access env sigma =
   let rec prec = function
     | (node,leaves)::rest ->
-      let mp = (Lib.node_prefix node).Nametab.obj_mp in
+      let mp = (Lib.node_prefix node).obj_mp in
       let pp = Pp.prlist (print_full_pure_leaf access env sigma mp) leaves in
       prec rest ++ pp
   | [] -> mt ()
@@ -835,8 +851,8 @@ let read_sec_context qid =
     with Not_found ->
       user_err ?loc:qid.loc (str "Unknown section.") in
   let rec get_cxt in_cxt = function
-    | (Lib.OpenedSection ({Nametab.obj_dir;_},_), _ as hd)::rest ->
-        if DirPath.equal dir obj_dir then (hd::in_cxt) else get_cxt (hd::in_cxt) rest
+    | (Lib.OpenedSection ({obj_path;_},_), _ as hd)::rest ->
+        if eq_full_path dir obj_path then (hd::in_cxt) else get_cxt (hd::in_cxt) rest
     | [] -> []
     | hd::rest -> get_cxt (hd::in_cxt) rest
   in
@@ -904,6 +920,23 @@ let canonical_info env ref =
     | path -> spc() ++ str "(syntactically equal to" ++ spc() ++ pr_path path ++ str ")"
     | exception Not_found -> spc() ++ str "(missing canonical, bug?)"
 
+let pr_loc_use_dp loc = match loc.Loc.fname with
+  | Loc.ToplevelInput ->
+    (* NB emacs mangles the message if it contains the capitalized "Toplevel input" of [Loc.pr] *)
+    str "toplevel input, characters " ++ int loc.bp ++ str "-" ++ int loc.ep
+  | InFile  { dirpath = None } -> Loc.pr loc
+  | InFile { dirpath = Some dp } ->
+    let f = str "library " ++ str dp in
+    (f ++
+     str", line " ++ int loc.line_nb ++ str", characters " ++
+     int (loc.bp-loc.bol_pos) ++ str"-" ++ int (loc.ep-loc.bol_pos))
+
+
+let loc_info gr =
+  match Nametab.cci_src_loc gr with
+  | None -> mt()
+  | Some loc -> cut() ++ hov 0 (str "Declared in" ++ spc() ++ pr_loc_use_dp loc)
+
 let pr_located_qualid env = function
   | Term ref ->
       let ref_str = let open GlobRef in match ref with
@@ -913,20 +946,20 @@ let pr_located_qualid env = function
         | VarRef _ -> "Variable"
       in
       let extra = canonical_info env ref in
-      str ref_str ++ spc () ++ pr_path (Nametab.path_of_global ref) ++ extra
+      v 0 (hov 0 (str ref_str ++ spc () ++ pr_path (Nametab.path_of_global ref) ++ extra))
   | Abbreviation kn ->
-      str "Notation" ++ spc () ++ pr_path (Nametab.path_of_abbreviation kn)
+    str "Notation" ++ spc () ++ pr_path (Nametab.path_of_abbreviation kn)
   | Dir dir ->
       let s,mp =
         let open Nametab in
         let open GlobDirRef in match dir with
         | DirOpenModule mp -> "Open Module", ModPath.print mp
         | DirOpenModtype mp -> "Open Module Type", ModPath.print mp
-        | DirOpenSection dir -> "Open Section", DirPath.print dir
+        | DirOpenSection dir -> "Open Section", pr_path dir
       in
       str s ++ spc () ++ mp
   | Module mp ->
-    str "Module" ++ spc () ++ DirPath.print (Nametab.dirpath_of_module mp)
+    str "Module" ++ spc () ++ pr_path (Nametab.path_of_module mp)
   | ModuleType mp ->
       str "Module Type" ++ spc () ++ pr_path (Nametab.path_of_modtype mp)
   | Other (obj, info) -> info.name obj
@@ -1032,7 +1065,8 @@ let print_about_global_reference ?loc env ref udecl =
     print_reduction_behaviour ref @
     print_opacity env ref @
     print_bidi_hints ref @
-    [hov 0 (str "Expands to: " ++ pr_located_qualid env (Term ref))])
+    [hov 0 (str "Expands to: " ++ pr_located_qualid env (Term ref)) ++
+    loc_info (TrueGlobal ref)])
 
 let print_about_abbreviation env sigma kn =
   let (vars,c) = glob_constr_of_abbreviation kn in
@@ -1041,6 +1075,7 @@ let print_about_abbreviation env sigma kn =
   | _ -> [] in
   print_abbreviation_body env kn (vars,c) ++ fnl () ++
   hov 0 (str "Expands to: " ++ pr_located_qualid env (Abbreviation kn)) ++
+  loc_info (Abbrev kn) ++
   with_line_skip pp
 
 let print_about_any ?loc env sigma k udecl =

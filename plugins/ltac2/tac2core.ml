@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -19,7 +19,7 @@ open Tac2expr
 open Tac2entries.Pltac
 open Proofview.Notations
 
-let ltac2_plugin = "coq-core.plugins.ltac2"
+let ltac2_plugin = "rocq-runtime.plugins.ltac2"
 
 let constr_flags =
   let open Pretyping in
@@ -74,34 +74,34 @@ let format = repr_ext val_format
 let core_prefix path n = KerName.make path (Label.of_id (Id.of_string_soft n))
 
 let std_core n = core_prefix Tac2env.std_prefix n
-let coq_core n = core_prefix Tac2env.coq_prefix n
+let rocq_core n = core_prefix Tac2env.rocq_prefix n
 
 module Core =
 struct
 
-let t_unit = coq_core "unit"
+let t_unit = rocq_core "unit"
 let v_unit = Tac2ffi.of_unit ()
 
-let t_int = coq_core "int"
-let t_string = coq_core "string"
-let t_array = coq_core "array"
-let t_list = coq_core "list"
-let t_constr = coq_core "constr"
-let t_preterm = coq_core "preterm"
-let t_pattern = coq_core "pattern"
-let t_ident = coq_core "ident"
-let t_option = coq_core "option"
-let t_exn = coq_core "exn"
+let t_int = rocq_core "int"
+let t_string = rocq_core "string"
+let t_array = rocq_core "array"
+let t_list = rocq_core "list"
+let t_constr = rocq_core "constr"
+let t_preterm = rocq_core "preterm"
+let t_pattern = rocq_core "pattern"
+let t_ident = rocq_core "ident"
+let t_option = rocq_core "option"
+let t_exn = rocq_core "exn"
 let t_reference = std_core "reference"
 
-let c_nil = coq_core "[]"
-let c_cons = coq_core "::"
+let c_nil = rocq_core "[]"
+let c_cons = rocq_core "::"
 
-let c_none = coq_core "None"
-let c_some = coq_core "Some"
+let c_none = rocq_core "None"
+let c_some = rocq_core "Some"
 
-let c_true = coq_core "true"
-let c_false = coq_core "false"
+let c_true = rocq_core "true"
+let c_false = rocq_core "false"
 
 end
 
@@ -112,25 +112,19 @@ let v_blk = Valexpr.make_block
 let of_relevance = function
   | Sorts.Relevant -> ValInt 0
   | Sorts.Irrelevant -> ValInt 1
-  | Sorts.RelevanceVar q -> ValBlk (0, [|of_ext val_qvar q|])
+  | Sorts.RelevanceVar q -> ValBlk (0, [|of_qvar q|])
 
 let to_relevance = function
   | ValInt 0 -> Sorts.Relevant
   | ValInt 1 -> Sorts.Irrelevant
   | ValBlk (0, [|qvar|]) ->
-    let qvar = to_ext val_qvar qvar in
+    let qvar = to_qvar qvar in
     Sorts.RelevanceVar qvar
   | _ -> assert false
 
 (* XXX ltac2 exposes relevance internals so breaks ERelevance abstraction
    ltac2 Constr.Binder.relevance probably needs to be made an abstract type *)
 let relevance = make_repr of_relevance to_relevance
-
-let of_binder b =
-  Tac2ffi.of_ext Tac2ffi.val_binder b
-
-let to_binder b =
-  Tac2ffi.to_ext Tac2ffi.val_binder b
 
 let of_rec_declaration (nas, ts, cs) =
   let binders = Array.map2 (fun na t -> (na, t)) nas ts in
@@ -159,26 +153,22 @@ let of_result f = function
 | Inl c -> v_blk 0 [|f c|]
 | Inr e -> v_blk 1 [|Tac2ffi.of_exn e|]
 
-let inductive = repr_ext val_inductive
-
-let projection = repr_ext val_projection
-
 (** Stdlib exceptions *)
 
 let err_notfocussed =
-  Tac2interp.LtacError (coq_core "Not_focussed", [||])
+  Tac2interp.LtacError (rocq_core "Not_focussed", [||])
 
 let err_outofbounds =
-  Tac2interp.LtacError (coq_core "Out_of_bounds", [||])
+  Tac2interp.LtacError (rocq_core "Out_of_bounds", [||])
 
 let err_notfound =
-  Tac2interp.LtacError (coq_core "Not_found", [||])
+  Tac2interp.LtacError (rocq_core "Not_found", [||])
 
 let err_matchfailure =
-  Tac2interp.LtacError (coq_core "Match_failure", [||])
+  Tac2interp.LtacError (rocq_core "Match_failure", [||])
 
 let err_division_by_zero =
-  Tac2interp.LtacError (coq_core "Division_by_zero", [||])
+  Tac2interp.LtacError (rocq_core "Division_by_zero", [||])
 
 (** Helper functions *)
 
@@ -525,11 +515,11 @@ let () =
       Tac2ffi.of_array Tac2ffi.of_constr (Array.of_list args);
     |]
   | Sort s ->
-    v_blk 4 [|Tac2ffi.of_ext Tac2ffi.val_sort s|]
+    v_blk 4 [|Tac2ffi.of_sort s|]
   | Cast (c, k, t) ->
     v_blk 5 [|
       Tac2ffi.of_constr c;
-      Tac2ffi.of_ext Tac2ffi.val_cast k;
+      Tac2ffi.of_cast k;
       Tac2ffi.of_constr t;
     |]
   | Prod (na, t, u) ->
@@ -560,12 +550,12 @@ let () =
     |]
   | Ind (ind, u) ->
     v_blk 11 [|
-      Tac2ffi.of_ext Tac2ffi.val_inductive ind;
+      Tac2ffi.of_inductive ind;
       Tac2ffi.of_instance u;
     |]
   | Construct (cstr, u) ->
     v_blk 12 [|
-      Tac2ffi.of_ext Tac2ffi.val_constructor cstr;
+      Tac2ffi.of_constructor cstr;
       Tac2ffi.of_instance u;
     |]
   | Case (ci, u, pms, c, iv, t, bl) ->
@@ -573,7 +563,7 @@ let () =
     let (ci, c, iv, t, bl) = EConstr.expand_case env sigma (ci, u, pms, c, iv, t, bl) in
     let c = on_snd (EConstr.ERelevance.kind sigma) c in
     v_blk 13 [|
-      Tac2ffi.of_ext Tac2ffi.val_case ci;
+      Tac2ffi.of_case ci;
       Tac2ffi.(of_pair of_constr of_relevance c);
       of_case_invert iv;
       Tac2ffi.of_constr t;
@@ -596,7 +586,7 @@ let () =
     |]
   | Proj (p, r, c) ->
     v_blk 16 [|
-      Tac2ffi.of_ext Tac2ffi.val_projection p;
+      Tac2ffi.of_projection p;
       of_relevance (EConstr.ERelevance.kind sigma r);
       Tac2ffi.of_constr c;
     |]
@@ -631,11 +621,11 @@ let () =
     let args = Tac2ffi.to_array Tac2ffi.to_constr args in
     EConstr.mkLEvar sigma (evk, Array.to_list args)
   | (4, [|s|]) ->
-    let s = Tac2ffi.to_ext Tac2ffi.val_sort s in
+    let s = Tac2ffi.to_sort s in
     EConstr.mkSort s
   | (5, [|c; k; t|]) ->
     let c = Tac2ffi.to_constr c in
-    let k = Tac2ffi.to_ext Tac2ffi.val_cast k in
+    let k = Tac2ffi.to_cast k in
     let t = Tac2ffi.to_constr t in
     EConstr.mkCast (c, k, t)
   | (6, [|na; u|]) ->
@@ -660,15 +650,15 @@ let () =
     let u = to_instance u in
     EConstr.mkConstU (cst, u)
   | (11, [|ind; u|]) ->
-    let ind = Tac2ffi.to_ext Tac2ffi.val_inductive ind in
+    let ind = Tac2ffi.to_inductive ind in
     let u = to_instance u in
     EConstr.mkIndU (ind, u)
   | (12, [|cstr; u|]) ->
-    let cstr = Tac2ffi.to_ext Tac2ffi.val_constructor cstr in
+    let cstr = Tac2ffi.to_constructor cstr in
     let u = to_instance u in
     EConstr.mkConstructU (cstr, u)
   | (13, [|ci; c; iv; t; bl|]) ->
-    let ci = Tac2ffi.to_ext Tac2ffi.val_case ci in
+    let ci = Tac2ffi.to_case ci in
     let c = Tac2ffi.(to_pair to_constr to_relevance c) in
     let c = on_snd EConstr.ERelevance.make c in
     let iv = to_case_invert iv in
@@ -685,7 +675,7 @@ let () =
     let def = to_rec_declaration (nas, cs) in
     EConstr.mkCoFix (i, def)
   | (16, [|p; r; c|]) ->
-    let p = Tac2ffi.to_ext Tac2ffi.val_projection p in
+    let p = Tac2ffi.to_projection p in
     let r = to_relevance r in
     let c = Tac2ffi.to_constr c in
     EConstr.mkProj (p, EConstr.ERelevance.make r, c)
@@ -737,7 +727,7 @@ let () =
   return (EConstr.Vars.closedn sigma n c)
 
 let () =
-  define "constr_occur_between" (int @-> int @-> constr @-> tac bool) @@ fun n m c ->
+  define "constr_noccur_between" (int @-> int @-> constr @-> tac bool) @@ fun n m c ->
   Proofview.tclEVARMAP >>= fun sigma ->
   return (EConstr.Vars.noccur_between sigma n m c)
 
@@ -746,7 +736,7 @@ let () =
   Proofview.tclENV >>= fun env ->
   try
     let ans = Inductiveops.make_case_info env ind Constr.RegularStyle in
-    return (Tac2ffi.of_ext Tac2ffi.val_case ans)
+    return (Tac2ffi.of_case ans)
   with e when CErrors.noncritical e ->
     throw err_notfound
 
@@ -778,12 +768,13 @@ let () =
         sigma, EConstr.ESorts.relevance_of_sort j.utj_type
       in
       let nenv = EConstr.push_named (LocalAssum (Context.make_annot id t_rel, t)) env in
-      let (sigma, (evt, _)) = Evarutil.new_type_evar nenv sigma Evd.univ_flexible in
-      let (sigma, evk) = Evarutil.new_pure_evar (Environ.named_context_val nenv) sigma evt in
+      let (sigma, (evt, s)) = Evarutil.new_type_evar nenv sigma Evd.univ_flexible in
+      let relevance = EConstr.ESorts.relevance_of_sort s in
+      let (sigma, evk) = Evarutil.new_pure_evar (Environ.named_context_val nenv) sigma ~relevance evt in
       Proofview.Unsafe.tclEVARS sigma >>= fun () ->
       Proofview.Unsafe.tclSETGOALS [Proofview.with_empty_state evk] >>= fun () ->
       thaw c >>= fun _ ->
-      Proofview.Unsafe.tclSETGOALS [Proofview.with_empty_state (Proofview.Goal.goal gl)] >>= fun () ->
+      Proofview.Unsafe.tclSETGOALS [Proofview.goal_with_state (Proofview.Goal.goal gl) (Proofview.Goal.state gl)] >>= fun () ->
       let args = EConstr.identity_subst_val (Environ.named_context_val env) in
       let args = SList.cons (EConstr.mkRel 1) args in
       let ans = EConstr.mkEvar (evk, args) in
@@ -792,8 +783,6 @@ let () =
     throw err_notfocussed
 
 (** preterm -> constr *)
-
-let pretype_flags = repr_ext val_pretype_flags
 
 let () = define "constr_flags" (ret pretype_flags) constr_flags
 
@@ -817,16 +806,16 @@ let () =
     (bool @-> pretype_flags @-> ret pretype_flags) @@ fun b flags ->
   { flags with expand_evars = b }
 
-let () = define "expected_istype" (ret (repr_ext val_expected_type)) IsType
+let () = define "expected_istype" (ret expected_type) IsType
 
-let () = define "expected_oftype" (constr @-> ret (repr_ext val_expected_type)) @@ fun c ->
+let () = define "expected_oftype" (constr @-> ret expected_type) @@ fun c ->
   OfType c
 
-let () = define "expected_without_type_constraint" (ret (repr_ext val_expected_type))
+let () = define "expected_without_type_constraint" (ret expected_type)
     WithoutTypeConstraint
 
 let () =
-  define "constr_pretype" (pretype_flags @-> repr_ext val_expected_type @-> preterm @-> tac constr) @@ fun flags expected_type c ->
+  define "constr_pretype" (pretype_flags @-> expected_type @-> preterm @-> tac constr) @@ fun flags expected_type c ->
   let pretype env sigma =
     let sigma, t = Pretyping.understand_uconstr ~flags ~expected_type env sigma c in
     Proofview.Unsafe.tclEVARS sigma <*> Proofview.tclUNIT t
@@ -834,32 +823,32 @@ let () =
   pf_apply ~catch_exceptions:true pretype
 
 let () =
-  define "constr_binder_make" (option ident @-> constr @-> tac valexpr) @@ fun na ty ->
+  define "constr_binder_make" (option ident @-> constr @-> tac binder) @@ fun na ty ->
   pf_apply @@ fun env sigma ->
   match Retyping.relevance_of_type env sigma ty with
   | rel ->
     let na = match na with None -> Anonymous | Some id -> Name id in
-    return (Tac2ffi.of_ext val_binder (Context.make_annot na rel, ty))
+    return (Context.make_annot na rel, ty)
   | exception (Retyping.RetypeError _ as e) ->
     let e, info = Exninfo.capture e in
     fail ~info (CErrors.UserError Pp.(str "Not a type."))
 
 let () =
   define "constr_binder_unsafe_make"
-    (option ident @-> relevance @-> constr @-> ret valexpr)
+    (option ident @-> relevance @-> constr @-> ret binder)
     @@ fun na rel ty ->
   let na = match na with None -> Anonymous | Some id -> Name id in
-  Tac2ffi.of_ext val_binder (Context.make_annot na (EConstr.ERelevance.make rel), ty)
+  Context.make_annot na (EConstr.ERelevance.make rel), ty
 
 let () =
-  define "constr_binder_name" (repr_ext val_binder @-> ret (option ident)) @@ fun (bnd, _) ->
+  define "constr_binder_name" (binder @-> ret (option ident)) @@ fun (bnd, _) ->
   match bnd.Context.binder_name with Anonymous -> None | Name id -> Some id
 
 let () =
-  define "constr_binder_type" (repr_ext val_binder @-> ret constr) @@ fun (_, ty) -> ty
+  define "constr_binder_type" (binder @-> ret constr) @@ fun (_, ty) -> ty
 
 let () =
-  define "constr_binder_relevance" (repr_ext val_binder @-> ret relevance) @@ fun (na, _) ->
+  define "constr_binder_relevance" (binder @-> ret relevance) @@ fun (na, _) ->
   EConstr.Unsafe.to_relevance na.binder_relevance
 
 let () =
@@ -889,20 +878,17 @@ let () =
     (constant @-> constant @-> ret bool)
     Constant.UserOrd.equal
 let () =
-  let ty = repr_ext val_case in
-  define "constr_case_equal" (ty @-> ty @-> ret bool) @@ fun x y ->
+  define "constr_case_equal" (case @-> case @-> ret bool) @@ fun x y ->
   Ind.UserOrd.equal x.ci_ind y.ci_ind
 let () =
-  let ty = repr_ext val_constructor in
-  define "constructor_equal" (ty @-> ty @-> ret bool) Construct.UserOrd.equal
+  define "constructor_equal" (constructor @-> constructor @-> ret bool) Construct.UserOrd.equal
 let () =
   define "projection_equal" (projection @-> projection @-> ret bool) Projection.UserOrd.equal
 
 (** Patterns *)
 
 let () =
-  define "pattern_empty_context"
-    (ret (repr_ext val_matching_context))
+  define "pattern_empty_context" (ret matching_context)
     Constr_matching.empty_context
 
 let () =
@@ -921,22 +907,13 @@ let () =
   end
 
 let () =
-  define "pattern_matches_subterm" (pattern @-> constr @-> tac valexpr) @@ fun pat c ->
+  define "pattern_matches_subterm" (pattern @-> constr @-> tac (pair matching_context (list (pair ident constr)))) @@ fun pat c ->
   let open Constr_matching in
   let rec of_ans s = match IStream.peek s with
   | IStream.Nil -> fail err_matchfailure
   | IStream.Cons ({ m_sub = (_, sub); m_ctx }, s) ->
     let ans = Id.Map.bindings sub in
-    let of_pair (id, c) =
-      Tac2ffi.of_tuple [| Tac2ffi.of_ident id; Tac2ffi.of_constr c |]
-    in
-    let ans =
-      Tac2ffi.of_tuple [|
-        Tac2ffi.of_ext val_matching_context m_ctx;
-        Tac2ffi.of_list of_pair ans;
-      |]
-    in
-    Proofview.tclOR (return ans) (fun _ -> of_ans s)
+    Proofview.tclOR (return (m_ctx, ans)) (fun _ -> of_ans s)
   in
   pf_apply @@ fun env sigma ->
   let pat = Constr_matching.instantiate_pattern env sigma Id.Map.empty pat in
@@ -958,20 +935,14 @@ let () =
     return (Tac2ffi.of_array Tac2ffi.of_constr ans)
 
 let () =
-  define "pattern_matches_subterm_vect" (pattern @-> constr @-> tac valexpr) @@ fun pat c ->
+  define "pattern_matches_subterm_vect" (pattern @-> constr @-> tac (pair matching_context (array constr))) @@ fun pat c ->
   let open Constr_matching in
   let rec of_ans s = match IStream.peek s with
   | IStream.Nil -> fail err_matchfailure
   | IStream.Cons ({ m_sub = (_, sub); m_ctx }, s) ->
     let ans = Id.Map.bindings sub in
     let ans = Array.map_of_list snd ans in
-    let ans =
-      Tac2ffi.of_tuple [|
-        Tac2ffi.of_ext val_matching_context m_ctx;
-        Tac2ffi.of_array Tac2ffi.of_constr ans;
-      |]
-    in
-    Proofview.tclOR (return ans) (fun _ -> of_ans s)
+    Proofview.tclOR (return (m_ctx,ans)) (fun _ -> of_ans s)
   in
   pf_apply @@ fun env sigma ->
   let pat = Constr_matching.instantiate_pattern env sigma Id.Map.empty pat in
@@ -994,7 +965,7 @@ let () =
   let concl = Proofview.Goal.concl gl in
   Tac2match.match_goal env sigma concl ~rev (hp, cp) >>= fun (hyps, ctx, subst) ->
   let empty_context = Constr_matching.empty_context in
-  let of_ctxopt ctx = Tac2ffi.of_ext val_matching_context (Option.default empty_context ctx) in
+  let of_ctxopt ctx = Tac2ffi.of_matching_context (Option.default empty_context ctx) in
   let hids = Tac2ffi.of_array Tac2ffi.of_ident (Array.map_of_list pi1 hyps) in
   let hbctx = Tac2ffi.of_array of_ctxopt
       (Array.of_list (CList.filter_map (fun (_,bctx,_) -> bctx) hyps))
@@ -1007,7 +978,7 @@ let () =
 
 let () =
   define "pattern_instantiate"
-    (repr_ext val_matching_context @-> constr @-> ret constr)
+    (matching_context @-> constr @-> ret constr)
     Constr_matching.instantiate_context
 
 (** Error *)
@@ -1090,6 +1061,11 @@ let () =
   define "focus" (int @-> int @-> closure @-> tac valexpr) @@ fun i j tac ->
   Proofview.tclFOCUS i j (thaw tac)
 
+(** int -> unit **)
+let () =
+  define "cycle" (int @-> tac unit) @@ fun i ->
+  Proofview.cycle i
+
 (** unit -> unit *)
 let () = define "shelve" (unit @-> tac unit) @@ fun _ -> Proofview.shelve
 
@@ -1130,6 +1106,15 @@ let () =
   let mem = try ignore (Environ.lookup_named id env); true with Not_found -> false in
   if mem then return (EConstr.mkVar id)
   else Tacticals.tclZEROMSG
+    (str "Hypothesis " ++ quote (Id.print id) ++ str " not found") (* FIXME: Do something more sensible *)
+
+let () =
+  define "hyp_value" (ident @-> tac (option constr)) @@ fun id ->
+  pf_apply @@ fun env _ ->
+  match EConstr.lookup_named id env with
+  | d -> return (Context.Named.Declaration.get_value d)
+  | exception Not_found ->
+    Tacticals.tclZEROMSG
     (str "Hypothesis " ++ quote (Id.print id) ++ str " not found") (* FIXME: Do something more sensible *)
 
 let () =
@@ -1194,27 +1179,38 @@ let () =
 
 (** Fresh *)
 
-let () =
-  let ty = repr_ext val_free in
-  define "fresh_free_union" (ty @-> ty @-> ret ty) Id.Set.union
+let () = define "fresh_free_empty" (ret free) Nameops.Fresh.empty
+
+let () = define "fresh_free_add" (ident @-> free @-> ret free) Nameops.Fresh.add
 
 let () =
-  define "fresh_free_of_ids" (list ident @-> ret (repr_ext val_free)) @@ fun ids ->
-  List.fold_right Id.Set.add ids Id.Set.empty
+  define "fresh_free_union" (free @-> free @-> ret free) Nameops.Fresh.union
 
 let () =
-  define "fresh_free_of_constr" (constr @-> tac (repr_ext val_free)) @@ fun c ->
+  define "fresh_free_of_ids" (list ident @-> ret free) @@ fun ids ->
+  List.fold_right Nameops.Fresh.add ids Nameops.Fresh.empty
+
+let () =
+  define "fresh_free_of_constr" (constr @-> tac free) @@ fun c ->
   Proofview.tclEVARMAP >>= fun sigma ->
   let rec fold accu c =
     match EConstr.kind sigma c with
-    | Constr.Var id -> Id.Set.add id accu
+    | Constr.Var id -> Nameops.Fresh.add id accu
     | _ -> EConstr.fold sigma fold accu c
   in
-  return (fold Id.Set.empty c)
+  return (fold Nameops.Fresh.empty c)
+
+(* for backwards compat reasons the ocaml and ltac2 APIs
+   exchange the meaning of "fresh" and "next" *)
+let () =
+  define "fresh_next" (free @-> ident @-> ret (pair ident free)) @@ fun avoid id ->
+  let id = Namegen.mangle_id id in
+  Nameops.Fresh.fresh id avoid
 
 let () =
-  define "fresh_fresh" (repr_ext val_free @-> ident @-> ret ident) @@ fun avoid id ->
-  Namegen.next_ident_away_from id (fun id -> Id.Set.mem id avoid)
+  define "fresh_fresh" (free @-> ident @-> ret ident) @@ fun avoid id ->
+  let id = Namegen.mangle_id id in
+  Nameops.Fresh.next id avoid
 
 (** Env *)
 
@@ -1263,7 +1259,7 @@ let () =
 
 let () =
   define "ind_data"
-    (inductive @-> tac (repr_ext val_ind_data))
+    (inductive @-> tac ind_data)
     @@ fun ind ->
   Proofview.tclENV >>= fun env ->
   if Environ.mem_mind (fst ind) env then
@@ -1271,20 +1267,20 @@ let () =
   else
     throw err_notfound
 
-let () = define "ind_repr" (repr_ext val_ind_data @-> ret inductive) fst
+let () = define "ind_repr" (ind_data @-> ret inductive) fst
 let () = define "ind_index" (inductive @-> ret int) snd
 
 let () =
-  define "ind_nblocks" (repr_ext val_ind_data @-> ret int) @@ fun (_, mib) ->
+  define "ind_nblocks" (ind_data @-> ret int) @@ fun (_, mib) ->
   Array.length mib.Declarations.mind_packets
 
 let () =
-  define "ind_nconstructors" (repr_ext val_ind_data @-> ret int) @@ fun ((_, n), mib) ->
+  define "ind_nconstructors" (ind_data @-> ret int) @@ fun ((_, n), mib) ->
   Array.length Declarations.(mib.mind_packets.(n).mind_consnames)
 
 let () =
   define "ind_get_block"
-    (repr_ext val_ind_data @-> int @-> tac (repr_ext val_ind_data))
+    (ind_data @-> int @-> tac ind_data)
     @@ fun (ind, mib) n ->
   if 0 <= n && n < Array.length mib.Declarations.mind_packets then
     return ((fst ind, n), mib)
@@ -1292,7 +1288,7 @@ let () =
 
 let () =
   define "ind_get_constructor"
-    (repr_ext val_ind_data @-> int @-> tac (repr_ext val_constructor))
+    (ind_data @-> int @-> tac constructor)
     @@ fun ((mind, n), mib) i ->
   let open Declarations in
   let ncons = Array.length mib.mind_packets.(n).mind_consnames in
@@ -1304,18 +1300,18 @@ let () =
 
 let () =
   define "constructor_inductive"
-    (repr_ext val_constructor @-> ret inductive)
+    (constructor @-> ret inductive)
   @@ fun (ind, _) -> ind
 
 let () =
   define "constructor_index"
-    (repr_ext val_constructor @-> ret int)
+    (constructor @-> ret int)
   @@ fun (_, i) ->
   (* WARNING: ML constructors are 1-indexed but Ltac2 constructors are 0-indexed *)
   i-1
 
 let () =
-  define "ind_get_projections" (repr_ext val_ind_data @-> ret (option (array projection)))
+  define "ind_get_projections" (ind_data @-> ret (option (array projection)))
   @@ fun (ind,mib) ->
   Declareops.inductive_make_projections ind mib
   |> Option.map (Array.map (fun (p,_) -> Projection.make p false))
@@ -1434,7 +1430,7 @@ let inductive_map_tag : _ map_tag = register_map ~tag_name:"fmap_inductive_tag" 
 let constructor_map_tag : _ map_tag = register_map ~tag_name:"fmap_constructor_tag" (module struct
     module S = Constrset_env
     module M = Constrmap_env
-    let repr = Tac2ffi.(repr_ext val_constructor)
+    let repr = Tac2ffi.constructor
     type valmap = valexpr M.t
     let valmap_eq = Refl
   end)
@@ -1442,7 +1438,7 @@ let constructor_map_tag : _ map_tag = register_map ~tag_name:"fmap_constructor_t
 let constant_map_tag : _ map_tag = register_map ~tag_name:"fmap_constant_tag" (module struct
     module S = Cset_env
     module M = Cmap_env
-    let repr = Tac2ffi.(repr_ext val_constant)
+    let repr = Tac2ffi.constant
     type valmap = valexpr M.t
     let valmap_eq = Refl
   end)
@@ -1601,20 +1597,33 @@ let to_lvar ist =
 
 let gtypref kn = GTypRef (Other kn, [])
 
-let intern_constr self ist c =
-  let (_, (c, _)) = Genintern.intern Stdarg.wit_constr ist c in
-  let v = match DAst.get c with
-    | GGenarg (GenArg (Glbwit tag, v)) ->
-      begin match genarg_type_eq tag wit_ltac2_var_quotation with
-      | Some Refl ->
-        begin match (fst v) with
-        | ConstrVar -> GlbTacexpr (GTacVar (snd v))
-        | _ -> GlbVal c
-        end
-      | None -> GlbVal c
+let of_glob_constr (c:Glob_term.glob_constr) =
+  match DAst.get c with
+  | GGenarg (GenArg (Glbwit tag, v)) ->
+    begin match genarg_type_eq tag wit_ltac2_var_quotation with
+    | Some Refl ->
+      begin match (fst v) with
+      | ConstrVar -> GlbTacexpr (GTacVar (snd v))
+      | _ -> GlbVal c
       end
-    | _ -> GlbVal c
-  in
+    | None -> GlbVal c
+    end
+  | _ -> GlbVal c
+
+let intern_constr ist c =
+  let {Genintern.ltacvars=lfun; genv=env; extra; intern_sign; strict_check} = ist in
+  let scope = Pretyping.WithoutTypeConstraint in
+  let ltacvars = {
+    Constrintern.ltac_vars = lfun;
+    ltac_bound = Id.Set.empty;
+    ltac_extra = extra;
+  } in
+  let c' = Constrintern.intern_core scope ~strict_check ~ltacvars env (Evd.from_env env) intern_sign c in
+  c'
+
+let intern_constr_tacexpr ist c =
+  let c = intern_constr ist c in
+  let v = of_glob_constr c in
   (v, gtypref t_constr)
 
 let interp_constr flags ist c =
@@ -1628,7 +1637,7 @@ let interp_constr flags ist c =
   end
 
 let () =
-  let intern = intern_constr in
+  let intern = intern_constr_tacexpr in
   let interp ist c = interp_constr constr_flags ist c in
   let print env sigma c = str "constr:(" ++ Printer.pr_lglob_constr_env env sigma c ++ str ")" in
   let raw_print env sigma c = str "constr:(" ++ Ppconstr.pr_constr_expr env sigma c ++ str ")" in
@@ -1643,7 +1652,7 @@ let () =
   define_ml_object Tac2quote.wit_constr obj
 
 let () =
-  let intern = intern_constr in
+  let intern = intern_constr_tacexpr in
   let interp ist c = interp_constr open_constr_no_classes_flags ist c in
   let print env sigma c = str "open_constr:(" ++ Printer.pr_lglob_constr_env env sigma c ++ str ")" in
   let raw_print env sigma c = str "open_constr:(" ++ Ppconstr.pr_constr_expr env sigma c ++ str ")" in
@@ -1661,7 +1670,7 @@ let () =
   let interp _ id = return (Tac2ffi.of_ident id) in
   let print _ _ id = str "ident:(" ++ Id.print id ++ str ")" in
   let obj = {
-    ml_intern = (fun _ _ id -> GlbVal id, gtypref t_ident);
+    ml_intern = (fun _ id -> GlbVal id, gtypref t_ident);
     ml_interp = interp;
     ml_subst = (fun _ id -> id);
     ml_print = print;
@@ -1670,7 +1679,7 @@ let () =
   define_ml_object Tac2quote.wit_ident obj
 
 let () =
-  let intern self {Genintern.ltacvars=lfun; genv=env; extra; intern_sign=_; strict_check} c =
+  let intern {Genintern.ltacvars=lfun; genv=env; extra; intern_sign=_; strict_check} c =
     let sigma = Evd.from_env env in
     let ltacvars = {
       Constrintern.ltac_vars = lfun;
@@ -1705,19 +1714,15 @@ let () =
   define_ml_object Tac2quote.wit_pattern obj
 
 let () =
-  let intern self ist c =
-    let (_, (c, _)) = Genintern.intern Stdarg.wit_constr ist c in
+  let intern ist c =
+    let c = intern_constr ist c in
     (GlbVal (Id.Set.empty,c), gtypref t_preterm)
   in
   let interp env (ids,c) =
     let open Ltac_pretype in
     let get_preterm id = match Id.Map.find_opt id env.env_ist with
-      | Some (ValExt (tag, v)) ->
-        begin match Tac2dyn.Val.eq tag val_preterm with
-          | Some Refl -> (v:closed_glob_constr)
-          | None -> assert false
-        end
-      | _ -> assert false
+      | Some v -> to_preterm v
+      | None -> assert false
     in
     let closure = {
       idents = Id.Map.empty;
@@ -1733,7 +1738,7 @@ let () =
     let ppids = if Id.Set.is_empty ids then mt()
       else prlist_with_sep spc Id.print (Id.Set.elements ids) ++ spc() ++ str "|-" ++ spc()
     in
-    str "preterm:(" ++ ppids ++ Printer.pr_lglob_constr_env env sigma c ++ str ")"
+    hov 2 (str "preterm:(" ++ ppids ++ Printer.pr_lglob_constr_env env sigma c ++ str ")")
   in
   let raw_print env sigma c = str "preterm:(" ++ Ppconstr.pr_constr_expr env sigma c ++ str ")" in
   let obj = {
@@ -1746,12 +1751,12 @@ let () =
   define_ml_object Tac2quote.wit_preterm obj
 
 let () =
-  let intern self ist ref = match ref.CAst.v with
+  let intern ist ref = match ref.CAst.v with
   | Tac2qexpr.QHypothesis id ->
     GlbVal (GlobRef.VarRef id), gtypref t_reference
   | Tac2qexpr.QReference qid ->
     let gr =
-      try Nametab.locate qid
+      try Smartlocate.locate_global_with_alias qid
       with Not_found as exn ->
         let _, info = Exninfo.capture exn in
         Nametab.error_global_not_found ~info qid
@@ -1782,8 +1787,8 @@ let () =
 let () =
   let interp ?loc ~poly env sigma tycon (ids, tac) =
     (* Syntax prevents bound notation variables in constr quotations *)
-    let () = assert (Id.Set.is_empty ids) in
     let ist = Tac2interp.get_env @@ GlobEnv.lfun env in
+    let () = assert (Id.Set.subset ids (Id.Map.domain ist.env_ist)) in
     let tac = Proofview.tclIGNORE (Tac2interp.interp ist tac) in
     let name, poly = Id.of_string "ltac2", poly in
     let sigma, concl = match tycon with
@@ -1847,6 +1852,15 @@ let () =
   GlobEnv.register_constr_interp0 wit_ltac2_var_quotation interp
 
 let () =
+  let interp _ist tac =
+    (* XXX should we be doing something with the ist? *)
+    let tac = Tac2interp.(interp empty_environment) tac in
+    Proofview.tclBIND tac (fun _ ->
+        Ftactic.return (Geninterp.Val.inject (Geninterp.val_tag (topwit Stdarg.wit_unit)) ()))
+  in
+  Geninterp.register_interp0 wit_ltac2_tac interp
+
+let () =
   let interp env sigma ist (kind,id) =
     let () = match kind with
       | ConstrVar -> assert false (* checked at intern time *)
@@ -1876,60 +1890,29 @@ let () =
         | PatternVar -> str "pattern:"
       in
       str "$" ++ ppkind ++ Id.print id) in
-  let pr_top x = Util.Empty.abort x in
-  Genprint.register_print0 wit_ltac2_var_quotation pr_raw pr_glb pr_top
-
-let warn_missing_notation_variable =
-  CWarnings.create ~name:"ltac2-missing-notation-var" ~category:CWarnings.CoreCategories.ltac2
-    Pp.(fun rem ->
-        let plural = if Id.Set.cardinal rem <= 1 then " " else "s " in
-        str "Missing notation term for variable" ++ str plural ++
-        pr_sequence Id.print (Id.Set.elements rem) ++
-        str ", if used in Ltac2 code in the notation an error will be produced.")
+  Genprint.register_noval_print0 wit_ltac2_var_quotation pr_raw pr_glb
 
 let () =
-  let subs avoid globs (ids, tac as orig) =
+  let subs ntnvars globs (ids, tac as orig) =
     if Id.Set.is_empty ids then
       (* closed tactic *)
       orig
     else
-    (* Let-bind the notation terms inside the tactic *)
-    let fold id c (rem, accu) =
-      let c = GTacExt (Tac2quote.wit_preterm, (avoid, c)) in
-      let rem = Id.Set.remove id rem in
-      rem, (Name id, c) :: accu
-    in
-    let rem, bnd = Id.Map.fold fold globs (ids, []) in
-    (* FIXME: provide a reasonable middle-ground with the behaviour
-       introduced by 8d9b66b. We should be able to pass mere syntax to
-       term notation without facing the wrath of the internalization. *)
-    let () = if not @@ Id.Set.is_empty rem then warn_missing_notation_variable rem in
-    let bnd = Id.Set.fold (fun id bnd ->
-        let c =
-          DAst.make
-            (Glob_term.GVar
-               (Id.of_string_soft ("Notation variable " ^ Id.to_string id ^ " is not available")))
-        in
-        let c = GTacExt (Tac2quote.wit_preterm, (Id.Set.empty, c)) in
-        (Name id, c) :: bnd)
-        rem bnd
-    in
-    let tac = if List.is_empty bnd then tac else GTacLet (false, bnd, tac) in
-    (avoid, tac)
+      (* Let-bind the notation terms inside the tactic *)
+      let fold id (used_ntnvars, accu) =
+        let used, c = Genintern.with_used_ntnvars ntnvars (fun () -> globs id) in
+        match c with
+        | None ->
+          CErrors.user_err Pp.(str "Notation variable " ++ Id.print id ++ str " cannot be used in ltac2.")
+        | Some c ->
+          let c = GTacExt (Tac2quote.wit_preterm, (used, c)) in
+          Id.Set.union used_ntnvars used, (Name id, c) :: accu
+      in
+      let used, bnd = Id.Set.fold fold ids (Id.Set.empty, []) in
+      let tac = if List.is_empty bnd then tac else GTacLet (false, bnd, tac) in
+      (used, tac)
   in
   Genintern.register_ntn_subst0 wit_ltac2_constr subs
-
-let () =
-  let pr_raw _ = Genprint.PrinterBasic (fun _env _sigma -> assert false) in
-  let pr_glb (ids, e) =
-    let ids =
-      if List.is_empty ids then mt ()
-      else hov 0 (pr_sequence Id.print ids ++ str " |- ")
-    in
-    Genprint.PrinterBasic Pp.(fun _env _sigma -> ids ++ Tac2print.pr_glbexpr ~avoid:Id.Set.empty e)
-  in
-  let pr_top x = Util.Empty.abort x in
-  Genprint.register_print0 wit_ltac2in1 pr_raw pr_glb pr_top
 
 let () =
   let pr_raw e = Genprint.PrinterBasic (fun _env _sigma ->
@@ -1941,7 +1924,7 @@ let () =
     let ids =
       let ids = Id.Set.elements ids in
       if List.is_empty ids then mt ()
-      else hov 0 (pr_sequence Id.print ids ++ str " |- ")
+      else hov 0 (pr_sequence Id.print ids ++ str " |-") ++ spc()
     in
     (* FIXME avoid set
        eg "Ltac2 bla foo := constr:(ltac2:(foo X.foo))"
@@ -1951,8 +1934,16 @@ let () =
     *)
     Genprint.PrinterBasic Pp.(fun _env _sigma -> ids ++ Tac2print.pr_glbexpr ~avoid:Id.Set.empty e)
   in
-  let pr_top e = Util.Empty.abort e in
-  Genprint.register_print0 wit_ltac2_constr pr_raw pr_glb pr_top
+  Genprint.register_noval_print0 wit_ltac2_constr pr_raw pr_glb
+
+let () =
+  let pr_raw e = Genprint.PrinterBasic (fun _ _ ->
+      let e = Tac2intern.debug_globalize_allow_ext Id.Set.empty e in
+      Tac2print.pr_rawexpr_gen ~avoid:Id.Set.empty E5 e)
+  in
+  let pr_glb e = Genprint.PrinterBasic (fun _ _ -> Tac2print.pr_glbexpr ~avoid:Id.Set.empty e) in
+  let pr_top () = assert false in
+  Genprint.register_print0 wit_ltac2_tac pr_raw pr_glb pr_top
 
 (** Built-in notation scopes *)
 
@@ -1978,7 +1969,7 @@ let q_unit = CAst.make @@ CTacCst (AbsKn (Tuple 0))
 let add_generic_scope s entry arg =
   let parse = function
   | [] ->
-    let scope = Pcoq.Symbol.nterm entry in
+    let scope = Procq.Symbol.nterm entry in
     let act x = CAst.make @@ CTacExt (arg, x) in
     Tac2entries.ScopeRule (scope, act)
   | arg -> scope_fail s arg
@@ -1989,14 +1980,14 @@ open CAst
 
 let () = add_scope "keyword" begin function
 | [SexprStr {loc;v=s}] ->
-  let scope = Pcoq.Symbol.token (Tok.PKEYWORD s) in
+  let scope = Procq.Symbol.token (Tok.PKEYWORD s) in
   Tac2entries.ScopeRule (scope, (fun _ -> q_unit))
 | arg -> scope_fail "keyword" arg
 end
 
 let () = add_scope "terminal" begin function
 | [SexprStr {loc;v=s}] ->
-  let scope = Pcoq.Symbol.token (Pcoq.terminal s) in
+  let scope = Procq.Symbol.token (Procq.terminal s) in
   Tac2entries.ScopeRule (scope, (fun _ -> q_unit))
 | arg -> scope_fail "terminal" arg
 end
@@ -2004,13 +1995,13 @@ end
 let () = add_scope "list0" begin function
 | [tok] ->
   let Tac2entries.ScopeRule (scope, act) = Tac2entries.parse_scope tok in
-  let scope = Pcoq.Symbol.list0 scope in
+  let scope = Procq.Symbol.list0 scope in
   let act l = Tac2quote.of_list act l in
   Tac2entries.ScopeRule (scope, act)
 | [tok; SexprStr {v=str}] ->
   let Tac2entries.ScopeRule (scope, act) = Tac2entries.parse_scope tok in
-  let sep = Pcoq.Symbol.tokens [Pcoq.TPattern (Pcoq.terminal str)] in
-  let scope = Pcoq.Symbol.list0sep scope sep false in
+  let sep = Procq.Symbol.tokens [Procq.TPattern (Procq.terminal str)] in
+  let scope = Procq.Symbol.list0sep scope sep false in
   let act l = Tac2quote.of_list act l in
   Tac2entries.ScopeRule (scope, act)
 | arg -> scope_fail "list0" arg
@@ -2019,13 +2010,13 @@ end
 let () = add_scope "list1" begin function
 | [tok] ->
   let Tac2entries.ScopeRule (scope, act) = Tac2entries.parse_scope tok in
-  let scope = Pcoq.Symbol.list1 scope in
+  let scope = Procq.Symbol.list1 scope in
   let act l = Tac2quote.of_list act l in
   Tac2entries.ScopeRule (scope, act)
 | [tok; SexprStr {v=str}] ->
   let Tac2entries.ScopeRule (scope, act) = Tac2entries.parse_scope tok in
-  let sep = Pcoq.Symbol.tokens [Pcoq.TPattern (Pcoq.terminal str)] in
-  let scope = Pcoq.Symbol.list1sep scope sep false in
+  let sep = Procq.Symbol.tokens [Procq.TPattern (Procq.terminal str)] in
+  let scope = Procq.Symbol.list1sep scope sep false in
   let act l = Tac2quote.of_list act l in
   Tac2entries.ScopeRule (scope, act)
 | arg -> scope_fail "list1" arg
@@ -2034,7 +2025,7 @@ end
 let () = add_scope "opt" begin function
 | [tok] ->
   let Tac2entries.ScopeRule (scope, act) = Tac2entries.parse_scope tok in
-  let scope = Pcoq.Symbol.opt scope in
+  let scope = Procq.Symbol.opt scope in
   let act opt = match opt with
   | None ->
     CAst.make @@ CTacCst (AbsKn (Other Core.c_none))
@@ -2047,7 +2038,7 @@ end
 
 let () = add_scope "self" begin function
 | [] ->
-  let scope = Pcoq.Symbol.self in
+  let scope = Procq.Symbol.self in
   let act tac = tac in
   Tac2entries.ScopeRule (scope, act)
 | arg -> scope_fail "self" arg
@@ -2055,7 +2046,7 @@ end
 
 let () = add_scope "next" begin function
 | [] ->
-  let scope = Pcoq.Symbol.next in
+  let scope = Procq.Symbol.next in
   let act tac = tac in
   Tac2entries.ScopeRule (scope, act)
 | arg -> scope_fail "next" arg
@@ -2064,12 +2055,12 @@ end
 let () = add_scope "tactic" begin function
 | [] ->
   (* Default to level 5 parsing *)
-  let scope = Pcoq.Symbol.nterml ltac2_expr "5" in
+  let scope = Procq.Symbol.nterml ltac2_expr "5" in
   let act tac = tac in
   Tac2entries.ScopeRule (scope, act)
 | [SexprInt {loc;v=n}] as arg ->
   let () = if n < 0 || n > 6 then scope_fail "tactic" arg in
-  let scope = Pcoq.Symbol.nterml ltac2_expr (string_of_int n) in
+  let scope = Procq.Symbol.nterml ltac2_expr (string_of_int n) in
   let act tac = tac in
   Tac2entries.ScopeRule (scope, act)
 | arg -> scope_fail "tactic" arg
@@ -2083,39 +2074,60 @@ let () = add_scope "thunk" begin function
 | arg -> scope_fail "thunk" arg
 end
 
-let () = add_scope "constr" (fun arg ->
+let () = add_scope "constr" begin function arg ->
+  let delimiters = List.map (function
+      | SexprRec (_, { v = Some s }, []) -> s
+      | _ -> scope_fail "constr" arg)
+      arg
+  in
+  let act e = Tac2quote.of_constr ~delimiters e in
+  Tac2entries.ScopeRule (Procq.Symbol.nterm Procq.Constr.constr, act)
+end
+
+  let () = add_scope "lconstr" begin function arg ->
     let delimiters = List.map (function
         | SexprRec (_, { v = Some s }, []) -> s
-        | _ -> scope_fail "constr" arg)
+        | _ -> scope_fail "lconstr" arg)
         arg
     in
     let act e = Tac2quote.of_constr ~delimiters e in
-    Tac2entries.ScopeRule (Pcoq.Symbol.nterm Pcoq.Constr.constr, act)
-  )
+    Tac2entries.ScopeRule (Procq.Symbol.nterm Procq.Constr.lconstr, act)
+  end
 
-let () = add_scope "open_constr" (fun arg ->
-    let delimiters = List.map (function
-        | SexprRec (_, { v = Some s }, []) -> s
-        | _ -> scope_fail "open_constr" arg)
-        arg
-    in
-    let act e = Tac2quote.of_open_constr ~delimiters e in
-    Tac2entries.ScopeRule (Pcoq.Symbol.nterm Pcoq.Constr.constr, act)
-  )
+let () = add_scope "open_constr" begin function arg ->
+  let delimiters = List.map (function
+      | SexprRec (_, { v = Some s }, []) -> s
+      | _ -> scope_fail "open_constr" arg)
+      arg
+  in
+  let act e = Tac2quote.of_open_constr ~delimiters e in
+  Tac2entries.ScopeRule (Procq.Symbol.nterm Procq.Constr.constr, act)
+end
 
-let () = add_scope "preterm" (fun arg ->
-    let delimiters = List.map (function
-        | SexprRec (_, { v = Some s }, []) -> s
-        | _ -> scope_fail "preterm" arg)
-        arg
-    in
-    let act e = Tac2quote.of_preterm ~delimiters e in
-    Tac2entries.ScopeRule (Pcoq.Symbol.nterm Pcoq.Constr.constr, act)
-  )
+let () = add_scope "open_lconstr" begin function arg ->
+  let delimiters = List.map (function
+      | SexprRec (_, { v = Some s }, []) -> s
+      | _ -> scope_fail "open_lconstr" arg)
+      arg
+  in
+  let act e = Tac2quote.of_open_constr ~delimiters e in
+  Tac2entries.ScopeRule (Procq.Symbol.nterm Procq.Constr.lconstr, act)
+end
+
+
+let () = add_scope "preterm" begin function arg ->
+  let delimiters = List.map (function
+      | SexprRec (_, { v = Some s }, []) -> s
+      | _ -> scope_fail "preterm" arg)
+      arg
+  in
+  let act e = Tac2quote.of_preterm ~delimiters e in
+  Tac2entries.ScopeRule (Procq.Symbol.nterm Procq.Constr.constr, act)
+end
 
 let add_expr_scope name entry f =
   add_scope name begin function
-  | [] -> Tac2entries.ScopeRule (Pcoq.Symbol.nterm entry, f)
+  | [] -> Tac2entries.ScopeRule (Procq.Symbol.nterm entry, f)
   | arg -> scope_fail name arg
   end
 
@@ -2140,13 +2152,13 @@ let () = add_expr_scope "pose" q_pose Tac2quote.of_pose
 let () = add_expr_scope "assert" q_assert Tac2quote.of_assertion
 let () = add_expr_scope "constr_matching" q_constr_matching Tac2quote.of_constr_matching
 let () = add_expr_scope "goal_matching" q_goal_matching Tac2quote.of_goal_matching
-let () = add_expr_scope "format" Pcoq.Prim.lstring Tac2quote.of_format
+let () = add_expr_scope "format" Procq.Prim.lstring Tac2quote.of_format
 
-let () = add_generic_scope "pattern" Pcoq.Constr.constr Tac2quote.wit_pattern
+let () = add_generic_scope "pattern" Procq.Constr.constr Tac2quote.wit_pattern
 
 (** seq scope, a bit hairy *)
 
-open Pcoq
+open Procq
 
 type _ converter =
 | CvNil : (Loc.t -> raw_tacexpr) converter
@@ -2162,17 +2174,17 @@ type seqrule =
 
 let rec make_seq_rule = function
 | [] ->
-  Seqrule (Pcoq.Rule.stop, CvNil)
+  Seqrule (Procq.Rule.stop, CvNil)
 | tok :: rem ->
   let Tac2entries.ScopeRule (scope, f) = Tac2entries.parse_scope tok in
   let scope =
-    match Pcoq.generalize_symbol scope with
+    match Procq.generalize_symbol scope with
     | None ->
       CErrors.user_err (str "Recursive symbols (self / next) are not allowed in local rules")
     | Some scope -> scope
   in
   let Seqrule (r, c) = make_seq_rule rem in
-  let r = Pcoq.Rule.next_norec r scope in
+  let r = Procq.Rule.next_norec r scope in
   let f = match tok with
   | SexprStr _ -> None (* Leave out mere strings *)
   | _ -> Some f
@@ -2182,7 +2194,7 @@ let rec make_seq_rule = function
 let () = add_scope "seq" begin fun toks ->
   let scope =
     let Seqrule (r, c) = make_seq_rule (List.rev toks) in
-    Pcoq.(Symbol.rules [Rules.make r (apply c [])])
+    Procq.(Symbol.rules [Rules.make r (apply c [])])
   in
   Tac2entries.ScopeRule (scope, (fun e -> e))
 end

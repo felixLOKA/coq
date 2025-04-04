@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -70,8 +70,10 @@ val save_library : DirPath.t -> library_t
   (** - Tell if a library is loaded *)
 val library_is_loaded : DirPath.t -> bool
 
-  (** - Tell which libraries are loaded *)
+(** - Tell which libraries are loaded, in the order by which they were loaded. *)
 val loaded_libraries : unit -> DirPath.t list
+
+val library_compiled : DirPath.t -> Safe_typing.compiled_library
 
 (** {6 Native compiler. } *)
 val native_name_from_filename : string -> string

@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -43,6 +43,7 @@ type alias_data = {
 
 type ltac_state = {
   ltac_tactics : global_data KNmap.t;
+  constructors_warn : UserWarn.t KNmap.t;
   ltac_constructors : constructor_data KNmap.t;
   ltac_projections : projection_data KNmap.t;
   ltac_types : glb_quant_typedef KNmap.t;
@@ -51,6 +52,7 @@ type ltac_state = {
 
 let empty_state = {
   ltac_tactics = KNmap.empty;
+  constructors_warn = KNmap.empty;
   ltac_constructors = KNmap.empty;
   ltac_projections = KNmap.empty;
   ltac_types = KNmap.empty;
@@ -92,9 +94,16 @@ let get_compiled_global kn = KNmap.find_opt kn !compiled_tacs
 
 let globals () = (!ltac_state).ltac_tactics
 
-let define_constructor kn t =
+let define_constructor ?warn kn t =
   let state = !ltac_state in
-  ltac_state := { state with ltac_constructors = KNmap.add kn t state.ltac_constructors }
+  ltac_state := {
+    state with
+    ltac_constructors = KNmap.add kn t state.ltac_constructors;
+    constructors_warn = Option.fold_left (fun ctorwarn warn ->
+        KNmap.add kn warn ctorwarn)
+        state.constructors_warn
+        warn;
+  }
 
 let interp_constructor kn = KNmap.find kn ltac_state.contents.ltac_constructors
 
@@ -148,16 +157,6 @@ let interp_primitive name = MLMap.find name !primitive_map
 
 (** Name management *)
 
-module FullPath =
-struct
-  type t = full_path
-  let equal = eq_full_path
-  let to_string = string_of_path
-  let repr sp =
-    let dir,id = repr_path sp in
-    id, (DirPath.repr dir)
-end
-
 type tacref = Tac2expr.tacref =
 | TacConstant of ltac_constant
 | TacAlias of ltac_alias
@@ -175,8 +174,8 @@ let equal r1 r2 = compare r1 r2 == 0
 
 end
 
-module KnTab = Nametab.Make(FullPath)(KerName)
-module RfTab = Nametab.Make(FullPath)(TacRef)
+module KnTab = Nametab.Make(KerName)
+module RfTab = Nametab.Make(TacRef)
 module RfMap = Map.Make(TacRef)
 
 type nametab = {
@@ -245,6 +244,17 @@ let shortest_qualid_of_constructor kn =
   let sp = KNmap.find kn tab.tab_cstr_rev in
   KnTab.shortest_qualid Id.Set.empty sp tab.tab_cstr
 
+let constructor_user_warning =
+  UserWarn.create_depr_and_user_warnings
+    ~object_name:"Ltac2 constructor"
+    ~warning_name_base:"ltac2-constructor"
+    (fun kn -> pr_qualid (shortest_qualid_of_constructor kn))
+    ()
+
+let constructor_user_warn ?loc kn =
+  let warn = KNmap.find_opt kn (!ltac_state).constructors_warn in
+  Option.iter (constructor_user_warning ?loc kn) warn
+
 let push_type vis sp kn =
   let tab = !nametab in
   let tab_type = KnTab.push vis sp kn tab.tab_type in
@@ -296,7 +306,7 @@ type environment = {
 type ('a, 'b, 'r) intern_fun = Genintern.glob_sign -> 'a -> 'b * 'r glb_typexpr
 
 type ('a, 'b) ml_object = {
-  ml_intern : 'r. (raw_tacexpr, glb_tacexpr, 'r) intern_fun -> ('a, 'b or_glb_tacexpr, 'r) intern_fun;
+  ml_intern : 'r. ('a, 'b or_glb_tacexpr, 'r) intern_fun;
   ml_subst : Mod_subst.substitution -> 'b -> 'b;
   ml_interp : environment -> 'b -> valexpr Proofview.tactic;
   ml_print : Environ.env -> Evd.evar_map -> 'b -> Pp.t;
@@ -324,8 +334,10 @@ let interp_ml_object t =
 
 (** Absolute paths *)
 
-let coq_prefix =
+let rocq_prefix =
   MPfile (DirPath.make (List.map Id.of_string ["Init"; "Ltac2"]))
+
+let coq_prefix = rocq_prefix
 
 let std_prefix =
   MPfile (DirPath.make (List.map Id.of_string ["Std"; "Ltac2"]))
@@ -340,16 +352,12 @@ type var_quotation_kind =
   | PretermVar
   | PatternVar
 
-let wit_ltac2in1 = Genarg.make0 "ltac2in1"
-let wit_ltac2in1_val = Genarg.make0 "ltac2in1val"
 let wit_ltac2_constr = Genarg.make0 "ltac2:in-constr"
 let wit_ltac2_var_quotation = Genarg.make0 "ltac2:quotation"
-let wit_ltac2_val = Genarg.make0 "ltac2:value"
+let wit_ltac2_tac = Genarg.make0 "ltac2:tactic"
 
-let () = Geninterp.register_val0 wit_ltac2in1 None
-let () = Geninterp.register_val0 wit_ltac2in1_val None
-let () = Geninterp.register_val0 wit_ltac2_constr None
-let () = Geninterp.register_val0 wit_ltac2_var_quotation None
+let () = Geninterp.register_val0 wit_ltac2_tac
+    (Some (Geninterp.val_tag (Genarg.topwit Stdarg.wit_unit)))
 
 let is_constructor_id id =
   let id = Id.to_string id in

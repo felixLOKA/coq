@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -80,6 +80,11 @@ let pppattern = (fun x -> pp(envpp pr_constr_pattern_env x))
 let pptype = (fun x -> try pp(envpp (fun env evm t -> pr_ltype_env env evm t) x) with e -> pp (str (Printexc.to_string e)))
 let ppfconstr c = ppconstr (CClosure.term_of_fconstr c)
 
+(* XXX we could also try to have a printer which shows which parts are
+   shared, but this is probably better for most uses (ie stepping
+   through typeops and wanting to print the current constr) *)
+let pphconstr c = ppconstr (HConstr.self c)
+
 let ppuint63 i = pp (str (Uint63.to_string i))
 
 let pp_parray pr a =
@@ -120,8 +125,6 @@ let pridmapgen l = prmapgen Id.print (Id.Set.elements (Id.Map.domain l))
 let ppidmapgen l = pp (pridmapgen l)
 let printmapgen l = prmapgen int (Int.Set.elements (Int.Map.domain l))
 let ppintmapgen l = pp (printmapgen l)
-let prmodidmapgen l = prmapgen Id.print (ModIdset.elements (ModIdmap.domain l))
-let ppmodidmapgen l = pp (prmodidmapgen l)
 
 let ppmpmapgen l =
   pp (prmapgen
@@ -218,7 +221,11 @@ let pp_state_t n = pp (Reductionops.pr_state Global.(env()) Evd.empty n)
 
 (* proof printers *)
 let pr_evar ev = Pp.int (Evar.repr ev)
-let ppmetas metas = pp(Termops.pr_metaset metas)
+let ppmetas metas = pp (Unification.Meta.pr_metaset metas)
+let ppmetamap metas =
+  let env = Global.env () in
+  let sigma = Evd.from_env env in
+  pp (Unification.Meta.pr_metamap env sigma metas)
 let ppevm evd = pp(Termops.pr_evar_map ~with_univs:!Detyping.print_universes (Some 2) (Global.env ()) evd)
 let ppevmall evd = pp(Termops.pr_evar_map ~with_univs:!Detyping.print_universes None (Global.env ()) evd)
 let pr_existentialset evars =
@@ -236,6 +243,8 @@ let pphintdb db = pp(envpp Hints.pr_hint_db_env db)
 let ppproofview p =
   let gls,sigma = Proofview.proofview p in
   pp(pr_enum pr_goal gls ++ fnl () ++ Termops.pr_evar_map (Some 1) (Global.env ()) sigma)
+
+let ppseff seff = pp (Safe_typing.debug_print_private_constants seff)
 
 let ppopenconstr (x : Evd.open_constr) =
   let (evd,c) = x in pp (Termops.pr_evar_map (Some 2) (Global.env ()) evd ++ envpp pr_econstr_env c)
@@ -262,13 +271,20 @@ let ppuni_level u = pp (Level.raw_pr u)
 let ppqvar q = pp (QVar.raw_pr q)
 let ppesorts s = pp (Sorts.debug_print (Evd.MiniEConstr.ESorts.unsafe_to_sorts s))
 
+(* pprelevance not directly useful since it's transparent, but used for pperelevance *)
+let pprelevance (r:Sorts.relevance) = match r with
+  | Relevant -> pp (str "Relevant")
+  | Irrelevant -> pp (str "Irrelevant")
+  | RelevanceVar q -> pp (surround (str "RelevanceVar " ++ spc() ++ Sorts.QVar.raw_pr q))
+let pperelevance r = pprelevance (EConstr.Unsafe.to_relevance r)
+
 let prlev l = UnivNames.pr_level_with_global_universes l
 let prqvar q = Sorts.QVar.raw_pr q
 let ppqvarset l = pp (hov 1 (str "{" ++ prlist_with_sep spc QVar.raw_pr (QVar.Set.elements l) ++ str "}"))
 let ppuniverse_set l = pp (Level.Set.pr prlev l)
 let ppuniverse_instance l = pp (Instance.pr prqvar prlev l)
 let ppuniverse_context l = pp (pr_universe_context prqvar prlev l)
-let ppuniverse_context_set l = pp (pr_universe_context_set prlev l)
+let ppuniverse_context_set l = pp (ContextSet.pr prlev l)
 let ppuniverse_subst l = pp (UnivSubst.pr_universe_subst Level.raw_pr l)
 let ppuniverse_opt_subst l = pp (UnivFlex.pr Level.raw_pr l)
 let ppqvar_subst l = pp (UVars.pr_quality_level_subst QVar.raw_pr l)
@@ -575,7 +591,7 @@ let print_pure_constr csr =
     let ls =
       match List.rev_map Id.to_string (DirPath.repr dir) with
           ("Top"::l)-> l
-        | ("Coq"::_::l) -> l
+        | ("Stdlib"::_::l) -> l
         | l             -> l
     in  List.iter (fun x -> print_string x; print_string ".") ls;*)
       print_string (MutInd.debug_to_string sp)
@@ -584,7 +600,7 @@ let print_pure_constr csr =
     let ls =
       match List.rev_map Id.to_string (DirPath.repr dir) with
           ("Top"::l)-> l
-        | ("Coq"::_::l) -> l
+        | ("Stdlib"::_::l) -> l
         | l             -> l
     in  List.iter (fun x -> print_string x; print_string ".") ls;*)
       print_string (Constant.debug_to_string sp)

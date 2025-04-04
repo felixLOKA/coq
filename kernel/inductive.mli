@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -43,17 +43,27 @@ val inductive_paramdecls : mutual_inductive_body puniverses -> Constr.rel_contex
     uniform and recursively non-uniform parameters *)
 val inductive_nonrec_rec_paramdecls : mutual_inductive_body puniverses -> Constr.rel_context * Constr.rel_context
 
+val inductive_nnonrecparams : mutual_inductive_body -> int
+
 val instantiate_inductive_constraints :
   mutual_inductive_body -> Instance.t -> Constraints.t
 
 type template_univ =
   | TemplateProp
+  | TemplateAboveProp of Sorts.QVar.t * Universe.t
   | TemplateUniv of Universe.t
 
-type param_univs = (expected:Univ.Level.t -> template_univ) list
+type param_univs = (default:Sorts.t -> template_univ) list
 
-val instantiate_template_universes : mind_specif -> param_univs ->
-  Constraints.t * rel_context * template_univ Univ.Level.Map.t
+type template_subst = Sorts.Quality.t Int.Map.t * Universe.t Int.Map.t
+
+val instantiate_template_constraints
+  : template_subst
+  -> Declarations.template_universes
+  -> Univ.Constraints.t
+
+val instantiate_template_universes : mutual_inductive_body -> param_univs ->
+  Constraints.t * rel_context * template_subst
 
 val constrained_type_of_inductive : mind_specif puniverses -> types constrained
 
@@ -64,7 +74,7 @@ val relevance_of_inductive : env -> pinductive -> Sorts.relevance
 val type_of_inductive : mind_specif puniverses -> types
 
 val type_of_inductive_knowing_parameters :
-  ?polyprop:bool -> mind_specif puniverses -> param_univs -> types constrained
+  mind_specif puniverses -> param_univs -> types constrained
 
 val quality_leq : Sorts.Quality.t -> Sorts.Quality.t -> bool
 (** For squashing. *)
@@ -158,15 +168,12 @@ val is_primitive_positive_container : env -> Constant.t -> bool
 val check_fix : ?evars:evar_handler -> env -> fixpoint -> unit
 val check_cofix : ?evars:evar_handler -> env -> cofixpoint -> unit
 
-(** {6 Support for sort-polymorphic inductive types } *)
-
-(** The "polyprop" optional argument below controls
-    the "Prop-polymorphism". By default, it is allowed.
-    But when "polyprop=false", the following exception is raised
-    when a polymorphic singleton inductive type becomes Prop due to
-    parameter instantiation. This is used by the Ocaml extraction,
-    which cannot handle (yet?) Prop-polymorphism. *)
-
-exception SingletonInductiveBecomesProp of Id.t
-
 val abstract_mind_lc : int -> int -> MutInd.t -> (rel_context * constr) array -> constr array
+
+module Template : sig
+  val bind_kind : Sorts.t -> int option * int option
+  val template_subst_sort : template_subst -> Sorts.t -> Sorts.t
+
+  (** Qualities must be above_prop  *)
+  val max_template_quality : Sorts.Quality.t -> Sorts.Quality.t -> Sorts.Quality.t
+end

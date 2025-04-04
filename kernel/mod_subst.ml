@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -32,19 +32,92 @@ type delta_hint =
    is now stored in a separate table, see Deltamap.t below *)
 
 module Deltamap = struct
-  type t = ModPath.t MPmap.t * delta_hint KNmap.t
-  let empty = MPmap.empty, KNmap.empty
-  let is_empty (mm, km) =
-    MPmap.is_empty mm && KNmap.is_empty km
-  let add_kn kn hint (mm,km) = (mm,KNmap.add kn hint km)
-  let add_mp mp mp' (mm,km) = (MPmap.add mp mp' mm, km)
-  let find_mp mp map = MPmap.find mp (fst map)
-  let find_kn kn map = KNmap.find kn (snd map)
-  let mem_mp mp map = MPmap.mem mp (fst map)
-  let fold_kn f map i = KNmap.fold f (snd map) i
-  let fold fmp fkn (mm,km) i =
-    MPmap.fold fmp mm (KNmap.fold fkn km i)
+  type t = {
+    root : ModPath.t;
+    (** Common root of all keys in the deltamap *)
+    mmap : ModPath.t MPmap.t;
+    (** All bindings [mp ↦ _] must satisfy [mp ⊆ root] *)
+    kmap : delta_hint KNmap.t;
+    (** All bindings [kn ↦ _] must satisfy [modpath(kn) ⊆ root] *)
+  }
+
+  let empty root = {
+    root;
+    mmap = MPmap.empty;
+    kmap = KNmap.empty;
+  }
+
+  let root reso = reso.root
+
+  let add_kn kn hint reso =
+    let () = assert (ModPath.subpath reso.root (KerName.modpath kn)) in
+    { reso with kmap = KNmap.add kn hint reso.kmap }
+
+  let add_mp mp mp' reso =
+    let () = assert (ModPath.subpath reso.root mp) in
+    { reso with mmap = MPmap.add mp mp' reso.mmap }
+
+  let find_mp mp reso = MPmap.find mp reso.mmap
+  let find_kn kn reso = KNmap.find kn reso.kmap
+  let mem_mp mp reso = MPmap.mem mp reso.mmap
+  let fold_kn f reso i = KNmap.fold f reso.kmap i
+  let fold fmp fkn reso accu =
+    MPmap.fold fmp reso.mmap (KNmap.fold fkn reso.kmap accu)
   let join map1 map2 = fold add_mp add_kn map1 map2
+
+  (** if mp0 ⊆ root, we can see a resolver on root as a resolver on mp *)
+  let upcast mp0 reso =
+    let () = assert (ModPath.subpath mp0 reso.root) in
+    { reso with root = mp0 }
+
+  (** keep only data that is relevant for names with a modpath ⊇ root *)
+  let reroot root reso =
+    let () = assert (ModPath.subpath reso.root root) in
+    let km = reso.kmap in
+    let mm = reso.mmap in
+    (* filter the modpaths *)
+    let fold_mp mp data (glb, accu) =
+      if ModPath.subpath root mp then
+        (* root ⊆ mp, keep it *)
+        glb, MPmap.add mp data accu
+      else if ModPath.subpath mp root then
+        (* This is a subpath of the root. It may be relevant due to find_prefix,
+           but only when 1. root is not in mm, and 2. this is the most precise
+           path in mm above root, as find_prefix will always return this one
+           without considering the less precise ones. *)
+        let glb = match glb with
+        | None -> Some mp
+        | Some glb -> if ModPath.subpath glb mp then Some mp else Some glb
+        in
+        glb, accu
+      else
+        (* path that is incomparable, skip it *)
+        glb, accu
+    in
+    let glb, mm' = MPmap.fold fold_mp mm (None, MPmap.empty) in
+    let mm' = match glb with
+    | None -> mm'
+    | Some glb ->
+      if MPmap.mem root mm then mm'
+      else
+        (* Add root to the resolver and map it to what find_prefix would have
+           returned on root *)
+        let rec diff accu mp =
+          if ModPath.equal mp glb then accu
+          else match mp with
+          | MPdot (mp, l) -> diff (l :: accu) mp
+          | MPbound _ | MPfile _ -> assert false
+        in
+        let diff = diff [] root in
+        let data = MPmap.get glb mm in
+        let data' = List.fold_left (fun accu l -> MPdot (accu, l)) data diff in
+        MPmap.add root data' mm'
+    in
+    (* filter the kernames *)
+    let filter_kn kn _ = ModPath.subpath root (KerName.modpath kn) in
+    let km' = KNmap.filter filter_kn km in
+    { kmap = km'; mmap = mm'; root = root }
+
 end
 
 (* Invariant: in the [delta_hint] map, an [Equiv] should only
@@ -53,6 +126,10 @@ end
 type delta_resolver = Deltamap.t
 
 let empty_delta_resolver = Deltamap.empty
+let has_root_delta_resolver mp reso =
+  ModPath.equal mp (Deltamap.root reso)
+
+let upcast_delta_resolver = Deltamap.upcast
 
 module Umap :
   sig
@@ -75,7 +152,7 @@ module Umap :
   let join map1 map2 = fold add_mp map1 map2
 end
 
-type substitution = (ModPath.t * delta_resolver) Umap.t
+type substitution = delta_resolver Umap.t
 
 let empty_subst = Umap.empty
 
@@ -99,7 +176,7 @@ let debug_string_of_delta resolve =
   String.concat ", " (List.rev l)
 
 let list_contents subst =
-  let one_pair (mp,reso) = (ModPath.to_string mp,debug_string_of_delta reso) in
+  let one_pair reso = (ModPath.to_string (Deltamap.root reso), debug_string_of_delta reso) in
   let mp_one_pair mp0 p l = (ModPath.to_string mp0, one_pair p)::l in
   Umap.fold mp_one_pair subst []
 
@@ -110,7 +187,7 @@ let debug_string_of_subst subst =
   "{" ^ String.concat "; " l ^ "}"
 
 let debug_pr_delta resolve =
-  str (debug_string_of_delta resolve)
+  strbrk (debug_string_of_delta resolve)
 
 let debug_pr_subst subst =
   let l = list_contents subst in
@@ -133,23 +210,18 @@ let add_mp_delta_resolver mp1 mp2 = Deltamap.add_mp mp1 mp2
 
 (** Extending a [substitution] without sequential composition *)
 
-let add_mbid mbid mp resolve s = Umap.add_mbi mbid (mp,resolve) s
-let add_mp mp1 mp2 resolve s = Umap.add_mp mp1 (mp2,resolve) s
+let add_mbid mbid mp resolve s =
+  let () = assert (ModPath.equal mp (Deltamap.root resolve)) in
+  Umap.add_mbi mbid resolve s
+let add_mp mp1 mp2 resolve s =
+  let () = assert (ModPath.equal mp2 (Deltamap.root resolve)) in
+  Umap.add_mp mp1 resolve s
 
-let map_mbid mbid mp resolve = add_mbid mbid mp resolve empty_subst
+let map_mbid mbid mp resolve =
+  add_mbid mbid mp resolve empty_subst
 let map_mp mp1 mp2 resolve = add_mp mp1 mp2 resolve empty_subst
 
 let mp_in_delta mp = Deltamap.mem_mp mp
-
-let kn_in_delta kn resolver =
-  try
-    match Deltamap.find_kn kn resolver with
-      | Equiv _ -> true
-      | Inline _ -> false
-  with Not_found -> false
-
-let con_in_delta con resolver = kn_in_delta (Constant.user con) resolver
-let mind_in_delta mind resolver = kn_in_delta (MutInd.user mind) resolver
 
 let mp_of_delta resolve mp =
  try Deltamap.find_mp mp resolve with Not_found -> mp
@@ -185,23 +257,11 @@ let kn_of_delta resolve kn =
   try solve_delta_kn resolve kn
   with Change_equiv_to_inline _ -> kn
 
-(** Try a 1st resolver, and then a 2nd in case it had no effect *)
-
-let kn_of_deltas resolve1 resolve2 kn =
-  let kn' = kn_of_delta resolve1 kn in
-  if kn' == kn then kn_of_delta resolve2 kn else kn'
-
 let constant_of_delta_kn resolve kn =
   Constant.make kn (kn_of_delta resolve kn)
 
-let constant_of_deltas_kn resolve1 resolve2 kn =
-  Constant.make kn (kn_of_deltas resolve1 resolve2 kn)
-
 let mind_of_delta_kn resolve kn =
   MutInd.make kn (kn_of_delta resolve kn)
-
-let mind_of_deltas_kn resolve1 resolve2 kn =
-  MutInd.make kn (kn_of_deltas resolve1 resolve2 kn)
 
 let inline_of_delta inline resolver =
   match inline with
@@ -227,12 +287,12 @@ let search_delta_inline resolve kn1 kn2 =
       with Not_found -> None
 
 let subst_mp_opt subst mp = (* 's like subst *)
- let rec aux mp =
-  match mp with
-    | MPfile _ | MPbound _ -> Umap.find mp subst
+  let repr r = Deltamap.root r, r in
+  let rec aux mp = match mp with
+    | MPfile _ | MPbound _ -> repr @@ Umap.find mp subst
     | MPdot (mp1,l) as mp2 ->
         begin
-          try Umap.find mp2 subst
+          try repr @@ Umap.find mp2 subst
           with Not_found ->
             let mp1',resolve = aux mp1 in
             MPdot (mp1',l),resolve
@@ -477,11 +537,7 @@ let replace_mp_in_kn mpfrom mpto kn =
     if mp==mp'' then kn
     else KerName.make mp'' l
 
-let rec mp_in_mp mp mp1 =
-  match mp1 with
-    | _ when ModPath.equal mp1 mp -> true
-    | MPdot (mp2,_l) -> mp_in_mp mp mp2
-    | _ -> false
+let mp_in_mp = ModPath.subpath
 
 let subset_prefixed_by mp resolver =
   let mp_prefix mkey mequ rslv =
@@ -493,7 +549,7 @@ let subset_prefixed_by mp resolver =
       | Equiv _ | Inline (_,Some _) ->
         if mp_in_mp mp (KerName.modpath kn) then Deltamap.add_kn kn hint rslv else rslv
   in
-  Deltamap.fold mp_prefix kn_prefix resolver empty_delta_resolver
+  Deltamap.fold mp_prefix kn_prefix resolver (empty_delta_resolver mp)
 
 let subst_dom_delta_resolver subst resolver =
   let mp_apply_subst mkey mequ rslv =
@@ -502,21 +558,23 @@ let subst_dom_delta_resolver subst resolver =
   let kn_apply_subst kkey hint rslv =
     Deltamap.add_kn (subst_kn subst kkey) hint rslv
   in
-  Deltamap.fold mp_apply_subst kn_apply_subst resolver empty_delta_resolver
+  let root = subst_mp subst (Deltamap.root resolver) in
+  Deltamap.fold mp_apply_subst kn_apply_subst resolver (empty_delta_resolver root)
 
 let subst_mp_delta subst mp mkey =
  match subst_mp_opt subst mp with
-    None -> empty_delta_resolver,mp
+    None -> empty_delta_resolver mp, mp
   | Some (mp',resolve) ->
+    (* root(resolve) ⊆ mp' *)
       let mp1 = find_prefix resolve mp' in
       let resolve1 = subset_prefixed_by mp1 resolve in
       (subst_dom_delta_resolver
-         (map_mp mp1 mkey empty_delta_resolver) resolve1),mp1
+         (map_mp mp1 mkey (empty_delta_resolver mkey)) resolve1), mp1
 
 let gen_subst_delta_resolver dom subst resolver =
   let mp_apply_subst mkey mequ rslv =
     let mkey' = if dom then subst_mp subst mkey else mkey in
-    let rslv',mequ' = subst_mp_delta subst mequ mkey in
+    let rslv',mequ' = subst_mp_delta subst mequ mkey' in
     Deltamap.join rslv' (Deltamap.add_mp mkey' mequ' rslv)
   in
   let kn_apply_subst kkey hint rslv =
@@ -530,7 +588,8 @@ let gen_subst_delta_resolver dom subst resolver =
     in
     Deltamap.add_kn kkey' hint' rslv
   in
-  Deltamap.fold mp_apply_subst kn_apply_subst resolver empty_delta_resolver
+  let root = if dom then subst_mp subst (Deltamap.root resolver) else Deltamap.root resolver in
+  Deltamap.fold mp_apply_subst kn_apply_subst resolver (empty_delta_resolver root)
 
 let subst_codom_delta_resolver = gen_subst_delta_resolver false
 let subst_dom_codom_delta_resolver = gen_subst_delta_resolver true
@@ -553,37 +612,42 @@ let update_delta_resolver resolver1 resolver2 =
   Deltamap.fold mp_apply_rslv kn_apply_rslv resolver1 resolver2
 
 let add_delta_resolver resolver1 resolver2 =
-  if Deltamap.is_empty resolver2 then
-    resolver1
-  else
-    update_delta_resolver resolver1 resolver2
+  let () =
+    if mp_in_mp (Deltamap.root resolver2) (Deltamap.root resolver1) then ()
+    else CErrors.anomaly Pp.(strbrk "Incompatible resolver roots: " ++
+      ModPath.print (Deltamap.root resolver2) ++ strbrk " is not a subpath of " ++
+      ModPath.print (Deltamap.root resolver1))
+  in
+  update_delta_resolver resolver1 resolver2
 
 let substitution_prefixed_by k mp subst =
-  let mp_prefixmp kmp (mp_to,reso) subst =
+  let mp_prefixmp kmp reso subst =
     if mp_in_mp mp kmp && not (ModPath.equal mp kmp) then
       let new_key = replace_mp_in_mp mp k kmp in
-      Umap.add_mp new_key (mp_to,reso) subst
+      Umap.add_mp new_key reso subst
     else subst
   in
   Umap.fold mp_prefixmp subst empty_subst
 
 let join subst1 subst2 =
-  let apply_subst mpk add (mp,resolve) res =
-    let mp',resolve' =
-      match subst_mp_opt subst2 mp with
-        | None -> mp, None
-        | Some (mp',resolve') ->  mp', Some resolve' in
-    let resolve'' =
-      match resolve' with
-        | Some res ->
-            add_delta_resolver
-              (subst_dom_codom_delta_resolver subst2 resolve) res
-        | None ->
-            subst_codom_delta_resolver subst2 resolve
+  let apply_subst mpk resolve res =
+    let mp = Deltamap.root resolve in
+    let mp', resolve' = match subst_mp_opt subst2 mp with
+    | None ->
+      let resolve' = subst_codom_delta_resolver subst2 resolve in
+      mp, resolve'
+    | Some (mp', resolve') ->
+      (* root(resolve') ⊆ mp' = subst2(mp) = root(subst_dom_codom_delta_resolver subst2 resolve) *)
+      let resolve' =
+        add_delta_resolver
+          (subst_dom_codom_delta_resolver subst2 resolve) resolve'
+      in
+      (* We need to reroot, as in general we only have root(resolve'') ⊆ mp' *)
+      let resolve' = Deltamap.reroot mp' resolve' in
+      mp', resolve'
     in
     let prefixed_subst = substitution_prefixed_by mpk mp' subst2 in
-    Umap.join prefixed_subst (add (mp',resolve'') res)
+    Umap.join prefixed_subst (Umap.add_mp mpk resolve' res)
   in
-  let mp_apply_subst mp = apply_subst mp (Umap.add_mp mp) in
-  let subst = Umap.fold mp_apply_subst subst1 empty_subst in
+  let subst = Umap.fold apply_subst subst1 empty_subst in
   Umap.join subst2 subst

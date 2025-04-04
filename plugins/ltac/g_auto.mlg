@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -12,14 +12,14 @@
 
 open Pp
 open Stdarg
-open Pcoq.Prim
-open Pcoq.Constr
+open Procq.Prim
+open Procq.Constr
 open Pltac
 open Hints
 
 }
 
-DECLARE PLUGIN "coq-core.plugins.ltac"
+DECLARE PLUGIN "rocq-runtime.plugins.ltac"
 
 (* Hint bases *)
 
@@ -128,11 +128,6 @@ END
 TACTIC EXTEND info_eauto
 | [ "info_eauto" nat_or_var_opt(depth) auto_using(lems) hintbases(db) ] ->
   { Eauto.gen_eauto ~debug:Info ?depth (eval_uconstrs ist lems) db }
-END
-
-TACTIC EXTEND dfs_eauto DEPRECATED { Deprecation.make ~since:"8.16" ~note:"Use [eauto] instead." () }
-| [ "dfs" "eauto" nat_or_var_opt(depth) auto_using(lems) hintbases(db) ] ->
-  { Eauto.gen_eauto ?depth (eval_uconstrs ist lems) db }
 END
 
 TACTIC EXTEND autounfold

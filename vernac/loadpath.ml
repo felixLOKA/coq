@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -89,16 +89,16 @@ let remove_load_path dir =
 
 let warn_overriding_logical_loadpath =
   CWarnings.create ~name:"overriding-logical-loadpath" ~category:CWarnings.CoreCategories.filesystem
-    (fun (phys_path, old_path, coq_path) ->
+    (fun (phys_path, old_path, rocq_path) ->
        Pp.(seq [str phys_path; strbrk " was previously bound to "
                ; DP.print old_path; strbrk "; it is remapped to "
-               ; DP.print coq_path]))
+               ; DP.print rocq_path]))
 
-let add_load_path root phys_path coq_path ~implicit =
+let add_load_path root phys_path rocq_path ~implicit =
   let phys_path = CUnix.canonical_path_name phys_path in
   let filter p = String.equal p.path_physical phys_path in
   let binding = {
-    path_logical = coq_path;
+    path_logical = rocq_path;
     path_physical = phys_path;
     path_implicit = implicit;
     path_root = root;
@@ -108,13 +108,13 @@ let add_load_path root phys_path coq_path ~implicit =
     load_paths := binding :: !load_paths
   | [{ path_logical = old_path; path_implicit = old_implicit }] ->
     let replace =
-      if DP.equal coq_path old_path then
+      if DP.equal rocq_path old_path then
         implicit <> old_implicit
       else
         let () =
           (* Do not warn when overriding the default "-I ." path *)
           if not (DP.equal old_path Libnames.default_root_prefix) then
-          warn_overriding_logical_loadpath (phys_path, old_path, coq_path)
+          warn_overriding_logical_loadpath (phys_path, old_path, rocq_path)
         in
         true in
     if replace then
@@ -272,6 +272,27 @@ let locate_qualified_library ?root qid :
       Ok (library, file)
     | Error _ as e -> e
 
+let warn_deprecated_missing_stdlib =
+  CWarnings.create ~name:"deprecated-missing-stdlib"
+    ~category:Deprecation.Version.v9_0
+    (fun qid ->
+      Pp.(str "Loading Stdlib without prefix is deprecated." ++ spc ()
+          ++ str "Use \"From Stdlib Require " ++ Libnames.pr_qualid qid
+          ++ str "\"" ++ spc() ++ str "or the deprecated \"From Coq Require "
+          ++ Libnames.pr_qualid qid ++ str "\"" ++ spc ()
+          ++ str "for compatibility with older Coq versions."))
+
+(* temporary handling deprecated loading of stdlib without root *)
+let locate_qualified_library ?root qid =
+  let root_stdlib =
+    Names.(Libnames.add_dirpath_suffix DirPath.empty (Id.of_string "Stdlib")) in
+  match root, locate_qualified_library ?root qid with
+  | Some _, r | None, (Ok _ as r) -> r
+  | None, (Error _ as e) ->
+     match locate_qualified_library ~root:root_stdlib qid with
+     | Error _ -> e
+     | Ok _ as o -> warn_deprecated_missing_stdlib ?loc:qid.loc qid; o
+
 (** { 5 Extending the load path } *)
 
 type vo_path =
@@ -282,8 +303,6 @@ type vo_path =
   ; implicit  : bool
   (** [implicit = true] avoids having to qualify with [coq_path]
       true for -R, false for -Q in command line *)
-  ; has_ml    : bool
-  (** If [has_ml] is true, the directory will also be added to the ml include path *)
   ; recursive : bool
   (** [recursive] will determine whether we explore sub-directories  *)
   }
@@ -296,7 +315,7 @@ let warn_cannot_use_directory =
   CWarnings.create ~name:"cannot-use-directory" ~category:CWarnings.CoreCategories.filesystem
     (fun d ->
        Pp.(str "Directory " ++ str d ++
-           strbrk " cannot be used as a Coq identifier (skipped)"))
+           strbrk " cannot be used as a Rocq identifier (skipped)"))
 
 let convert_string d =
   try Names.Id.of_string d
@@ -321,15 +340,6 @@ let add_vo_path lp =
       with Exit -> None
     in
     let dirs = List.map_filter convert_dirs dirs in
-    let () =
-      if lp.has_ml && not lp.recursive then
-        Mltop.add_ml_dir unix_path
-      else if lp.has_ml && lp.recursive then
-        (List.iter (fun (lp,_) -> Mltop.add_ml_dir lp) dirs;
-         Mltop.add_ml_dir unix_path)
-      else
-        ()
-    in
     let root = (unix_path,lp.coq_path) in
     let add (path, dir) = add_load_path root path ~implicit dir in
     (* deeper dirs registered first and thus be found last *)

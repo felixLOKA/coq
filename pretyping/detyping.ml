@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -85,7 +85,8 @@ let return_clause env sigma ind u params ((nas, p),_) =
       let inst = Instance.(abstract_instance (length u)) in
       mkApp (mkIndU (ind, inst), args)
     in
-    let realdecls = LocalAssum (Context.anonR, self) :: realdecls in
+    let na = Context.make_annot Anonymous mip.mind_relevance in
+    let realdecls = LocalAssum (na, self) :: realdecls in
     let realdecls = instantiate_context u paramsubst nas realdecls in
     List.map EConstr.of_rel_decl realdecls, p
   with e when CErrors.noncritical e ->
@@ -393,8 +394,13 @@ let detype_sort sigma = function
        else glob_Type_sort)
   | QSort (q, u) ->
     if !print_universes then
-      let q = if print_sort_quality () then Some (detype_qvar sigma q) else None in
+      let q = if print_sort_quality () || Evd.is_rigid_qvar sigma q then
+          Some (detype_qvar sigma q)
+        else None
+      in
       q, detype_universe sigma u
+    else if Evd.is_rigid_qvar sigma q then
+      Some (detype_qvar sigma q), UAnonymous {rigid=UState.univ_flexible}
     else glob_Type_sort
 
 let detype_relevance_info sigma na =

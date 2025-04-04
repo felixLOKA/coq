@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -32,13 +32,13 @@ let anomaly ?loc ?info ?label pp =
 
 exception UserError of Pp.t (* User errors *)
 
-(* We register Coq Errors with the global printer here as they will be
+(* We register Rocq Errors with the global printer here as they will be
    printed if Dynlink.loadfile raises UserError in the module
    intializers, and in some other cases. We should make this more
    principled. *)
 let _ = Printexc.register_printer (function
     | UserError msg ->
-      Some (Format.asprintf "@[Coq Error: %a@]" Pp.pp_with msg)
+      Some (Format.asprintf "@[Rocq Error: %a@]" Pp.pp_with msg)
     | _ -> None)
 
 let user_err ?loc ?info strm =

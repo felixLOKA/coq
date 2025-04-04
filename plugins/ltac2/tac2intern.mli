@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -18,6 +18,20 @@ val intern : strict:bool -> context -> raw_tacexpr -> glb_tacexpr * type_scheme
 val intern_typedef : (KerName.t * int) Id.Map.t -> raw_quant_typedef -> glb_quant_typedef
 val intern_open_type : raw_typexpr -> type_scheme
 val intern_notation_data : Id.Set.t -> raw_tacexpr -> Tac2env.notation_data
+
+(** [check_unused] is default true *)
+val genintern_warn_not_unit : ?check_unused:bool ->
+  Genintern.glob_sign ->
+  (Name.t * Tac2typing_env.mix_type_scheme) list ->
+  raw_tacexpr ->
+  glb_tacexpr
+
+val genintern : ?check_unused:bool ->
+  Genintern.glob_sign ->
+  (Name.t * Tac2typing_env.mix_type_scheme) list ->
+  Tac2typing_env.TVar.t glb_typexpr ->
+  raw_tacexpr ->
+  glb_tacexpr
 
 (** Check that a term is a value. Only values are safe to marshall between
     processes. *)

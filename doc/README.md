@@ -7,14 +7,14 @@ The Coq documentation includes
 - A document presenting the Coq standard library
 
 The documentation of the latest released version is available on the Coq
-web site at [coq.inria.fr/documentation](http://coq.inria.fr/documentation).
+web site at [rocq-prover.org/docs](https://rocq-prover.org/docs).
 
 Additionally, you can view the reference manual for the development version
 at <https://coq.github.io/doc/master/refman/>, and the documentation of the
 standard library for the development version at
 <https://coq.github.io/doc/master/stdlib/>.
 
-The reference manual is written is reStructuredText and compiled
+The reference manual is written in reStructuredText and compiled
 using Sphinx. See [`sphinx/README.rst`](sphinx/README.rst)
 to learn more about the format that is used.
 
@@ -81,6 +81,17 @@ for a Docker build with `ENV LANG C.UTF-8`.  (Python may look at other
 environment variables to determine the locale; see the
 [Python documentation](https://docs.python.org/3/library/locale.html#locale.getdefaultlocale)).
 
+### Libraries
+
+Most of the refman compiles with only the rocq-core package.
+However, in order to showcase some nice advertising
+examples with some external libraries included in Coq CI, a few code
+blocks in the refman depend on those libraries. These blocks are
+marked with the `extra` parameter (see
+[`sphinx/README.rst`](sphinx/README.rst) for more details). The
+targets below make those blocks optional but their correct compilation
+is checked in the CI target `doc:ci-refman`.
+
 Compilation
 -----------
 
@@ -92,8 +103,8 @@ The current documentation targets are:
 - `make refman-pdf`
   Build the reference manual in PDF form into `_build/default/doc/refman-pdf`
 
-- `make stdlib-html`
-  Build Coq's standard library documentation into `_build/default/doc/stdlib/html`
+- `make corelib-html`
+  Build Rocq core library documentation into `_build/default/doc/corelib/html`
 
 - `make apidoc`
   Build the ML API's documentation into `_build/default/_doc/_html`
@@ -124,5 +135,5 @@ The produced documents are stored in the described directories above,
 you can install them just by copying the contents to the desired
 directory.
 
-In the future, the `coq-doc` and `coq-stdlib` opam packages will
+In the future, the `coq-doc` and `rocq-core` opam packages will
 install the documentation automatically.

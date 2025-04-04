@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -51,7 +51,7 @@ val new_evar :
 (** Alias of {!Evd.new_pure_evar} *)
 val new_pure_evar :
   ?src:Evar_kinds.t Loc.located -> ?filter:Filter.t ->
-  ?relevance:ERelevance.t ->
+  relevance:ERelevance.t ->
   ?abstract_arguments:Abstraction.t -> ?candidates:constr list ->
   ?name:Id.t ->
   ?typeclass_candidate:bool ->
@@ -75,6 +75,7 @@ val whd_head_evar :  evar_map -> constr -> constr
 
 (* An over-approximation of [has_undefined (nf_evars evd c)] *)
 val has_undefined_evars : evar_map -> constr -> bool
+val has_undefined_evars_or_metas : evar_map -> constr -> bool
 
 val is_ground_term :  evar_map -> constr -> bool
 val is_ground_env  :  evar_map -> env -> bool
@@ -116,9 +117,6 @@ val judge_of_new_Type : evar_map -> evar_map * unsafe_judgment
 
 val create_clos_infos : env -> evar_map -> RedFlags.reds -> CClosure.clos_infos
 
-(** [flush_and_check_evars] raise [Uninstantiated_evar] if an evar remains
-    uninstantiated; [nf_evar] leaves uninstantiated evars as is *)
-
 val whd_evar :  evar_map -> constr -> constr
 val nf_evar :  evar_map -> constr -> constr
 val j_nf_evar :  evar_map -> unsafe_judgment -> unsafe_judgment
@@ -141,10 +139,6 @@ val nf_relevance : evar_map -> Sorts.relevance -> Sorts.relevance
 (** Presenting terms without solved evars *)
 
 val nf_evars_universes : evar_map -> Constr.constr -> Constr.constr
-
-(** Replacing all evars, possibly raising [Uninstantiated_evar] *)
-exception Uninstantiated_evar of Evar.t
-val flush_and_check_evars :  evar_map -> constr -> Constr.constr
 
 (** [finalize env sigma f] combines universe minimisation,
    evar-and-universe normalisation and universe restriction.
@@ -209,7 +203,7 @@ raise OccurHypInSimpleClause if the removal breaks dependencies *)
 
 type clear_dependency_error =
 | OccurHypInSimpleClause of Id.t option
-| EvarTypingBreak of Constr.existential
+| EvarTypingBreak of EConstr.existential
 | NoCandidatesLeft of Evar.t
 
 exception ClearDependencyError of Id.t * clear_dependency_error * GlobRef.t option

@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -11,7 +11,7 @@
 let coqc_init ((_,color_mode),_) injections ~opts =
   Flags.quiet := true;
   System.trust_file_cache := true;
-  Colors.init_color (if opts.Coqargs.config.Coqargs.print_emacs then `EMACS else color_mode);
+  Colors.init_color color_mode;
   DebugHook.Intf.(set
     { read_cmd = Coqtop.ltac_debug_parse
     ; submit_answer = Coqtop.ltac_debug_answer
@@ -20,10 +20,10 @@ let coqc_init ((_,color_mode),_) injections ~opts =
   injections
 
 let coqc_specific_usage = Boot.Usage.{
-  executable_name = "coqc";
+  executable_name = "rocq compile";
   extra_args = "file...";
   extra_options = "\n\
-coqc specific options:\
+rocq compile specific options:\
 \n  -o f.vo                use f.vo as the output file name\
 \n  -verbose               compile and output the input file\
 \n  -noglob                do not dump globalizations\
@@ -78,9 +78,9 @@ let fix_stm_opts opts stm_opts = match opts.Coqcargs.compilation_mode with
 
 let custom_coqc : ((Coqcargs.t * Colors.color) * Stm.AsyncOpts.stm_opt, 'b) Coqtop.custom_toplevel
  = Coqtop.{
-  parse_extra = (fun extras ->
-    let color_mode, extras = Colors.parse_extra_colors extras in
-    let stm_opts, extras = Stmargs.parse_args ~init:Stm.AsyncOpts.default_opts extras in
+  parse_extra = (fun opts extras ->
+    let color_mode, extras = Colors.parse_extra_colors ~emacs:opts.config.print_emacs extras in
+    let stm_opts, extras = Stmargs.parse_args opts extras in
     let coqc_opts = Coqcargs.parse extras in
     let stm_opts = fix_stm_opts coqc_opts stm_opts in
     ((coqc_opts, color_mode), stm_opts), []);
@@ -90,6 +90,6 @@ let custom_coqc : ((Coqcargs.t * Colors.color) * Stm.AsyncOpts.stm_opt, 'b) Coqt
   initial_args = Coqargs.default;
 }
 
-let main () =
+let main args =
   let () = Memtrace_init.init () in
-  Coqtop.start_coq custom_coqc
+  Coqtop.start_coq custom_coqc args

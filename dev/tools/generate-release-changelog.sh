@@ -43,8 +43,8 @@ else
         ask_confirmation
     fi
 
-    official_remote_git_url="git@github.com:coq/coq"
-    official_remote_https_url="github.com/coq/coq"
+    official_remote_git_url="git@github.com:rocq-prover/rocq"
+    official_remote_https_url="github.com/rocq-prover/rocq"
     remote_url=$(git remote get-url "$remote" --all)
 
     if [ "$remote_url" != "${official_remote_git_url}" ] && \
@@ -53,7 +53,7 @@ else
            [ "$remote_url" != "https://${official_remote_https_url}.git" ] && \
            [[ "$remote_url" != "https://"*"@${official_remote_https_url}" ]] && \
            [[ "$remote_url" != "https://"*"@${official_remote_https_url}.git" ]] ; then
-        echo "Warning: remote $remote does not point to the official Coq repo,"
+        echo "Warning: remote $remote does not point to the official Rocq repo,"
         echo "that is $official_remote_git_url"
         echo "It points to $remote_url instead."
         ask_confirmation

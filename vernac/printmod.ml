@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -14,6 +14,7 @@ open Context
 open Pp
 open Names
 open Declarations
+open Mod_declarations
 open Libnames
 open Goptions
 
@@ -60,7 +61,7 @@ let keyword s = tag_keyword (str s)
 
 let get_new_id locals id =
   let rec get_id l id =
-    let dir = DirPath.make [id] in
+    let dir = Libnames.make_path DirPath.empty id in
       if not (Nametab.exists_module dir || Nametab.exists_dir dir) then
         id
       else
@@ -132,7 +133,7 @@ let print_one_inductive env sigma isrecord mib ((_,i) as ind, as_clause) =
   if isrecord then assert (Array.length cstrtypes = 1);
   let inst =
     if Declareops.inductive_is_polymorphic mib then
-      Printer.pr_universe_instance sigma u
+      Printer.pr_universe_instance_binder sigma u Univ.Constraints.empty
     else mt ()
   in
   hov 0 (
@@ -158,6 +159,7 @@ let pr_mutual_inductive_body env mind mib udecl =
        | PrimRecord l -> "Record", true, Array.map_to_list (fun (id,_,_,_) -> Name id) l
        | FakeRecord | NotRecord -> "Variant", false, default_as
   in
+  let udecl = Option.map (fun x -> GlobRef.IndRef (mind,0), x) udecl in
   let bl = Printer.universe_binders_with_opt_names
       (Declareops.inductive_polymorphic_context mib) udecl
   in
@@ -197,7 +199,7 @@ let print_kn locals kn =
 
 let nametab_register_dir obj_mp =
   let id = mk_fake_top () in
-  let obj_dir = DirPath.make [id] in
+  let obj_dir = Libnames.make_path DirPath.empty id in
   Nametab.(push_module (Until 1) obj_dir obj_mp)
 
 (** Nota: the [global_reference] we register in the nametab below
@@ -238,13 +240,13 @@ let nametab_register_module_body mp struc =
     nametab_register_dir mp;
     List.iter (nametab_register_body mp DirPath.empty) struc
 
-let get_typ_expr_alg mtb = match mtb.mod_type_alg with
+let get_typ_expr_alg mtb = match mod_type_alg mtb with
   | Some (MENoFunctor me) -> me
   | _ -> raise Not_found
 
 let nametab_register_modparam used mbid mtb =
   let id = MBId.to_id mbid in
-  match mtb.mod_type with
+  match mod_type mtb with
   | MoreFunctor _ -> id (* functorial param : nothing to register *)
   | NoFunctor struc ->
     (* We first try to use the algebraic type expression if any,
@@ -255,7 +257,7 @@ let nametab_register_modparam used mbid mtb =
     with e when CErrors.noncritical e ->
       (* Otherwise, we try to play with the nametab ourselves *)
       let mp = MPbound mbid in
-      let check id = Id.Set.mem id used || Nametab.exists_module (DirPath.make [id]) in
+      let check id = Id.Set.mem id used || Nametab.exists_module (Libnames.make_path DirPath.empty id) in
       let id = Namegen.next_ident_away_from id check in
       let dir = DirPath.make [id] in
       nametab_register_dir mp;
@@ -306,7 +308,7 @@ let print_struct is_impl extent env mp struc =
   prlist_with_sep spc (print_body is_impl extent env mp) struc
 
 let print_structure is_type extent env mp locals struc =
-  let env' = Modops.add_structure mp struc Mod_subst.empty_delta_resolver env in
+  let env' = Modops.add_structure mp struc (Mod_subst.empty_delta_resolver mp) env in
   nametab_register_module_body mp struc;
   let kwd = if is_type then "Sig" else "Struct" in
   hv 2 (keyword kwd ++ spc () ++ print_struct false extent env' mp struc ++
@@ -360,7 +362,7 @@ let rec print_functor fty fatom is_type extent env mp used locals = function
       let () = used := Id.Set.add id !used in
       let mp1 = MPbound mbid in
       let pr_mtb1 = fty extent env mp1 used locals mtb1 in
-      let env' = Modops.add_module_type mp1 mtb1 env in
+      let env' = Modops.add_module_parameter mbid mtb1 env in
       let locals' = (mbid, get_new_id locals (MBId.to_id mbid))::locals in
       let kwd = if is_type then "Funsig" else "Functor" in
       hov 2
@@ -376,11 +378,11 @@ let rec print_expression x =
 and print_signature x =
   print_functor print_modtype print_structure x
 
-and print_modtype extent env mp used locals mtb = match mtb.mod_type_alg with
+and print_modtype extent env mp used locals mtb = match mod_type_alg mtb with
   | Some me ->
-    let me = Modops.annotate_module_expression me mtb.mod_type in
+    let me = Modops.annotate_module_expression me (mod_type mtb) in
     print_expression true extent env mp used locals me
-  | None -> print_signature true extent env mp used locals mtb.mod_type
+  | None -> print_signature true extent env mp used locals (mod_type mtb)
 
 (** Since we might play with nametab above, we should reset to prior
     state after the printing *)
@@ -396,23 +398,23 @@ let print_signature' is_type extent env mp me =
 let unsafe_print_module extent env mp with_body mb =
   let name = print_modpath [] mp in
   let pr_equals = spc () ++ str ":= " in
-  let body = match with_body, mb.mod_expr with
+  let body = match with_body, Mod_declarations.mod_expr mb with
     | false, _
     | true, Abstract -> mt()
     | _, Algebraic me ->
-      let me = Modops.annotate_module_expression me mb.mod_type in
+      let me = Modops.annotate_module_expression me (mod_type mb) in
       pr_equals ++ print_expression' false extent env mp me
     | _, Struct sign ->
-      let sign = Modops.annotate_struct_body sign mb.mod_type in
+      let sign = Modops.annotate_struct_body sign (mod_type mb) in
       pr_equals ++ print_signature' false extent env mp sign
-    | _, FullStruct -> pr_equals ++ print_signature' false extent env mp mb.mod_type
+    | _, FullStruct -> pr_equals ++ print_signature' false extent env mp (mod_type mb)
   in
-  let modtype = match mb.mod_expr, mb.mod_type_alg with
+  let modtype = match mod_expr mb, mod_type_alg mb with
     | FullStruct, _ -> mt ()
     | _, Some ty ->
-      let ty = Modops.annotate_module_expression ty mb.mod_type in
+      let ty = Modops.annotate_module_expression ty (mod_type mb) in
       brk (1,1) ++ str": " ++ print_expression' true extent env mp ty
-    | _, _ -> brk (1,1) ++ str": " ++ print_signature' true extent env mp mb.mod_type
+    | _, _ -> brk (1,1) ++ str": " ++ print_signature' true extent env mp (mod_type mb)
   in
   hv 0 (keyword "Module" ++ spc () ++ name ++ modtype ++ body)
 
@@ -436,7 +438,7 @@ let print_modtype kn =
      try
       if !short then raise ShortPrinting;
       print_signature' true WithContents
-        (Global.env ()) kn mtb.mod_type
+        (Global.env ()) kn (mod_type mtb)
      with e when CErrors.noncritical e ->
       print_signature' true OnlyNames
-        (Global.env ()) kn mtb.mod_type)
+        (Global.env ()) kn (mod_type mtb))

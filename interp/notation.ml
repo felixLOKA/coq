@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -224,9 +224,6 @@ let warn_scope_delimiter_start_ =
     ~default:CWarnings.AsError
     (fun () -> strbrk "Scope delimiters should not start with an underscore.")
 
-let warn_overwriting_key = CWarnings.create ~name:"overwriting-delimiting-key" ~category:CWarnings.CoreCategories.parsing
-    Pp.(fun (oldkey,scope) -> str "Overwriting previous delimiting key " ++ str oldkey ++ str " in scope " ++ str scope)
-
 let warn_hiding_key =  CWarnings.create ~name:"hiding-delimiting-key" ~category:CWarnings.CoreCategories.parsing
     Pp.(fun (key,oldscope) -> str "Hiding binding of key " ++ str key ++ str " to " ++ str oldscope)
 
@@ -237,10 +234,7 @@ let declare_delimiters scope key =
   begin match sc.delimiters with
     | None -> scope_map := String.Map.add scope newsc !scope_map
     | Some oldkey when String.equal oldkey key -> ()
-    | Some oldkey ->
-      (* FIXME: implement multikey scopes? *)
-      warn_overwriting_key (oldkey,scope);
-      scope_map := String.Map.add scope newsc !scope_map
+    | Some oldkey -> scope_map := String.Map.add scope newsc !scope_map
   end;
   try
     let oldscope = String.Map.find key !delimiters_map in
@@ -357,7 +351,7 @@ end
    registered in plugins, such as string and ascii syntax.  It is
    essential that only plugins add to these tables, and that
    vernacular commands do not.  See
-   https://github.com/coq/coq/issues/8401 for details of what goes
+   https://github.com/rocq-prover/rocq/issues/8401 for details of what goes
    wrong when vernacular commands add to these tables. *)
 let prim_token_interpreters =
   (Hashtbl.create 7 : (prim_token_uid, InnerPrimToken.interpreter) Hashtbl.t)
@@ -400,12 +394,12 @@ type pos_neg_int63_ty =
   { pos_neg_int63_ty : Names.inductive }
 
 type target_kind =
-  | Int of int_ty (* Coq.Init.Number.int + uint *)
-  | UInt of int_ty (* Coq.Init.Number.uint *)
-  | Z of z_pos_ty (* Coq.Numbers.BinNums.Z and positive *)
-  | Int63 of pos_neg_int63_ty (* Coq.Numbers.Cyclic.Int63.PrimInt63.pos_neg_int63 *)
-  | Float64 (* Coq.Floats.PrimFloat.float *)
-  | Number of number_ty (* Coq.Init.Number.number + uint + int *)
+  | Int of int_ty (* Corelib.Init.Number.int + uint *)
+  | UInt of int_ty (* Corelib.Init.Number.uint *)
+  | Z of z_pos_ty (* Corelib.Numbers.BinNums.Z and positive *)
+  | Int63 of pos_neg_int63_ty (* Corelib.Numbers.Cyclic.Int63.PrimInt63.pos_neg_int63 *)
+  | Float64 (* Corelib.Floats.PrimFloat.float *)
+  | Number of number_ty (* Corelib.Init.Number.number + uint + int *)
 
 type string_target_kind =
   | ListByte
@@ -500,11 +494,11 @@ module PrimTokenNotation = struct
 
     At least [c] is known to be evar-free, since it comes from
     our own ad-hoc [constr_of_glob] or from conversions such
-    as [coqint_of_rawnum].
+    as [rocqint_of_rawnum].
 
     It is important to fully normalize the term, *including inductive
     parameters of constructors*; see
-    https://github.com/coq/coq/issues/9840 for details on what goes
+    https://github.com/rocq-prover/rocq/issues/9840 for details on what goes
     wrong if this does not happen, e.g., from using the vm rather than
     cbv.
 *)
@@ -559,6 +553,7 @@ let rec check_glob env sigma g c = match DAst.get g, Constr.kind c with
      sigma, mkApp (c, Array.of_list cl)
   | Glob_term.GInt i, Constr.Int i' when Uint63.equal i i' -> sigma, mkInt i
   | Glob_term.GFloat f, Constr.Float f' when Float64.equal f f' -> sigma, mkFloat f
+  | Glob_term.GString s, Constr.String s' when Pstring.equal s s' -> sigma, mkString s
   | Glob_term.GArray (_,t,def,ty), Constr.Array (_,t',def',ty') ->
      let sigma,u = Evd.fresh_array_instance env sigma in
      let sigma,def = check_glob env sigma def def' in
@@ -619,6 +614,7 @@ let rec constr_of_glob to_post post env sigma g = match DAst.get g with
       end
   | Glob_term.GInt i -> sigma, mkInt i
   | Glob_term.GFloat f -> sigma, mkFloat f
+  | Glob_term.GString s -> sigma, mkString s
   | Glob_term.GArray (_,t,def,ty) ->
       let sigma, u' = Evd.fresh_array_instance env sigma in
       let sigma, def' = constr_of_glob to_post post env sigma def in
@@ -647,6 +643,7 @@ let rec glob_of_constr token_kind ?loc env sigma c = match Constr.kind c with
   | Var id -> DAst.make ?loc (Glob_term.GRef (GlobRef.VarRef id, None))
   | Int i -> DAst.make ?loc (Glob_term.GInt i)
   | Float f -> DAst.make ?loc (Glob_term.GFloat f)
+  | String s -> DAst.make ?loc (Glob_term.GString s)
   | Array (u,t,def,ty) ->
       let def' = glob_of_constr token_kind ?loc env sigma def
       and t' = Array.map (glob_of_constr token_kind ?loc env sigma) t
@@ -700,12 +697,12 @@ let no_such_prim_token uninterpreted_token_kind ?loc ty =
    (str ("Cannot interpret this "^uninterpreted_token_kind^" as a value of type ") ++
     pr_qualid ty)
 
-let rec postprocess token_kind ?loc ty to_post post g =
+let rec postprocess env token_kind ?loc ty to_post post g =
   let g', gl = match DAst.get g with Glob_term.GApp (g, gl) -> g, gl | _ -> g, [] in
   let o =
     match DAst.get g' with
     | Glob_term.GRef (r, None) ->
-       List.find_opt (fun (r',_,_) -> GlobRef.CanOrd.equal r r') post
+       List.find_opt (fun (r',_,_) -> Environ.QGlobRef.equal env r r') post
     | _ -> None in
   match o with None -> g | Some (_, r, a) ->
   let rec f n a gl = match a, gl with
@@ -716,7 +713,7 @@ let rec postprocess token_kind ?loc ty to_post post g =
        h :: f (n+1) a gl
     | (ToPostCopy | ToPostCheck _) :: a, g :: gl -> g :: f (n+1) a gl
     | ToPostAs c :: a, g :: gl ->
-       postprocess token_kind ?loc ty to_post to_post.(c) g :: f (n+1) a gl
+       postprocess env token_kind ?loc ty to_post to_post.(c) g :: f (n+1) a gl
     | [], _::_ | _::_, [] ->
        no_such_prim_token token_kind ?loc ty
   in
@@ -727,12 +724,12 @@ let rec postprocess token_kind ?loc ty to_post post g =
 let glob_of_constr token_kind ty ?loc env sigma to_post c =
   let g = glob_of_constr token_kind ?loc env sigma c in
   match to_post with [||] -> g | _ ->
-    postprocess token_kind ?loc ty to_post to_post.(0) g
+    postprocess env token_kind ?loc ty to_post to_post.(0) g
 
 let glob_of_token token_kind ty ?loc env sigma to_post c =
   let g = glob_of_token token_kind ?loc env sigma c in
   match to_post with [||] -> g | _ ->
-    postprocess token_kind ?loc ty to_post to_post.(0) g
+    postprocess env token_kind ?loc ty to_post to_post.(0) g
 
 let interp_option uninterpreted_token_kind token_kind ty ?loc env sigma to_post c =
   match TokenValue.kind c with
@@ -789,7 +786,7 @@ let warn_abstract_large_num =
 
 (***********************************************************************)
 
-(** ** Conversion between Coq [Decimal.int] and internal raw string *)
+(** ** Conversion between Rocq [Decimal.int] and internal raw string *)
 
 (** Decimal.Nil has index 1, then Decimal.D0 has index 2 .. Decimal.D9 is 11 *)
 
@@ -803,7 +800,7 @@ let char_of_digit n =
   if n <= 11 then Char.chr (n-2 + Char.code '0')
   else Char.chr (n-12 + Char.code 'a')
 
-let coquint_of_rawnum esig inds c n =
+let rocquint_of_rawnum esig inds c n =
   let uint = match c with CDec -> inds.dec_uint | CHex -> inds.hex_uint in
   let nil = mkConstruct esig (uint,1) in
   match n with None -> nil | Some n ->
@@ -819,43 +816,43 @@ let coquint_of_rawnum esig inds c n =
   in
   do_chars str (String.length str - 1) nil
 
-let coqint_of_rawnum esig inds c (sign,n) =
+let rocqint_of_rawnum esig inds c (sign,n) =
   let ind = match c with CDec -> inds.dec_int | CHex -> inds.hex_int in
-  let uint = coquint_of_rawnum esig inds c (Some n) in
+  let uint = rocquint_of_rawnum esig inds c (Some n) in
   let pos_neg = match sign with SPlus -> 1 | SMinus -> 2 in
   mkApp (mkConstruct esig (ind, pos_neg), [|uint|])
 
-let coqnumber_of_rawnum esig inds c n =
+let rocqnumber_of_rawnum esig inds c n =
   let ind = match c with CDec -> inds.decimal | CHex -> inds.hexadecimal in
   let i, f, e = NumTok.Signed.to_int_frac_and_exponent n in
-  let i = coqint_of_rawnum esig inds.int c i in
-  let f = coquint_of_rawnum esig inds.int c f in
+  let i = rocqint_of_rawnum esig inds.int c i in
+  let f = rocquint_of_rawnum esig inds.int c f in
   match e with
   | None -> mkApp (mkConstruct esig (ind, 1), [|i; f|])  (* (D|Hexad)ecimal *)
   | Some e ->
-    let e = coqint_of_rawnum esig inds.int CDec e in
+    let e = rocqint_of_rawnum esig inds.int CDec e in
     mkApp (mkConstruct esig (ind, 2), [|i; f; e|])  (* (D|Hexad)ecimalExp *)
 
 let mkDecHex esig ind c n = match c with
   | CDec -> mkApp (mkConstruct esig (ind, 1), [|n|])  (* (UInt|Int|)Decimal *)
   | CHex -> mkApp (mkConstruct esig (ind, 2), [|n|])  (* (UInt|Int|)Hexadecimal *)
 
-let coqnumber_of_rawnum esig inds n =
+let rocqnumber_of_rawnum esig inds n =
   let c = NumTok.Signed.classify n in
-  let n = coqnumber_of_rawnum esig inds c n in
+  let n = rocqnumber_of_rawnum esig inds c n in
   mkDecHex esig inds.number c n
 
-let coquint_of_rawnum esig inds n =
+let rocquint_of_rawnum esig inds n =
   let c = NumTok.UnsignedNat.classify n in
-  let n = coquint_of_rawnum esig inds c (Some n) in
+  let n = rocquint_of_rawnum esig inds c (Some n) in
   mkDecHex esig inds.uint c n
 
-let coqint_of_rawnum esig inds n =
+let rocqint_of_rawnum esig inds n =
   let c = NumTok.SignedNat.classify n in
-  let n = coqint_of_rawnum esig inds c n in
+  let n = rocqint_of_rawnum esig inds c n in
   mkDecHex esig inds.int c n
 
-let rawnum_of_coquint cl c =
+let rawnum_of_rocquint cl c =
   let rec of_uint_loop c buf =
     match TokenValue.kind c with
     | TConstruct ((_, 1), _) (* Nil *) -> ()
@@ -873,17 +870,17 @@ let rawnum_of_coquint cl c =
     raise NotAValidPrimToken
   else NumTok.UnsignedNat.of_string (Buffer.contents buf)
 
-let rawnum_of_coqint cl c =
+let rawnum_of_rocqint cl c =
   match TokenValue.kind c with
-  | TConstruct ((_, 1), [c']) (* Pos *) -> (SPlus, rawnum_of_coquint cl c')
-  | TConstruct ((_, 2), [c']) (* Neg *) -> (SMinus, rawnum_of_coquint cl c')
+  | TConstruct ((_, 1), [c']) (* Pos *) -> (SPlus, rawnum_of_rocquint cl c')
+  | TConstruct ((_, 2), [c']) (* Neg *) -> (SMinus, rawnum_of_rocquint cl c')
   | _ -> raise NotAValidPrimToken
 
-let rawnum_of_coqnumber cl c =
+let rawnum_of_rocqnumber cl c =
   let of_ife i f e =
-    let n = rawnum_of_coqint cl i in
-    let f = try Some (rawnum_of_coquint cl f) with NotAValidPrimToken -> None in
-    let e = match e with None -> None | Some e -> Some (rawnum_of_coqint CDec e) in
+    let n = rawnum_of_rocqint cl i in
+    let f = try Some (rawnum_of_rocquint cl f) with NotAValidPrimToken -> None in
+    let e = match e with None -> None | Some e -> Some (rawnum_of_rocqint CDec e) in
     NumTok.Signed.of_int_frac_and_exponent n f e in
   match TokenValue.kind c with
   | TConstruct (_, [i; f]) -> of_ife i f None
@@ -895,21 +892,21 @@ let destDecHex c = match TokenValue.kind c with
   | TConstruct ((_, 2), [c']) (* (UInt|Int|)Hexadecimal *) -> CHex, c'
   | _ -> raise NotAValidPrimToken
 
-let rawnum_of_coqnumber c =
+let rawnum_of_rocqnumber c =
   let cl, c = destDecHex c in
-  rawnum_of_coqnumber cl c
+  rawnum_of_rocqnumber cl c
 
-let rawnum_of_coquint c =
+let rawnum_of_rocquint c =
   let cl, c = destDecHex c in
-  rawnum_of_coquint cl c
+  rawnum_of_rocquint cl c
 
-let rawnum_of_coqint c =
+let rawnum_of_rocqint c =
   let cl, c = destDecHex c in
-  rawnum_of_coqint cl c
+  rawnum_of_rocqint cl c
 
 (***********************************************************************)
 
-(** ** Conversion between Coq [Z] and internal bigint *)
+(** ** Conversion between Rocq [Z] and internal bigint *)
 
 (** First, [positive] from/to bigint *)
 
@@ -959,7 +956,7 @@ let error_overflow ?loc n =
   CErrors.user_err ?loc Pp.(str "Overflow in int63 literal: " ++ str (Z.to_string n)
     ++ str ".")
 
-let coqpos_neg_int63_of_bigint ?loc esig ind (sign,n) =
+let rocqpos_neg_int63_of_bigint ?loc esig ind (sign,n) =
   let uint = int63_of_pos_bigint ?loc n in
   let pos_neg = match sign with SPlus -> 1 | SMinus -> 2 in
   mkApp (mkConstruct esig (ind, pos_neg), [|uint|])
@@ -968,7 +965,7 @@ let interp_int63 ?loc esig ind n =
   let sign = if Z.(compare n zero >= 0) then SPlus else SMinus in
   let an = Z.abs n in
   if Z.(lt an (pow z_two 63))
-  then coqpos_neg_int63_of_bigint ?loc esig ind (sign,an)
+  then rocqpos_neg_int63_of_bigint ?loc esig ind (sign,an)
   else error_overflow ?loc n
 
 let warn_inexact_float =
@@ -1027,7 +1024,7 @@ let bigint_of_int63 c = match TokenValue.kind c with
 | TInt i -> Z.of_int64 (Uint63.to_int64 i)
 | _ -> raise NotAValidPrimToken
 
-let bigint_of_coqpos_neg_int63 c = match TokenValue.kind c with
+let bigint_of_rocqpos_neg_int63 c = match TokenValue.kind c with
 | TConstruct ((_, 1), [c']) (* Pos *) -> bigint_of_int63 c'
 | TConstruct ((_, 2), [c']) (* Neg *) -> Z.neg (bigint_of_int63 c')
 | _ -> raise NotAValidPrimToken
@@ -1055,9 +1052,9 @@ let interp o ?loc n =
   let esig = env, sigma in
   let c = match fst o.to_kind, NumTok.Signed.to_int n with
     | Int int_ty, Some n ->
-       coqint_of_rawnum esig int_ty n
+       rocqint_of_rawnum esig int_ty n
     | UInt int_ty, Some (SPlus, n) ->
-       coquint_of_rawnum esig int_ty n
+       rocquint_of_rawnum esig int_ty n
     | Z z_pos_ty, Some n ->
        z_of_bigint esig z_pos_ty (NumTok.SignedNat.to_bigint n)
     | Int63 pos_neg_int63_ty, Some n ->
@@ -1065,7 +1062,7 @@ let interp o ?loc n =
     | (Int _ | UInt _ | Z _ | Int63 _), _ ->
        no_such_prim_token "number" ?loc o.ty_name
     | Float64, _ -> interp_float64 ?loc n
-    | Number number_ty, _ -> coqnumber_of_rawnum esig number_ty n
+    | Number number_ty, _ -> rocqnumber_of_rawnum esig number_ty n
   in
   let sigma = !sigma in
   let sigma,to_ty = Evd.fresh_global env sigma o.to_ty in
@@ -1084,12 +1081,12 @@ let interp o ?loc n =
 let uninterp o n =
   PrimTokenNotation.uninterp
     begin function
-      | (Int _, c) -> NumTok.Signed.of_int (rawnum_of_coqint c)
-      | (UInt _, c) -> NumTok.Signed.of_nat (rawnum_of_coquint c)
+      | (Int _, c) -> NumTok.Signed.of_int (rawnum_of_rocqint c)
+      | (UInt _, c) -> NumTok.Signed.of_nat (rawnum_of_rocquint c)
       | (Z _, c) -> NumTok.Signed.of_bigint CDec (bigint_of_z c)
-      | (Int63 _, c) -> NumTok.Signed.of_bigint CDec (bigint_of_coqpos_neg_int63 c)
+      | (Int63 _, c) -> NumTok.Signed.of_bigint CDec (bigint_of_rocqpos_neg_int63 c)
       | (Float64, c) -> uninterp_float64 c
-      | (Number _, c) -> rawnum_of_coqnumber c
+      | (Number _, c) -> rawnum_of_rocqnumber c
     end o n
 end
 
@@ -1098,7 +1095,7 @@ module Strings = struct
 open PrimTokenNotation
 
 let qualid_of_ref n =
-  n |> Coqlib.lib_ref |> Nametab.shortest_qualid_of_global Id.Set.empty
+  n |> Rocqlib.lib_ref |> Nametab.shortest_qualid_of_global Id.Set.empty
 
 let q_list () = qualid_of_ref "core.list.type"
 let q_byte () = qualid_of_ref "core.byte.type"
@@ -1113,12 +1110,12 @@ let locate_byte () = unsafe_locate_ind (q_byte ())
 
 (***********************************************************************)
 
-(** ** Conversion between Coq [list Byte.byte] and internal raw string *)
+(** ** Conversion between Rocq [list Byte.byte] and internal raw string *)
 
-let coqbyte_of_char_code esig byte c =
+let rocqbyte_of_char_code esig byte c =
   mkConstruct esig (byte, 1 + c)
 
-let coqbyte_of_string ?loc esig byte s =
+let rocqbyte_of_string ?loc esig byte s =
   let p =
     if Int.equal (String.length s) 1 then int_of_char s.[0]
     else
@@ -1128,9 +1125,9 @@ let coqbyte_of_string ?loc esig byte s =
       if n < 256 then n else
        user_err ?loc
          (str "Expects a single character or a three-digit ASCII code.") in
-  coqbyte_of_char_code esig byte p
+  rocqbyte_of_char_code esig byte p
 
-let coqbyte_of_char esig byte c = coqbyte_of_char_code esig byte (Char.code c)
+let rocqbyte_of_char esig byte c = rocqbyte_of_char_code esig byte (Char.code c)
 
 let pstring_of_string ?loc s =
   match Pstring.of_string s with
@@ -1141,41 +1138,41 @@ let make_ascii_string n =
   if n>=32 && n<=126 then String.make 1 (char_of_int n)
   else Printf.sprintf "%03d" n
 
-let char_code_of_coqbyte c = match TokenValue.kind c with
+let char_code_of_rocqbyte c = match TokenValue.kind c with
 | TConstruct ((_,c), []) -> c - 1
 | _ -> raise NotAValidPrimToken
 
-let string_of_coqbyte c = make_ascii_string (char_code_of_coqbyte c)
+let string_of_rocqbyte c = make_ascii_string (char_code_of_rocqbyte c)
 
 let string_of_pstring c =
   match TokenValue.kind c with
   | TString s -> Pstring.to_string s
   | _ -> raise NotAValidPrimToken
 
-let coqlist_byte_of_string esig byte_ty list_ty str =
+let rocqlist_byte_of_string esig byte_ty list_ty str =
   let cbyte = mkInd esig byte_ty in
   let nil = mkApp (mkConstruct esig (list_ty, 1), [|cbyte|]) in
   let cons x xs = mkApp (mkConstruct esig (list_ty, 2), [|cbyte; x; xs|]) in
   let rec do_chars s i acc =
     if i < 0 then acc
     else
-      let b = coqbyte_of_char esig byte_ty s.[i] in
+      let b = rocqbyte_of_char esig byte_ty s.[i] in
       do_chars s (i-1) (cons b acc)
   in
   do_chars str (String.length str - 1) nil
 
 (* N.B. We rely on the fact that [nil] is the first constructor and [cons] is the second constructor, for [list] *)
-let string_of_coqlist_byte c =
-  let rec of_coqlist_byte_loop c buf =
+let string_of_rocqlist_byte c =
+  let rec of_rocqlist_byte_loop c buf =
     match TokenValue.kind c with
     | TConstruct (_nil, [_ty]) -> ()
     | TConstruct (_cons, [_ty;b;c]) ->
-      let () = Buffer.add_char buf (Char.chr (char_code_of_coqbyte b)) in
-      of_coqlist_byte_loop c buf
+      let () = Buffer.add_char buf (Char.chr (char_code_of_rocqbyte b)) in
+      of_rocqlist_byte_loop c buf
     | _ -> raise NotAValidPrimToken
   in
   let buf = Buffer.create 64 in
-  let () = of_coqlist_byte_loop c buf in
+  let () = of_rocqlist_byte_loop c buf in
   Buffer.contents buf
 
 let interp o ?loc n =
@@ -1185,8 +1182,8 @@ let interp o ?loc n =
   let sigma = ref (Evd.from_env env) in
   let esig = env, sigma in
   let c = match fst o.to_kind with
-    | ListByte -> coqlist_byte_of_string esig byte_ty list_ty n
-    | Byte -> coqbyte_of_string ?loc esig byte_ty n
+    | ListByte -> rocqlist_byte_of_string esig byte_ty list_ty n
+    | Byte -> rocqbyte_of_string ?loc esig byte_ty n
     | PString -> pstring_of_string ?loc n
   in
   let sigma = !sigma in
@@ -1200,8 +1197,8 @@ let interp o ?loc n =
 let uninterp o n =
   PrimTokenNotation.uninterp
     begin function
-      | (ListByte, c) -> string_of_coqlist_byte c
-      | (Byte, c) -> string_of_coqbyte c
+      | (ListByte, c) -> string_of_rocqlist_byte c
+      | (Byte, c) -> string_of_rocqbyte c
       | (PString, c) -> string_of_pstring c
     end o n
 end
@@ -2500,6 +2497,29 @@ let interp_notation_as_global_reference_expanded ?loc ~head test ntn sc =
 let interp_notation_as_global_reference ?loc ~head test ntn sc =
   let _,_,_,_,ref = interp_notation_as_global_reference_expanded ?loc ~head test ntn sc in ref
 
+let pr_id_infos (id, ((level,(tmp_scopes, scopes)), under_binders, kind)) =
+  let scopes = List.map (fun x -> "_"^x) tmp_scopes @ scopes in
+  match scopes with
+  | [] -> None
+  | _ ->
+    (* IDK how to insert delimiters in the constr for printing
+       so instead use "in constr" modifier even though it's ignored
+       (#20297)
+       Also not sure if we can ever see multiple scopes but if we do we produce invalid syntax.
+
+       This is why we print comment syntax "(* x in scope foo *)" instead of "(x in scope foo)". *)
+    let pp =
+      Id.print id ++ str " in " ++ str (CString.lplural scopes "scope") ++ spc() ++
+      prlist_with_sep spc str scopes
+    in
+    Some pp
+
+let pr_ids_infos ids =
+  let pp = List.filter_map pr_id_infos ids in
+  match pp with
+  | [] -> mt()
+  | _ -> spc() ++ surround (str "*" ++ spc() ++ prlist_with_sep pr_comma (fun x -> x) pp ++ spc() ++ str "*")
+
 let locate_notation prglob ntn scope =
   let ntns = factorize_entries (browse_notation false ntn !scope_map) in
   let scopes = Option.fold_right push_scope scope !scope_stack in
@@ -2509,15 +2529,19 @@ let locate_notation prglob ntn scope =
     prlist_with_sep fnl (fun (ntn,l) ->
       let scope = find_default ntn scopes in
       prlist_with_sep fnl
-        (fun (sc,(on_parsing,on_printing,{ not_interp  = (_, r); not_location = (_, df) })) ->
-          hov 0 (
-            str "Notation" ++ brk (1,2) ++
+        (fun (sc,(on_parsing,on_printing,{ not_interp  = (ids, r); not_location = ((libpath,secpath), df) })) ->
+          let full_path = DirPath.make (DirPath.repr secpath @ DirPath.repr libpath) in
+          hov 2 (
+            str "Notation" ++ spc() ++
             Notation_ops.pr_notation_info prglob df r ++
+            pr_ids_infos ids ++
             (if String.equal sc default_scope then mt ()
-             else (brk (1,2) ++ str ": " ++ str sc)) ++
+             else (spc() ++ str ": " ++ str sc)) ++
             (if Option.equal String.equal (Some sc) scope
-             then brk (1,2) ++ str "(default interpretation)" else mt ()) ++
-            pr_non_empty (brk (1,2)) (pr_notation_status on_parsing on_printing)))
+             then spc() ++ str "(default interpretation)" else mt ()) ++
+            pr_non_empty (spc()) (pr_notation_status on_parsing on_printing) ++
+            spc() ++ surround (str "from " ++  DirPath.print full_path)
+          ))
         l) ntns
 
 let collect_notation_in_scope scope sc known =

@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -54,8 +54,10 @@ let inductive_params (mib,_) = mib.mind_nparams
 let inductive_paramdecls (mib,u) =
   Vars.subst_instance_context u mib.mind_params_ctxt
 
+let inductive_nnonrecparams mib = mib.mind_nparams - mib.mind_nparams_rec
+
 let inductive_nonrec_rec_paramdecls (mib,u) =
-  let nnonrecparamdecls = mib.mind_nparams - mib.mind_nparams_rec in
+  let nnonrecparamdecls = inductive_nnonrecparams mib in
   let paramdecls = inductive_paramdecls (mib,u) in
   Context.Rel.chop_nhyps nnonrecparamdecls paramdecls
 
@@ -113,161 +115,186 @@ Remark: Set (predicative) is encoded as Type(0)
 
 (* Template polymorphism *)
 
-let no_sort_variable () =
-  CErrors.anomaly (Pp.str "A sort variable was sent to the kernel")
-
 type template_univ =
   | TemplateProp
+  | TemplateAboveProp of Sorts.QVar.t * Universe.t
   | TemplateUniv of Universe.t
 
-let max_template_universe u v = match u, v with
-  | TemplateProp, x | x, TemplateProp -> x
-  | TemplateUniv u, TemplateUniv v -> TemplateUniv (Universe.sup u v)
+type template_subst = Sorts.Quality.t Int.Map.t * Universe.t Int.Map.t
 
-(* cons_subst add the mapping [u |-> su] in subst if [u] is not *)
-(* in the domain or add [u |-> sup x su] if [u] is already mapped *)
-(* to [x]. *)
-let cons_subst u su subst =
-  try
-    Univ.Level.Map.add u (max_template_universe su (Univ.Level.Map.find u subst)) subst
-  with Not_found -> Univ.Level.Map.add u su subst
+let template_univ_quality = function
+  | TemplateProp -> Sorts.Quality.qprop
+  | TemplateUniv _ -> Sorts.Quality.qtype
+  | TemplateAboveProp (q,_) -> Sorts.Quality.QVar q
 
-(* remember_subst updates the mapping [u |-> x] by [u |-> sup x u] *)
-(* if it is presents and returns the substitution unchanged if not.*)
-let remember_subst u subst =
-  try
-    let su = TemplateUniv (Universe.make u) in
-    Univ.Level.Map.add u (max_template_universe su (Univ.Level.Map.find u subst)) subst
-  with Not_found -> subst
+(* this requires TemplateAboveProp to really be above prop *)
+let max_template_quality a b =
+  let open Sorts.Quality in
+  match a, b with
+  | QConstant QSProp, _ | _, QConstant QSProp -> assert false
+  | QConstant QProp, q | q, QConstant QProp -> q
+  | (QConstant QType as q), _ | _, (QConstant QType as q) -> q
+  | QVar a', QVar b' ->
+    if Sorts.QVar.equal a' b' then a
+    else qtype
 
-type param_univs = (expected:Univ.Level.t -> template_univ) list
+let template_univ_universe = function
+  | TemplateProp -> Universe.type0
+  | TemplateAboveProp (_,u) | TemplateUniv u -> u
 
-let get_arity c =
-  let decls, c = Term.decompose_prod_decls c in
-  match kind c with
-  | Sort (Sorts.Type u) ->
-    begin match Universe.level u with
-    | Some l -> (decls, l)
-    | None -> assert false
-    end
-  | _ -> assert false
+let univ_bind_kind u =
+  match Universe.level u with
+  | None -> None
+  | Some l -> Level.var_index l
+
+let bind_kind = let open Sorts in function
+  | SProp | Prop | Set -> assert false
+  | Type u ->
+    let u = univ_bind_kind u in
+    assert (Option.has_some u);
+    None, u
+  | QSort (q,u) ->
+    let q = Sorts.QVar.var_index q in
+    let u = univ_bind_kind u in
+    assert (Option.has_some q || Option.has_some u);
+    q, u
+
+(* Add a binding for a parameter binding qbind and ubind to su. *)
+let cons_subst bind su (qsubst,usubst) =
+  let qbind, ubind = bind_kind bind in
+  let qsubst = match qbind with
+    | None -> qsubst
+    | Some qbind ->
+      let sq = template_univ_quality su in
+      Int.Map.update qbind (function
+          | None -> Some sq
+          | Some q0 -> Some (max_template_quality q0 sq))
+        qsubst
+  in
+  let usubst = match ubind with
+    | None -> usubst
+    | Some ubind ->
+      let u = template_univ_universe su in
+      Int.Map.update ubind (function
+          | None -> Some u
+          | Some _ -> CErrors.anomaly Pp.(str "cons_subst found non linear template level."))
+        usubst
+  in
+  qsubst, usubst
+
+(* cons_default_subst adds the binding to the default universe to the substitution. *)
+let cons_default_subst bind defaults (qsubst,usubst) =
+  let qbind, ubind = bind_kind bind in
+  let qsubst = match qbind with
+    | None -> qsubst
+    | Some qbind -> Int.Map.add qbind Sorts.Quality.qtype qsubst
+  in
+  let usubst = match ubind with
+    | None -> usubst
+    | Some ubind ->
+      let u = UVars.subst_instance_universe defaults (Universe.make (Level.var ubind)) in
+      Int.Map.update ubind (function
+          | None -> Some u
+          | Some _ -> CErrors.anomaly Pp.(str "cons_default_subst found non linear template level."))
+        usubst
+  in
+  qsubst, usubst
+
+type param_univs = (default:Sorts.t -> template_univ) list
 
 (* Bind expected levels of parameters to actual levels *)
 (* Propagate the new levels in the signature *)
-let make_subst =
+let make_subst defaults =
   let rec make subst = function
     | LocalDef _ :: sign, exp, args ->
         make subst (sign, exp, args)
-    | _d::sign, false::exp, args ->
+    | _d::sign, None::exp, args ->
         let args = match args with _::args -> args | [] -> [] in
         make subst (sign, exp, args)
-    | LocalAssum (_,t)::sign, true::exp, a::args ->
-        (* We recover the level of the argument *)
-        let _, u = get_arity t in
-        let s = a ~expected:u in
-        make (cons_subst u s subst) (sign, exp, args)
-    | LocalAssum (_na,t) :: sign, true::exp, [] ->
-        (* No more argument here: we add the remaining universes to the *)
-        (* substitution (when [u] is distinct from all other universes in the *)
-        (* template, it is identity substitution  otherwise (ie. when u is *)
-        (* already in the domain of the substitution) [remember_subst] will *)
-        (* update its image [x] by [sup x u] in order not to forget the *)
-        (* dependency in [u] that remains to be fulfilled. *)
-        let _, u = get_arity t in
-        make (remember_subst u subst) (sign, exp, [])
+    | LocalAssum (_,t)::sign, Some bind::exp, a::args ->
+        (* [default] is used in error messages (e.g. when the user gave SProp) *)
+        let _, default = Term.destArity t in
+        let s = a ~default in
+        make (cons_subst bind s subst) (sign, exp, args)
+    | LocalAssum _ :: sign, Some bind::exp, [] ->
+      make (cons_default_subst bind defaults subst) (sign, exp, [])
     | _sign, [], _ ->
         (* Uniform parameters are exhausted *)
         subst
     | [], _, _ ->
         assert false
   in
-  make Univ.Level.Map.empty
+  make (Int.Map.empty,Int.Map.empty)
 
-exception SingletonInductiveBecomesProp of Id.t
+let template_subst_universe (_,usubst) u =
+  let supern u n = iterate Universe.super n u in
+  let map (u,n) =
+    match Level.var_index u with
+    | None -> Universe.maken u n
+    | Some u ->
+      let u = Int.Map.get u usubst in
+      supern u n
+  in
+  match List.map map (Universe.repr u) with
+  | [] -> assert false
+  | u :: rest ->
+    List.fold_left Universe.sup u rest
 
-let subst_univs_sort subs = function
-| Sorts.QSort _ -> no_sort_variable ()
+let template_subst_sort (subst : template_subst) = function
 | Sorts.Prop | Sorts.Set | Sorts.SProp as s -> s
 | Sorts.Type u ->
-  (* We implement by hand a max on universes that handles Prop *)
-  let u = Universe.repr u in
-  let supern u n = iterate Universe.super n u in
-  let map (u, n) =
-    if Level.is_set u then Some (Universe.type0, n)
-    else match Level.Map.find u subs with
-    | TemplateProp ->
-      if Int.equal n 0 then
-        (* This is an instantiation of a template universe by Prop, ignore it *)
-        None
-      else
-        (* Prop + S n actually means Set + S n *)
-        Some (Universe.type0, n)
-    | TemplateUniv v -> Some (v,n)
-    | exception Not_found ->
-      (* Either an unbound template universe due to missing arguments, or a
-         global one appearing in the inductive arity. *)
-      Some (Universe.make u, n)
+  Sorts.sort_of_univ (template_subst_universe subst u)
+| Sorts.QSort (q,u) ->
+  let q = match Sorts.QVar.var_index q with
+    | None -> Sorts.Quality.QVar q
+    | Some q -> Int.Map.get q (fst subst)
   in
-  let u = List.filter_map map u in
-  match u with
-  | [] ->
-    (* No constraints, fall in Prop *)
-    Sorts.prop
-  | (u,n) :: rest ->
-    let fold accu (u, n) = Universe.sup accu (supern u n) in
-    Sorts.sort_of_univ (List.fold_left fold (supern u n) rest)
+  (* shortcut for impredicative quality *)
+  if Sorts.Quality.(equal qprop q) then Sorts.prop
+  else Sorts.make q (template_subst_universe subst u)
 
-let get_arity c =
-  let decls, c = Term.decompose_prod_decls c in
-  match kind c with
-  | Sort (Sorts.Type u) ->
-    begin match Universe.level u with
-    | Some l -> (decls, l)
-    | None -> assert false
-    end
-  | _ -> assert false
-
-let rec subst_univs_ctx accu subs ctx params = match ctx, params with
+let rec template_subst_ctx accu subs ctx params = match ctx, params with
 | [], [] -> accu
 | (LocalDef _ as decl) :: ctx, params ->
-  subst_univs_ctx (decl :: accu) subs ctx params
-| (LocalAssum _ as decl) :: ctx, false :: params ->
-  subst_univs_ctx (decl :: accu) subs ctx params
-| LocalAssum (na, t) :: ctx, true :: params ->
-  let (decls, u) = get_arity t in
-  let u = subst_univs_sort subs (Sorts.sort_of_univ (Universe.make u)) in
-  let decl = LocalAssum (na, Term.it_mkProd_or_LetIn (mkSort u) decls) in
-  subst_univs_ctx (decl :: accu) subs ctx params
+  template_subst_ctx (decl :: accu) subs ctx params
+| (LocalAssum _ as decl) :: ctx, None :: params ->
+  template_subst_ctx (decl :: accu) subs ctx params
+| LocalAssum (na, t) :: ctx, Some s :: params ->
+  let (decls, _) = Term.destArity t in
+  let s = template_subst_sort subs s in
+  let decl = LocalAssum (na, Term.it_mkProd_or_LetIn (mkSort s) decls) in
+  template_subst_ctx (decl :: accu) subs ctx params
 | _, [] | [], _ -> assert false
 
+let template_subst_ctx subst ctx params = template_subst_ctx [] subst ctx params
+
 let instantiate_template_constraints subst templ =
-  let _, cstrs = templ.template_context in
+  let cstrs = UVars.UContext.constraints (UVars.AbstractContext.repr templ.template_context) in
   let fold (u, cst, v) accu =
     (* v is not a local universe by the unbounded from below property *)
-    let u = subst_univs_sort subst (Sorts.sort_of_univ (Universe.make u)) in
-    match u with
-    | Sorts.QSort _ | Sorts.SProp -> assert false
-    | Sorts.Prop -> accu
-    | Sorts.Set -> Constraints.add (Univ.Level.set, cst, v) accu
-    | Sorts.Type u ->
-      let fold accu (u, n) = match n, cst with
+    let u = match Level.var_index u with
+      | None -> Universe.make u
+      | Some u -> Int.Map.get u (snd subst)
+    in
+    (* if qsort, it is above prop *)
+    let fold accu (u, n) = match n, cst with
       | 0, _ -> Constraints.add (u, cst, v) accu
       | 1, Le -> Constraints.add (u, Lt, v) accu
       | 1, (Eq | Lt) -> assert false (* FIXME? *)
       | _ -> assert false
-      in
-      List.fold_left fold accu (Univ.Universe.repr u)
+    in
+    List.fold_left fold accu (Univ.Universe.repr u)
   in
   Constraints.fold fold cstrs Constraints.empty
 
-let instantiate_template_universes (mib, _mip) args =
+let instantiate_template_universes mib args =
   let templ = match mib.mind_template with
   | None -> assert false
   | Some t -> t
   in
   let ctx = List.rev mib.mind_params_ctxt in
-  let subst = make_subst (ctx,templ.template_param_arguments,args) in
-  let ctx = subst_univs_ctx [] subst ctx templ.template_param_arguments in
+  let subst = make_subst templ.template_defaults (ctx,templ.template_param_arguments,args) in
+  let ctx = template_subst_ctx subst ctx templ.template_param_arguments in
   let cstrs = instantiate_template_constraints subst templ in
   (cstrs, ctx, subst)
 
@@ -286,21 +313,16 @@ let check_instance mib u =
       | Polymorphic uctx -> Instance.length u = AbstractContext.size uctx)
   then CErrors.anomaly Pp.(str "bad instance length on mutind.")
 
-let type_of_inductive_gen ?(polyprop=true) ((mib,mip),u) paramtyps =
+let type_of_inductive_gen ((mib,mip),u) paramtyps =
   check_instance mib u;
-  match mip.mind_arity with
-  | RegularArity a ->
+  match mib.mind_template with
+  | None ->
     let cst = instantiate_inductive_constraints mib u in
-    subst_instance_constr u a.mind_user_arity, cst
-  | TemplateArity ar ->
-    let cst, params, subst = instantiate_template_universes (mib, mip) paramtyps in
+    subst_instance_constr u mip.mind_user_arity, cst
+  | Some templ ->
+    let cst, params, subst = instantiate_template_universes mib paramtyps in
     let ctx = (List.firstn mip.mind_nrealdecls mip.mind_arity_ctxt) @ params in
-    let s = subst_univs_sort subst ar.template_level in
-    (* The Ocaml extraction cannot handle (yet?) "Prop-polymorphism", i.e.
-        the situation where a non-Prop singleton inductive becomes Prop
-        when applied to Prop params *)
-    if not polyprop && not (Sorts.is_prop ar.template_level) && Sorts.is_prop s
-    then raise (SingletonInductiveBecomesProp mip.mind_typename);
+    let s = template_subst_sort subst templ.template_concl in
     Term.mkArity (ctx, s), cst
 
 let type_of_inductive pind =
@@ -310,8 +332,8 @@ let type_of_inductive pind =
 let constrained_type_of_inductive pind =
   type_of_inductive_gen pind []
 
-let type_of_inductive_knowing_parameters ?(polyprop=true) mip args =
-  type_of_inductive_gen ~polyprop mip args
+let type_of_inductive_knowing_parameters mip args =
+  type_of_inductive_gen mip args
 
 (************************************************************************)
 (* Type of a constructor *)
@@ -321,12 +343,12 @@ let type_of_constructor_gen (cstr, u) (mib,mip) paramtyps =
   let i = index_of_constructor cstr in
   let nconstr = Array.length mip.mind_consnames in
   if i > nconstr then user_err Pp.(str "Not enough constructors in the type.");
-  match mip.mind_arity with
-  | RegularArity _ ->
+  match mib.mind_template with
+  | None ->
     let cst = instantiate_inductive_constraints mib u in
     subst_instance_constr u mip.mind_user_lc.(i-1), cst
-  | TemplateArity _ar ->
-    let cst, params, _ = instantiate_template_universes (mib, mip) paramtyps in
+  | Some _ ->
+    let cst, params, _ = instantiate_template_universes mib paramtyps in
     let _, typ = Term.decompose_prod_n_decls (List.length mib.mind_params_ctxt) mip.mind_user_lc.(i - 1) in
     let typ = Term.it_mkProd_or_LetIn typ params in
     typ, cst
@@ -385,27 +407,25 @@ let quality_leq q q' =
 type squash = SquashToSet | SquashToQuality of Sorts.Quality.t
 
 let is_squashed ((_,mip),u) =
-  match mip.mind_arity with
-  | TemplateArity _ -> None (* template is never squashed *)
-  | RegularArity a ->
-    match mip.mind_squashed with
-    | None -> None
-    | Some squash ->
-      let indq = Sorts.quality (UVars.subst_instance_sort u a.mind_sort) in
-      match squash with
-      | AlwaysSquashed -> begin match a.mind_sort with
-          | Sorts.Set -> Some SquashToSet
-          | _ -> Some (SquashToQuality indq)
-        end
-      | SometimesSquashed squash ->
-        (* impredicative set squashes are always AlwaysSquashed,
-           so here if inds=Set it is a sort poly squash (see "foo6" in test sort_poly.v) *)
-        if Sorts.Quality.Set.for_all (fun q ->
-            let q = UVars.subst_instance_quality u q in
-            quality_leq q indq)
-            squash
-        then None
-        else Some (SquashToQuality indq)
+  let s = mip.mind_sort in
+  match mip.mind_squashed with
+  | None -> None
+  | Some squash ->
+    let indq = Sorts.quality (UVars.subst_instance_sort u s) in
+    match squash with
+    | AlwaysSquashed -> begin match s with
+        | Sorts.Set -> Some SquashToSet
+        | _ -> Some (SquashToQuality indq)
+      end
+    | SometimesSquashed squash ->
+      (* impredicative set squashes are always AlwaysSquashed,
+         so here if inds=Set it is a sort poly squash (see "foo6" in test sort_poly.v) *)
+      if Sorts.Quality.Set.for_all (fun q ->
+          let q = UVars.subst_instance_quality u q in
+          quality_leq q indq)
+          squash
+      then None
+      else Some (SquashToQuality indq)
 
 let is_allowed_elimination specifu s =
   let open Sorts in
@@ -622,7 +642,10 @@ type subterm_spec =
   | Not_subterm
   | Internally_bound_subterm of Int.Set.t
 
-let eq_wf_paths = Rtree.equal Declareops.eq_recarg
+let is_norec_path t = match Rtree.dest_head t with
+| Norec -> true
+| Mrec _ -> false
+| exception (Failure _) -> false
 
 let inter_recarg r1 r2 = if eq_recarg r1 r2 then Some r1 else None
 
@@ -631,7 +654,7 @@ let inter_wf_paths = Rtree.inter Declareops.eq_recarg inter_recarg Norec
 let incl_wf_paths = Rtree.incl Declareops.eq_recarg inter_recarg Norec
 
 let spec_of_tree t =
-  if eq_wf_paths t mk_norec
+  if is_norec_path t
   then Not_subterm
   else Subterm (Int.Set.empty, Strict, t)
 
@@ -764,14 +787,21 @@ let branches_specif renv c_spec ci =
        Note that c_spec might be more precise than [v] below, because of
        nested inductive types. *)
     let (_,mip) = lookup_mind_specif renv.env ci.ci_ind in
-    let v = dest_subterms mip.mind_recargs in
-      Array.map List.length v in
+    let tree = Rtree.Kind.make mip.mind_recargs in
+    match Rtree.Kind.kind tree with
+    | Rtree.Kind.Node (_, v) -> Array.map Array.length v
+    | Rtree.Kind.Var _ -> assert false
+  in
+  let subterms = lazy begin match Lazy.force c_spec with
+  | Subterm (_, _, t) -> dest_subterms t
+  | Dead_code | Internally_bound_subterm _ | Not_subterm -> assert false
+  end in
   Array.mapi
       (fun i nca -> (* i+1-th cstructor has arity nca *)
          let lvra = lazy
            (match Lazy.force c_spec with
                 Subterm (_,_,t) when match_inductive ci.ci_ind (dest_recarg t) ->
-                  let vra = Array.of_list (dest_subterms t).(i) in
+                  let vra = Array.of_list (Lazy.force subterms).(i) in
                   assert (Int.equal nca (Array.length vra));
                   Array.map spec_of_tree vra
               | Dead_code -> Array.make nca Dead_code
@@ -842,7 +872,7 @@ let abstract_mind_lc ntyps npars mind lc =
   Array.map (replace_ind 0) lc
 
 let is_primitive_positive_container env c =
-  match env.retroknowledge.Retroknowledge.retro_array with
+  match (Environ.retroknowledge env).Retroknowledge.retro_array with
   | Some c' when QConstant.equal env c c' -> true
   | _ -> false
 
@@ -881,7 +911,7 @@ let get_recargs_approx ?evars env tree ind args =
 
   and build_recargs_nested (env,_ra_env as ienv) tree (((mind,i),u), largs) =
     (* If the inferred tree already disallows recursion, no need to go further *)
-    if eq_wf_paths tree mk_norec then tree
+    if is_norec_path tree then tree
     else
     let mib = Environ.lookup_mind mind env in
     let auxnpar = mib.mind_nparams_rec in
@@ -917,7 +947,7 @@ let get_recargs_approx ?evars env tree ind args =
     (Rtree.mk_rec irecargs).(i)
 
   and build_recargs_nested_primitive (env, ra_env) tree (c, largs) =
-    if eq_wf_paths tree mk_norec then tree
+    if is_norec_path tree then tree
     else
     let ntypes = 1 in (* Primitive types are modelled by non-mutual inductive types *)
     let ra_env = List.map (fun (r,t) -> (r,Rtree.lift ntypes t)) ra_env in
@@ -1297,7 +1327,7 @@ let check_one_fix ?evars renv recpos trees def =
             end
 
         | Rel p ->
-            begin
+            let rs =
               (* Test if [p] is a fixpoint (recursive call) *)
               if renv.rel_min <= p && p < renv.rel_min+nfi then
                 (* the position of the invoked fixpoint: *)
@@ -1313,12 +1343,12 @@ let check_one_fix ?evars renv recpos trees def =
                   match check_is_subterm (stack_element_specif ?evars z) trees.(glob) with
                   | NeedReduceSubterm l -> set_need_reduce renv.env l (illegal_rec_call renv glob z) rs
                   | InvalidSubterm -> raise (FixGuardError (renv.env, illegal_rec_call renv glob z))
-              else
-                check_rec_call_state renv NoNeedReduce stack rs (fun () ->
-                    match lookup_rel p renv.env with
-                    | LocalAssum _ -> None
-                    | LocalDef (_,c,_) -> Some (lift p c, []))
-            end
+              else rs
+            in
+            check_rec_call_state renv NoNeedReduce stack rs (fun () ->
+                match lookup_rel p renv.env with
+                | LocalAssum _ -> None
+                | LocalDef (_,c,_) -> Some (lift p c, []))
 
         | Case (ci, u, pms, ret, iv, c_0, br) -> (* iv ignored: it's just a cache *)
             let (ci, (p,_), _iv, c_0, brs) = expand_case renv.env (ci, u, pms, ret, iv, c_0, br) in
@@ -1383,7 +1413,7 @@ let check_one_fix ?evars renv recpos trees def =
                 let fix_stack = if Int.equal i j then stack_this else stack_others in
                 check_nested_fix_body illformed renv' (recindx+1) fix_stack rs' body) rs' recindxs bodies in
             let needreduce_fix, rs = List.sep_first rs' in
-            let non_absorbed_stack = List.skipn nuniformparams stack in
+            let absorbed_stack, non_absorbed_stack = List.chop nuniformparams stack in
             check_rec_call_state renv needreduce_fix non_absorbed_stack rs (fun () ->
               (* we try hard to reduce the fix away by looking for a
                  constructor in [decrArg] (we unfold definitions too) *)
@@ -1394,7 +1424,7 @@ let check_one_fix ?evars renv recpos trees def =
               let c = whd_all ?evars renv.env (lift n recArg) in
               let hd, _ = decompose_app_list c in
               match kind hd with
-              | Construct _ -> Some (contract_fix fix, stack)
+              | Construct _ -> Some (contract_fix fix, absorbed_stack)
               | CoFix _ | Ind _ | Lambda _ | Prod _ | LetIn _
               | Sort _ | Int _ | Float _ | String _
               | Array _ -> assert false
@@ -1658,7 +1688,7 @@ let check_one_cofix ?evars env nbfix def deftype =
             let realargs = List.skipn mib.mind_nparams args in
             let rec process_args_of_constr = function
               | (t::lr), (rar::lrar) ->
-                  if eq_wf_paths rar mk_norec then
+                  if is_norec_path rar then
                     if noccur_with_meta n nbfix t
                     then process_args_of_constr (lr, lrar)
                     else raise (CoFixGuardError
@@ -1741,3 +1771,9 @@ let check_cofix ?evars env (_bodynum,(names,types,bodies as recdef)) =
     done
   else
     ()
+
+module Template = struct
+  let bind_kind = bind_kind
+  let template_subst_sort = template_subst_sort
+  let max_template_quality = max_template_quality
+end

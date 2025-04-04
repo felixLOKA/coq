@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -81,6 +81,7 @@ sig
   val kind : Evd.evar_map -> t -> UVars.Instance.t
   val empty : t
   val is_empty : t -> bool
+  val length : t -> int * int
 end
 
 type types = t
@@ -276,7 +277,7 @@ val isVarId  : Evd.evar_map -> Id.t -> t -> bool
 val isRelN : Evd.evar_map -> int -> t -> bool
 val isRefX : Environ.env -> Evd.evar_map -> GlobRef.t -> t -> bool
 
-(** The string is interpreted by [Coqlib.lib_ref]. If it is not registered, return [false]. *)
+(** The string is interpreted by [Rocqlib.lib_ref]. If it is not registered, return [false]. *)
 val is_lib_ref : Environ.env -> Evd.evar_map -> string -> t -> bool
 
 val destRel : Evd.evar_map -> t -> int
@@ -535,6 +536,38 @@ sig
   (** Use for transparent cast between types. *)
 
   val relevance_eq : (ERelevance.t, Sorts.relevance) eq
+end
+
+(** {5 Delayed evar expansion} *)
+
+module Expand :
+sig
+
+type t
+(** A variant of [EConstr.t] where evar substitution is performed on the fly.
+    The [handle] type below is a kind of substitution that is needed to make
+    sense of the delayed term. Such representation is more efficient than
+    [EConstr.t] when iterating over a whole term.
+
+    Caveat: the [kind] function below only returns the expanded head of the
+    term. This means that when it returns [Evar (evk, inst)], [evk] is
+    guaranteed to be undefined in the evar map but [inst] is, in general,
+    not the same as you would get after expansion. You must call
+    [expand_instance] before performing any operation on it. *)
+
+type kind = (t, t, ESorts.t, EInstance.t, ERelevance.t) Constr.kind_of_term
+
+type handle
+
+val make : Evd.econstr -> handle * t
+val repr : Evd.evar_map -> handle -> t -> Evd.econstr
+val liftn_handle : int -> handle -> handle
+val kind : Evd.evar_map -> handle -> t -> handle * kind
+val expand_instance : skip:bool -> Evd.undefined Evd.evar_info -> handle -> t SList.t -> t SList.t
+val iter : Evd.evar_map -> (handle -> t -> unit) -> handle -> kind -> unit
+val iter_with_binders : Evd.evar_map ->
+  ('a -> 'a) -> ('a -> handle -> t -> unit) -> 'a -> handle -> kind -> unit
+
 end
 
 (** Deprecated *)

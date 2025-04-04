@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -220,7 +220,7 @@ let class_of env sigma t =
       let { cl_param = n1 } = class_info cl in
       (t, n1, cl, u, args)
     with Not_found ->
-      let t = Tacred.hnf_constr env sigma t in
+      let t = Tacred.hnf_constr0 env sigma t in
       let (cl, u, args) = find_class_type env sigma t in
       let { cl_param = n1 } = class_info cl in
       (t, n1, cl, u, args)
@@ -265,7 +265,7 @@ let apply_on_class_of env sigma t cont =
     cont cl
   with Not_found ->
     (* Is it worth to be more incremental on the delta steps? *)
-    let t = Tacred.hnf_constr env sigma t in
+    let t = Tacred.hnf_constr0 env sigma t in
     let (cl, u, args) = find_class_type env sigma t in
     let { cl_param = n1 } = class_info cl in
     if not (Int.equal (List.length args) n1) then raise Not_found;

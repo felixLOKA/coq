@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -23,7 +23,11 @@ type universes_entry =
 type inductive_universes_entry =
   | Monomorphic_ind_entry
   | Polymorphic_ind_entry of UVars.UContext.t
-  | Template_ind_entry of Univ.ContextSet.t
+  | Template_ind_entry of {
+      uctx : UVars.UContext.t;
+      (* The quality part of default_univs must be all qtype *)
+      default_univs : UVars.Instance.t;
+    }
 
 type variance_entry = UVars.Variance.t option array
 

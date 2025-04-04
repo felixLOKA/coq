@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -19,7 +19,6 @@ open Declarations
 module RelDecl = Context.Rel.Declaration
 
 type flags = {
-  qflag : bool;
   reds : RedFlags.reds;
 }
 
@@ -43,7 +42,6 @@ val empty : t
 val add : flags -> Environ.env -> Evd.evar_map -> EConstr.t -> t -> t * uid
 val find : uid -> t -> EConstr.t
 val repr : uid -> int
-val hole : uid
 end =
 struct
 
@@ -58,12 +56,10 @@ type t = {
 type uid = int
 
 let empty = {
-  max_uid = 1; (* uid 0 is reserved for Meta 1 *)
-  repr = CM.singleton (Constr.mkMeta 1) 0;
-  data = Int.Map.singleton 0 (Constr.mkMeta 1);
+  max_uid = 0;
+  repr = CM.empty;
+  data = Int.Map.empty;
 }
-
-let hole = 0
 
 (* This is nonsense, but backwards compatibility mandates it *)
 let add flags env sigma c e =
@@ -86,10 +82,16 @@ let repr id = id
 
 end
 
-type atom = { atom : Env.uid }
+type atom = {
+  atom : Env.uid;
+  vars : Int.Set.t; (** set of metas appearing in the associated term *)
+}
+
 let repr_atom state a = Env.find a.atom state
 let compare_atom a1 a2 =
   Int.compare (Env.repr a1.atom) (Env.repr a2.atom)
+
+let meta_in_atom mv a = Int.Set.mem mv a.vars
 
 let meta_succ m = m+1
 
@@ -131,12 +133,29 @@ type kind_of_formula=
 
 let pop t = Vars.lift (-1) t
 
-let fresh_atom ~flags state env sigma atm =
+let fresh_atom ~flags state env sigma metas atm =
+  let vars, atm =
+    if List.is_empty metas then Int.Set.empty, atm
+    else
+      let metas = Array.of_list metas in
+      let nmetas = Array.length metas in
+      let seen = ref Int.Set.empty in
+      let rec substrec depth c = match Constr.kind c with
+      | Constr.Rel k ->
+        if k <= depth then c
+        else if k - depth <= nmetas then
+          let mv = metas.(k - depth - 1) in
+          let () = seen := Int.Set.add mv !seen in
+          Constr.mkMeta mv
+        else Constr.mkRel (k - nmetas)
+      | _ -> Constr.map_with_binders succ substrec depth c
+      in
+      let ans = EConstr.of_constr @@ substrec 0 (EConstr.Unsafe.to_constr atm) in
+      !seen, ans
+  in
   let st, uid = Env.add flags env sigma atm !state in
   let () = state := st in
-  { atom = uid }
-
-let hole_atom = { atom = Env.hole }
+  { atom = uid; vars }
 
 let kind_of_formula ~flags env sigma term =
   let cciterm = special_whd ~flags env sigma term in
@@ -159,7 +178,7 @@ let kind_of_formula ~flags env sigma term =
                         let is_trivial=
                           let is_constant n = Int.equal n 0 in
                             Array.exists is_constant mip.mind_consnrealargs in
-                          if Inductiveops.mis_is_recursive (ind,mib,mip) ||
+                          if Inductiveops.mis_is_recursive env (ind, mib, mip) ||
                             (has_realargs && not is_trivial)
                           then
                             Atom cciterm
@@ -183,8 +202,6 @@ type _ side =
 | Hyp : bool -> [ `Hyp ] side (* true if treated as hint *)
 | Concl : [ `Goal ] side
 
-let no_atoms = (false,{positive=[];negative=[]})
-
 let build_atoms (type a) ~flags state env sigma metagen (side : a side) cciterm =
   let trivial =ref false
   and positive=ref []
@@ -198,7 +215,7 @@ let build_atoms (type a) ~flags state env sigma metagen (side : a side) cciterm 
       | And(i,l,b) | Or(i,l,b)->
           if b then
             begin
-              let unsigned= fresh_atom ~flags state env sigma (substnl subst 0 cciterm) in
+              let unsigned= fresh_atom ~flags state env sigma subst cciterm in
                 if polarity then
                   positive:= unsigned :: !positive
                 else
@@ -214,16 +231,16 @@ let build_atoms (type a) ~flags state env sigma metagen (side : a side) cciterm 
             then trivial:=true;
             Array.iter f v
       | Exists(i,l)->
-          let var=mkMeta (metagen true) in
+          let var = metagen true in
           let v =(ind_hyps env sigma 1 i l).(0) in
           let g i _ decl =
             build_rec (var::subst) polarity (lift i (RelDecl.get_type decl)) in
             List.fold_left_i g (2-(List.length l)) () v
       | Forall(_,b)->
-          let var=mkMeta (metagen true) in
+          let var = metagen true in
             build_rec (var::subst) polarity b
       | Atom t->
-          let unsigned = fresh_atom ~flags state env sigma (substnl subst 0 t) in
+          let unsigned = fresh_atom ~flags state env sigma subst t in
             if not (isMeta sigma (repr_atom !state unsigned)) then (* discarding wildcard atoms *)
               if polarity then
                 positive:= unsigned :: !positive
@@ -235,7 +252,7 @@ let build_atoms (type a) ~flags state env sigma metagen (side : a side) cciterm 
         | Hyp false -> build_rec [] false cciterm
         | Hyp true  ->
             let rels,head=decompose_prod sigma cciterm in
-            let subst=List.rev_map (fun _->mkMeta (metagen true)) rels in
+            let subst=List.rev_map (fun _ -> metagen true) rels in
               build_rec subst false head;trivial:=false (* special for hints *)
     end;
     (!trivial,
@@ -265,7 +282,7 @@ type left_pattern=
   | Lor of pinductive
   | Lforall of metavariable*constr*bool
   | Lexists of pinductive
-  | LA of atom*left_arrow_pattern
+  | LA of left_arrow_pattern
 
 type _ identifier =
 | GoalId : [ `Goal ] identifier
@@ -278,9 +295,12 @@ type _ pattern =
 | LeftPattern : left_pattern -> [ `Hyp ] pattern
 | RightPattern : right_pattern -> [ `Goal ] pattern
 
+type uid = unit ref
+let eq_uid (r1 : uid) r2 = r1 == r2
+
 type 'a t = {
   id : 'a identifier;
-  constr : atom;
+  uid : uid;
   pat : 'a pattern;
   atoms : atoms;
 }
@@ -293,10 +313,7 @@ let build_formula (type a) ~flags state env sigma (side : a side) (nam : a ident
     try
       let state = ref state in
       let m=meta_succ(metagen false) in
-      let trivial,atoms=
-        if flags.qflag then
-          build_atoms ~flags state env sigma metagen side typ
-        else no_atoms in
+      let trivial, atoms = build_atoms ~flags state env sigma metagen side typ in
       let pattern : a pattern =
         match side with
             Concl ->
@@ -327,9 +344,7 @@ let build_formula (type a) ~flags state env sigma (side : a side) (nam : a ident
                   | Forall (d,_) ->
                       Lforall(m,d,trivial)
                   | Arrow (a,b) ->
-                    let nfa = fresh_atom ~flags state env sigma a in
-                        LA (nfa,
-                            match kind_of_formula ~flags env sigma a with
+                        LA (match kind_of_formula ~flags env sigma a with
                                 False(i,l)-> LLfalse(i,l)
                               | Atom t->     LLatom
                               | And(i,l,_)-> LLand(i,l)
@@ -339,10 +354,10 @@ let build_formula (type a) ~flags state env sigma (side : a side) (nam : a ident
                               | Forall(_,_)->LLforall a) in
                 LeftPattern pat
       in
-      let typ = fresh_atom ~flags state env sigma typ in
-      !state, Left { id = nam; constr = typ; pat = pattern; atoms = atoms}
+      let uid = ref () in
+      !state, Left { id = nam; uid; pat = pattern; atoms = atoms}
     with Is_atom a ->
       let state = ref state in
-      let a = fresh_atom ~flags state env sigma a in
+      let a = fresh_atom ~flags state env sigma [] a in
       !state, Right a (* already in nf *)
 

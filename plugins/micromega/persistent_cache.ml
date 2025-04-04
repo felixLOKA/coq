@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -15,7 +15,7 @@
 (************************************************************************)
 
 (** Last PR that requires the regeneration of caches.
-    It is stored and checked after the Coq magic number.
+    It is stored and checked after the Rocq magic number.
     Incompatible caches are thrown away.
 *)
 let pcache_version = 15584l

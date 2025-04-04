@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -10,8 +10,9 @@
 
 open Names
 open Declarations
+open Mod_declarations
 
-(** This module defines the global environment of Coq. The functions
+(** This module defines the global environment of Rocq. The functions
    below are exactly the same as the ones in [Safe_typing], operating on
    that global environment. [add_*] functions perform name verification,
    i.e. check that the name given as argument match those provided by
@@ -59,12 +60,13 @@ val add_private_constant :
 val add_rewrite_rules : Id.t -> rewrite_rules_body -> unit
 val add_mind :
   ?typing_flags:typing_flags ->
-  Id.t -> Entries.mutual_inductive_entry -> MutInd.t
+  Id.t -> Entries.mutual_inductive_entry ->
+  MutInd.t * IndTyping.NotPrimRecordReason.t option
 
 (** Extra universe constraints *)
 val add_constraints : Univ.Constraints.t -> unit
 
-val push_context_set : strict:bool -> Univ.ContextSet.t -> unit
+val push_context_set : Univ.ContextSet.t -> unit
 
 (** Non-interactive modules and module types *)
 

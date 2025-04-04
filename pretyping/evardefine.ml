@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -98,7 +98,7 @@ let define_pure_evar_as_product env evd na evk =
           new_type_evar newenv evd1 status ~src ~filter
         in
         let prods = Typeops.sort_of_product env (ESorts.kind evd3 u1) (ESorts.kind evd3 srng) in
-        let evd3 = Evd.set_leq_sort evenv evd3 (ESorts.make prods) s in
+        let evd3 = Evd.set_leq_sort evd3 (ESorts.make prods) s in
           evd3, rng
   in
   let prod = mkProd (make_annot (Name id) rdom, dom, subst_var evd2 id rng) in
@@ -143,7 +143,9 @@ let define_pure_evar_as_lambda env evd name evk =
   let filter = Filter.extend 1 (evar_filter evi) in
   let src = subterm_source evk ~where:Body (evar_source evi) in
   let abstract_arguments = Abstraction.abstract_last (Evd.evar_abstract_arguments evi) in
-  let evd2,body = new_evar newenv evd1 ~src (subst1 (mkVar id.binder_name) rng) ~filter ~abstract_arguments in
+  let evty = subst1 (mkVar id.binder_name) rng in
+  let typeclass_candidate = Typeclasses.is_maybe_class_type evd1 evty in
+  let evd2,body = new_evar ~typeclass_candidate newenv evd1 ~src evty ~filter ~abstract_arguments in
   let lam = mkLambda (map_annot Name.mk_name id, dom, subst_var evd2 id.binder_name body) in
   Evd.define evk lam evd2, lam
 
@@ -172,7 +174,7 @@ let define_evar_as_sort env evd (ev,args) =
   let concl = Reductionops.whd_all (evar_env env evi) evd (Evd.evar_concl evi) in
   let sort = destSort evd concl in
   let evd' = Evd.define ev (mkSort s) evd in
-  Evd.set_leq_sort env evd' (ESorts.super evd' s) sort, s
+  Evd.set_leq_sort evd' (ESorts.super evd' s) sort, s
 
 (* Unify with unknown array *)
 
@@ -196,7 +198,7 @@ let define_pure_evar_as_array env sigma evk =
   let concl = Reductionops.whd_all evenv sigma (Evd.evar_concl evi) in
   let s = destSort sigma concl in
   (* array@{u} ty : Type@{u} <= Type@{s} *)
-  let sigma = Evd.set_leq_sort env sigma s' s in
+  let sigma = Evd.set_leq_sort sigma s' s in
   let ar = Typeops.type_of_array env (UVars.Instance.of_array ([||],[|u|])) in
   let sigma = Evd.define evk (mkApp (EConstr.of_constr ar, [| ty |])) sigma in
   sigma
@@ -204,7 +206,7 @@ let define_pure_evar_as_array env sigma evk =
 let is_array_const env sigma c =
   match EConstr.kind sigma c with
   | Const (cst,_) ->
-    (match env.Environ.retroknowledge.Retroknowledge.retro_array with
+    (match (Environ.retroknowledge env).Retroknowledge.retro_array with
      | None -> false
      | Some cst' -> Environ.QConstant.equal env cst cst')
   | _ -> false

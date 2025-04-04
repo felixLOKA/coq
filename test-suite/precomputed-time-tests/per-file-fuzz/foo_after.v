@@ -1,5 +1,5 @@
-Require Import Coq.Lists.List.
-Require Import Coq.ZArith.ZArith.
+Require Import Corelib.Lists.List.
+Require Import Corelib.ZArith.ZArith.
 Goal True.
   exact I.
 Qed.

@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -39,6 +39,8 @@ module AsyncOpts = struct
   type tac_error_filter = FNone | FOnly of string list | FAll
 
   type stm_opt = {
+    spawn_args : string list;
+
     async_proofs_n_workers : int;
     async_proofs_n_tacworkers : int;
 
@@ -55,7 +57,9 @@ module AsyncOpts = struct
     async_proofs_worker_priority : CoqworkmgrApi.priority;
   }
 
-  let default_opts = {
+  let default_opts ~spawn_args = {
+    spawn_args;
+
     async_proofs_n_workers = 1;
     async_proofs_n_tacworkers = 2;
 
@@ -126,7 +130,7 @@ let pr_ast { expr; indentation } = Pp.(int indentation ++ str " " ++ Ppvernac.pr
 (* Commands piercing opaque (probably should be using the vernactypes system instead) *)
 let may_pierce_opaque = function
   | VernacSynPure (VernacPrint _) -> true
-  | VernacSynterp (VernacExtend ({ ext_plugin = "coq-core.plugins.extraction" }, _)) -> true
+  | VernacSynterp (VernacExtend ({ ext_plugin = "rocq-runtime.plugins.extraction" }, _)) -> true
   | _ -> false
 
 type depth = int
@@ -191,9 +195,9 @@ let mkTransCmd cast cids ceff cqueue =
 
 type cached_state =
   | EmptyState
-  | ParsingState of Pcoq.frozen_t
+  | ParsingState of Procq.frozen_t
   | FullState of Vernacstate.t
-  | ErrorState of Pcoq.frozen_t option * Exninfo.iexn
+  | ErrorState of Procq.frozen_t option * Exninfo.iexn
 type branch = Vcs_.Branch.t * Vcs_.branch_info
 type backup = { mine : branch; others : branch list }
 
@@ -287,7 +291,7 @@ type doc = int
 let dummy_doc : doc = 0
 
 (* Imperative wrap around VCS to obtain _the_ VCS that is the
- * representation of the document Coq is currently processing *)
+ * representation of the document Rocq is currently processing *)
 module VCS : sig
 
   exception Expired
@@ -309,7 +313,7 @@ module VCS : sig
     mutable vcs_backup : vcs option * backup option;
   }
 
-  val init : stm_doc_type -> id -> Pcoq.frozen_t -> doc
+  val init : stm_doc_type -> id -> Procq.frozen_t -> doc
   (* val get_type : unit -> stm_doc_type *)
   val set_ldir : Names.DirPath.t -> unit
   val get_ldir : unit -> Names.DirPath.t
@@ -339,8 +343,8 @@ module VCS : sig
   val goals : id -> int -> unit
   val set_state : id -> cached_state -> unit
   val get_state : id -> cached_state
-  val set_parsing_state : id -> Pcoq.frozen_t -> unit
-  val get_parsing_state : id -> Pcoq.frozen_t option
+  val set_parsing_state : id -> Procq.frozen_t -> unit
+  val get_parsing_state : id -> Procq.frozen_t option
   val get_proof_mode : id -> Pvernac.proof_mode option
 
   (* cuts from start -> stop, raising Expired if some nodes are not there *)
@@ -516,7 +520,7 @@ end = struct (* {{{ *)
 
   let vcs : vcs ref = ref (empty Stateid.dummy)
 
-  let doc_type = ref (Interactive (Coqargs.TopLogical (Names.DirPath.make [])))
+  let doc_type = ref (Interactive (Coqargs.TopLogical ""))
   let ldir = ref Names.DirPath.empty
 
   let init dt id ps =
@@ -896,7 +900,7 @@ end = struct (* {{{ *)
        Exninfo.iraise ie
 
     | EmptyState | ParsingState _ ->
-      (* coqc has a 1 slot cache and only for valid states *)
+      (* rocq compile has a 1 slot cache and only for valid states *)
       if (VCS.is_interactive ()) || not (Stateid.equal id !cur_id) then
         anomaly Pp.(str "installing a non cached state.")
 
@@ -1108,9 +1112,9 @@ end = struct (* {{{ *)
     CWarnings.create ~name:"undo-batch-mode" Pp.(fun v ->
         str "Command" ++ spc() ++ quote (Ppvernac.pr_vernac v) ++
         strbrk (" is not recommended in batch mode. In particular, going back in the document" ^
-             " is not efficient in batch mode due to Coq not caching previous states for memory optimization reasons." ^
+             " is not efficient in batch mode due to Rocq not caching previous states for memory optimization reasons." ^
              " If your use is intentional, you may want to disable this warning and pass" ^
-             " the \"-async-proofs-cache force\" option to Coq."))
+             " the \"-async-proofs-cache force\" option to Rocq."))
 
   let back_tactic n (id,_,_,tactic,undo) =
     let value = (if tactic then 1 else 0) - undo in
@@ -1588,7 +1592,7 @@ and Slaves : sig
   val wait_all_done : unit -> unit
 
   (* initialize the whole machinery (optional) *)
-  val init : CoqworkmgrApi.priority -> unit
+  val init : spawn_args:string list -> CoqworkmgrApi.priority -> unit
 
   type 'a tasks = (('a,VCS.vcs) Stateid.request * bool) list
   val dump_snapshot : unit -> Future.UUID.t tasks
@@ -1602,11 +1606,11 @@ end = struct (* {{{ *)
   module TaskQueue = AsyncTaskQueue.MakeQueue(ProofTask) ()
 
   let queue = ref None
-  let init priority =
+  let init ~spawn_args priority =
     if async_proofs_is_master (cur_opt()) then
-      queue := Some (TaskQueue.create (cur_opt()).async_proofs_n_workers priority)
+      queue := Some (TaskQueue.create ~spawn_args (cur_opt()).async_proofs_n_workers priority)
     else
-      queue := Some (TaskQueue.create 0 priority)
+      queue := Some (TaskQueue.create ~spawn_args 0 priority)
 
   let build_proof ~doc ?loc ~drop_pt ~exn_info ~block_start ~block_stop ~name:pname () =
     let cancel_switch = ref false in
@@ -2097,12 +2101,21 @@ let known_state ~doc ?(redefine_qed=false) ~cache id =
                         | None ->
                           CErrors.anomaly Pp.(str "Attempting to force admitted proof contents."))
                     in
-                    let proof =
-                      PG_compat.close_future_proof ~feedback_id:id fp' in
+                    let control, pe = extract_pe x in
+                    let control = VernacControl.from_syntax control in
+                    let control, proof =
+                      VernacControl.under_control ~loc:x.expr.loc
+                        ~with_local_state:VernacControl.trivial_state
+                        control
+                        ~noop:None
+                        (fun () -> Some (PG_compat.close_future_proof ~feedback_id:id fp'))
+                    in
+                    (* We only get [noop] from [Fail],
+                       but we can't see [Fail] in this classification. *)
+                    let proof = Option.get proof in
                     if not delegate then ignore(Future.compute fp);
                     reach view.next;
                     let st = Vernacstate.freeze_full_state () in
-                    let control, pe = extract_pe x in
                     ignore(stm_qed_delay_proof ~id ~st ~proof ~loc ~control pe);
                     feedback ~id:id Incomplete
                 | { VCS.kind = Master }, _ -> assert false
@@ -2131,10 +2144,24 @@ let known_state ~doc ?(redefine_qed=false) ~cache id =
                       | VtKeepOpaque -> Opaque | VtKeepDefined -> Transparent
                       | VtKeepAxiom -> assert false
                     in
-                    try Some (PG_compat.close_proof ~opaque ~keep_body_ucst_separate:false)
-                    with exn ->
-                      let iexn = Exninfo.capture exn in
-                      Exninfo.iraise (State.exn_on id ~valid:eop iexn)
+                    let control, pe = extract_pe x in
+                    let control = VernacControl.from_syntax control in
+                    let control, proof =
+                      try
+                        VernacControl.under_control ~loc:x.expr.loc
+                          ~with_local_state:VernacControl.trivial_state
+                          control
+                          (* noop should be unreachable in this classification *)
+                          ~noop:None
+                          (fun () ->
+                             Some (PG_compat.close_proof ~opaque ~keep_body_ucst_separate:false))
+                      with exn ->
+                        let iexn = Exninfo.capture exn in
+                        Exninfo.iraise (State.exn_on id ~valid:eop iexn)
+                    in
+                    match proof with
+                    | None -> assert false
+                    | Some proof -> Some (control, pe, proof)
                 in
                 if keep <> VtKeep VtKeepAxiom then
                   reach view.next;
@@ -2142,8 +2169,7 @@ let known_state ~doc ?(redefine_qed=false) ~cache id =
                 let st = Vernacstate.freeze_full_state () in
                 let _st = match proof with
                   | None -> stm_vernac_interp id st x
-                  | Some proof ->
-                    let control, pe = extract_pe x in
+                  | Some (control,pe,proof) ->
                     { st with interp = stm_qed_delay_proof ~id ~st ~proof ~loc ~control pe }
                 in
                 let wall_clock3 = Unix.gettimeofday () in
@@ -2205,7 +2231,7 @@ let init_process stm_flags =
   CoqworkmgrApi.(init stm_flags.AsyncOpts.async_proofs_worker_priority);
   if (cur_opt()).async_proofs_mode = APon then Control.enable_thread_delay := true;
   if !Flags.async_proofs_worker_id = "master" && (cur_opt()).async_proofs_n_tacworkers > 0 then
-    Partac.enable_par ~nworkers:(cur_opt()).async_proofs_n_tacworkers
+    Partac.enable_par ~spawn_args:stm_flags.spawn_args ~nworkers:(cur_opt()).async_proofs_n_tacworkers
 
 let init_core () =
   State.register_root_state ()
@@ -2216,7 +2242,7 @@ let new_doc { doc_type ; injections } =
   State.restore_root_state ();
 
   let doc =
-    let ps = Pcoq.freeze () in
+    let ps = Procq.freeze () in
     VCS.init doc_type Stateid.initial ps
   in
 
@@ -2224,16 +2250,16 @@ let new_doc { doc_type ; injections } =
 
   let top =
     match doc_type with
-    | Interactive top -> Coqargs.dirpath_of_top top
+    | Interactive top -> Coqinit.dirpath_of_top top
 
     | VoDoc f ->
-      let ldir = Coqargs.(dirpath_of_top (TopPhysical f)) in
+      let ldir = Coqargs.(Coqinit.dirpath_of_top (TopPhysical f)) in
       VCS.set_ldir ldir;
       set_compilation_hints f;
       ldir
 
     | VosDoc f ->
-      let ldir = Coqargs.(dirpath_of_top (TopPhysical f)) in
+      let ldir = Coqargs.(Coqinit.dirpath_of_top (TopPhysical f)) in
       VCS.set_ldir ldir;
       set_compilation_hints f;
       ldir
@@ -2246,7 +2272,7 @@ let new_doc { doc_type ; injections } =
   (* We record the state at this point! *)
   State.define ~doc ~cache:true ~redefine:true (fun () -> ()) Stateid.initial;
   Backtrack.record ();
-  Slaves.init (cur_opt()).async_proofs_worker_priority;
+  Slaves.init ~spawn_args:((cur_opt()).spawn_args) (cur_opt()).async_proofs_worker_priority;
   if async_proofs_is_master (cur_opt()) then begin
     stm_prerr_endline (fun () -> "Initializing workers");
     Query.init (cur_opt()).async_proofs_worker_priority;
@@ -2512,7 +2538,7 @@ let process_transaction ~doc ?(newtip=Stateid.fresh ()) x c =
               | VtNow ->
                 (* We need to execute to get the new parsing state *)
                 let () = observe ~doc:dummy_doc (VCS.get_branch_pos (VCS.current_branch ())) in
-                let parsing = Pcoq.freeze () in
+                let parsing = Procq.freeze () in
                 (* If execution has not been put in cache, we need to save the parsing state *)
                 if (VCS.get_info id).state == EmptyState then VCS.set_parsing_state id parsing;
                 parsing
@@ -2557,8 +2583,8 @@ let stop_worker n = Slaves.cancel_worker n
 let parse_sentence ~doc sid ~entry pa =
   let ps = Option.get @@ VCS.get_parsing_state sid in
   let proof_mode = VCS.get_proof_mode sid in
-  Pcoq.unfreeze ps;
-  Pcoq.Entry.parse (entry proof_mode) pa
+  Procq.unfreeze ps;
+  Procq.Entry.parse (entry proof_mode) pa
 
 (* You may need to know the len + indentation of previous command to compute
  * the indentation of the current one.

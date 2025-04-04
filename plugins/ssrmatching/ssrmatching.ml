@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -49,11 +49,11 @@ let debug b =
   if b then pp_ref := ssr_pp else pp_ref := fun _ -> ()
 let _ =
   Goptions.declare_bool_option
-    { Goptions.optstage = Summary.Stage.Interp;
-      Goptions.optkey   = ["Debug";"SsrMatching"];
-      Goptions.optdepr  = None;
-      Goptions.optread  = (fun _ -> !pp_ref == ssr_pp);
-      Goptions.optwrite = debug }
+    { optstage = Summary.Stage.Interp;
+      optkey   = ["Debug";"SsrMatching"];
+      optdepr  = None;
+      optread  = (fun _ -> !pp_ref == ssr_pp);
+      optwrite = debug }
 let pp s = !pp_ref s
 
 (** Utils *)(* {{{ *****************************************************************)
@@ -189,13 +189,13 @@ let unif_HO_args env ise0 pa i ca =
     if j = n then ise else loop (unif_HO env ise pa.(j) (ca.(i + j))) (j + 1) in
   loop ise0 0
 
-(* FO unification should boil down to calling w_unify with no_delta, but  *)
-(* alas things are not so simple: w_unify does partial type-checking,     *)
-(* which breaks down when the no-delta flag is on (as the Coq type system *)
-(* requires full convertibility. The workaround here is to convert all    *)
-(* evars into metas, since 8.2 does not TC metas. This means some lossage *)
-(* for HO evars, though hopefully Miller patterns can pick up some of     *)
-(* those cases, and HO matching will mop up the rest.                     *)
+(* FO unification should boil down to calling w_unify with no_delta, but   *)
+(* alas things are not so simple: w_unify does partial type-checking,      *)
+(* which breaks down when the no-delta flag is on (as the Rocq type system *)
+(* requires full convertibility. The workaround here is to convert all     *)
+(* evars into metas, since 8.2 does not TC metas. This means some lossage  *)
+(* for HO evars, though hopefully Miller patterns can pick up some of      *)
+(* those cases, and HO matching will mop up the rest.                      *)
 let flags_FO env =
   let oracle = Environ.oracle env in
   let ts = Conv_oracle.get_transp_state oracle in
@@ -216,8 +216,8 @@ let flags_FO env =
   }
 
 let unif_FO env ise metas p c =
-  let ise = Metamap.fold (fun mv t accu -> Evd.meta_declare mv t accu) metas ise in
-  let _ : Evd.evar_map = Unification.w_unify env ise Conversion.CONV ~flags:(flags_FO env) p c in
+  let metas = Unification.Metamap.fold (fun mv t accu -> Unification.Meta.meta_declare mv t accu) metas Unification.Meta.empty in
+  let _ : _ * Evd.evar_map = Unification.w_unify ~metas env ise Conversion.CONV ~flags:(flags_FO env) p c in
   ()
 
 (* Perform evar substitution in main term and prune substitution. *)
@@ -308,7 +308,7 @@ type pattern_class =
 
 type tpattern = {
   up_k : pattern_class;
-  up_FO : EConstr.t Metamap.t * EConstr.t;
+  up_FO : EConstr.t Unification.Metamap.t * EConstr.t;
   up_f : EConstr.t;
   up_a : EConstr.t array;
   up_t : EConstr.t;                      (* equation proof term or matched term *)
@@ -359,7 +359,7 @@ let pr_econstr_pat env sigma c0 =
 (* Turn (new) evars into metas *)
 let evars_for_FO ~hack ~rigid env (ise0:evar_map) c0 =
   let open EConstr in
-  let metas = ref Metamap.empty in
+  let metas = ref Unification.Metamap.empty in
   let sigma = ref ise0 in
   let nenv = env_size env + if hack then 1 else 0 in
   let rec put c = match EConstr.kind !sigma c with
@@ -376,7 +376,7 @@ let evars_for_FO ~hack ~rigid env (ise0:evar_map) c0 =
       Context.Named.fold_inside abs_dc ~init:([], put (Evd.evar_concl evi)) dc
     in
     let m = Evarutil.new_meta () in
-    let () = metas := Metamap.add m t !metas in
+    let () = metas := Unification.Metamap.add m t !metas in
     sigma := Evd.define k (applistc (mkMeta m) a) !sigma;
     put c
   | _ -> map !sigma put c in
@@ -423,7 +423,7 @@ let ungen_upat lhs (c, sigma, uc, t) u =
   | LetIn _ -> KpatLet
   | Lambda _ -> KpatLam
   | _ -> KpatRigid in
-  c, sigma, uc, {u with up_k = k; up_FO = (Metamap.empty, lhs); up_f = f; up_a = a; up_t = t}
+  c, sigma, uc, {u with up_k = k; up_FO = (Unification.Metamap.empty, lhs); up_f = f; up_a = a; up_t = t}
 
 let nb_cs_proj_args env ise pc f u =
   let open EConstr in
@@ -1037,6 +1037,7 @@ let thin id sigma goal =
   let evi = Evd.find_undefined sigma goal in
   let env = Evd.evar_filtered_env (Global.env ()) evi in
   let cl = Evd.evar_concl evi in
+  let relevance = Evd.evar_relevance evi in
   let ans =
     try Some (Evarutil.clear_hyps_in_evi env sigma (Environ.named_context_val env) cl ids)
     with Evarutil.ClearDependencyError _ -> None
@@ -1045,7 +1046,7 @@ let thin id sigma goal =
   | None -> sigma
   | Some (sigma, hyps, concl) ->
     let (sigma, evk) =
-      Evarutil.new_pure_evar ~src:(Loc.tag Evar_kinds.GoalEvar) ~typeclass_candidate:false hyps sigma concl
+      Evarutil.new_pure_evar ~src:(Loc.tag Evar_kinds.GoalEvar) ~typeclass_candidate:false hyps sigma ~relevance concl
     in
     let sigma = Evd.remove_future_goal sigma evk in
     let id = Evd.evar_ident goal sigma in
@@ -1062,13 +1063,12 @@ let pr_ist { lfun= lfun } =
         pr_id id ++ str":" ++ Geninterp.Val.pr ty) (Id.Map.bindings lfun)
 *)
 
-let interp_pattern ?wit_ssrpatternarg env sigma0 red redty =
+let decode_pattern ?wit_ssrpatternarg env sigma0 red =
   pp(lazy(str"interpreting: " ++ pr_rpattern red));
   let xInT x y = X_In_T(x,y) and inXInT x y = In_X_In_T(x,y) in
   let inT x = In_T x and eInXInT e x t = E_In_X_In_T(e,x,t) in
   let eAsXInT e x t = E_As_X_In_T(e,x,t) in
   let mkG ?(k=NoFlag) x ist = {kind = k; pattern = (x,None); interpretation = ist } in
-  let ist_of x = x.interpretation in
   let decode ({interpretation=ist; _} as t) ?reccall f g =
     try match DAst.get (pf_intern_term env sigma0 t) with
     | GCast(t, Some DEFAULTcast, c) when isGHole t && isGLambda c->
@@ -1085,36 +1085,6 @@ let interp_pattern ?wit_ssrpatternarg env sigma0 red redty =
     | it -> g t with e when CErrors.noncritical e -> g t in
   let decodeG ist t f g = decode (mkG t ist) f g in
   let bad_enc id _ = CErrors.anomaly (str"bad encoding for pattern "++str id++str".") in
-  let cleanup_XinE (h_k, _) x rp sigma =
-    let to_clean, update = (* handle rename if x is already used *)
-      let ctx = Environ.named_context env in
-      let len = Context.Named.length ctx in
-      let name = ref None in
-      try ignore(Context.Named.lookup x ctx); (name, fun k ->
-        if !name = None then
-        let EvarInfo evi = Evd.find sigma k in
-        let nctx = Evd.evar_context evi in
-        let nlen = Context.Named.length nctx in
-        if nlen > len then begin
-          name := Some (Context.Named.Declaration.get_id (List.nth nctx (nlen - len - 1)))
-        end)
-      with Not_found -> ref (Some x), fun _ -> () in
-    let new_evars =
-      let rec aux acc t = match EConstr.kind sigma t with
-      | Evar (k,_) ->
-          if k = h_k || List.mem k acc || Evd.mem sigma0 k then acc else
-          (update k; k::acc)
-      | _ -> EConstr.fold sigma aux acc t in
-      aux [] rp in
-    let sigma =
-      List.fold_left (fun sigma e ->
-        if Evd.is_defined sigma e then sigma else (* clear may be recursive *)
-        if Option.is_empty !to_clean then sigma else
-        let name = Option.get !to_clean in
-        pp(lazy(pr_id name));
-        thin name sigma e)
-      sigma new_evars in
-    sigma in
   let red = let rec decode_red = function
     | T {kind=k; pattern=(t,None); interpretation=ist} ->
       begin match DAst.get t with
@@ -1144,10 +1114,13 @@ let interp_pattern ?wit_ssrpatternarg env sigma0 red redty =
     | E_As_X_In_T (e,x,rp) -> eAsXInT e (id_of_Cterm x) rp in
     decode_red red in
   pp(lazy(str"decoded as: " ++ pr_pattern_w_ids red));
+  red
+
+let add_pattern_type env sigma0 red (ty,ist) =
+  let ist_of x = x.interpretation in
+  let mkG ?(k=NoFlag) x ist = {kind = k; pattern = (x,None); interpretation = ist } in
+  let ty = {kind=NoFlag; pattern=ty; interpretation = Some ist} in
   let red =
-    match redty with
-    | None -> red
-    | Some (ty, ist) -> let ty = {kind=NoFlag; pattern=ty; interpretation = Some ist} in
   match red with
   | T t -> T (combineCG t ty (mkCCast ?loc:(loc_ofCG t)) mkRCast)
   | X_In_T (x,t) ->
@@ -1161,6 +1134,46 @@ let interp_pattern ?wit_ssrpatternarg env sigma0 red redty =
       E_As_X_In_T (combineCG e ty (mkCCast ?loc:(loc_ofCG t)) mkRCast, x, t)
   | red -> red in
   pp(lazy(str"typed as: " ++ pr_pattern_w_ids red));
+  red
+
+let cleanup_XinE env sigma0 (h_k, _) x rp sigma =
+  let to_clean, update = (* handle rename if x is already used *)
+    let ctx = Environ.named_context env in
+    let len = Context.Named.length ctx in
+    let name = ref None in
+    try ignore(Context.Named.lookup x ctx); (name, fun k ->
+        if !name = None then
+          let EvarInfo evi = Evd.find sigma k in
+          let nctx = Evd.evar_context evi in
+          let nlen = Context.Named.length nctx in
+          if nlen > len then begin
+            name := Some (Context.Named.Declaration.get_id (List.nth nctx (nlen - len - 1)))
+          end)
+    with Not_found -> ref (Some x), fun _ -> () in
+  let new_evars =
+    let rec aux acc t = match EConstr.kind sigma t with
+      | Evar (k,_) ->
+        if k = h_k || List.mem k acc || Evd.mem sigma0 k then acc else
+          (update k; k::acc)
+      | _ -> EConstr.fold sigma aux acc t in
+    aux [] rp in
+  let sigma =
+    List.fold_left (fun sigma e ->
+        if Evd.is_defined sigma e then sigma else (* clear may be recursive *)
+        if Option.is_empty !to_clean then sigma else
+          let name = Option.get !to_clean in
+          pp(lazy(pr_id name));
+          thin name sigma e)
+      sigma new_evars in
+  sigma
+
+let interp_pattern ?wit_ssrpatternarg env sigma0 red redty =
+  pp(lazy(str"interpreting: " ++ pr_rpattern red));
+  let red = decode_pattern ?wit_ssrpatternarg env sigma0 red in
+  let red =
+    match redty with
+    | None -> red
+    | Some ty -> add_pattern_type env sigma0 red ty in
   let mkXLetIn ?loc x {kind; pattern=(g,c); interpretation} = match c with
   | Some b -> {kind; pattern=(g,Some (mkCLetIn ?loc x (mkCHole ~loc) b)); interpretation}
   | None -> { kind
@@ -1170,26 +1183,26 @@ let interp_pattern ?wit_ssrpatternarg env sigma0 red redty =
   match red with
   | T t -> let sigma, t = interp_term env sigma0 t in { pat_sigma = sigma; pat_pat = T t }
   | In_T t -> let sigma, t = interp_term env sigma0 t in { pat_sigma = sigma; pat_pat = In_T t }
-  | X_In_T (x, rp) | In_X_In_T (x, rp) ->
-    let mk x p = match red with X_In_T _ -> X_In_T(x,p) | _ -> In_X_In_T(x,p) in
+  | X_In_T (x, rp) | In_X_In_T (x, rp)
+  | E_In_X_In_T(_, x, rp) | E_As_X_In_T (_, x, rp) ->
     let rp = mkXLetIn (Name x) rp in
     let sigma, rp = interp_term env sigma0 rp in
     let _, h, _, rp = EConstr.destLetIn sigma rp in
     let h = EConstr.destEvar sigma h in
-    let sigma = cleanup_XinE h x rp sigma in
+    let sigma = cleanup_XinE env sigma0 h x rp sigma in
     let rp = EConstr.Vars.subst1 (EConstr.mkEvar h) (Evarutil.nf_evar sigma rp) in
-    { pat_sigma = sigma; pat_pat = mk h rp }
-  | E_In_X_In_T(e, x, rp) | E_As_X_In_T (e, x, rp) ->
-    let mk e x p =
-      match red with E_In_X_In_T _ ->E_In_X_In_T(e,x,p)|_->E_As_X_In_T(e,x,p) in
-    let rp = mkXLetIn (Name x) rp in
-    let sigma, rp = interp_term env sigma0 rp in
-    let _, h, _, rp = EConstr.destLetIn sigma rp in
-    let h = EConstr.destEvar sigma h in
-    let sigma = cleanup_XinE h x rp sigma in
-    let rp = EConstr.Vars.subst1 (EConstr.mkEvar h) (Evarutil.nf_evar sigma rp) in
-    let sigma, e = interp_term env sigma e in
-    { pat_sigma = sigma; pat_pat = mk e h rp }
+    let sigma, p = match red with
+      | X_In_T _ -> sigma, X_In_T (h,rp)
+      | In_X_In_T _ -> sigma, In_X_In_T (h,rp)
+      | E_In_X_In_T (e,_,_) ->
+        let sigma, e = interp_term env sigma e in
+        sigma, E_In_X_In_T (e,h,rp)
+      | E_As_X_In_T (e,_,_) ->
+        let sigma, e = interp_term env sigma e in
+        sigma, E_As_X_In_T (e,h,rp)
+      | T _ | In_T _ -> assert false
+    in
+    { pat_sigma = sigma; pat_pat = p }
 
 let interp_cpattern env sigma red redty = interp_pattern env sigma (T red) redty;;
 let interp_rpattern ~wit_ssrpatternarg env sigma red = interp_pattern ~wit_ssrpatternarg env sigma red None;;
@@ -1363,7 +1376,7 @@ let wit_ssrpatternarg = wit_rpatternty
 
 let interp_rpattern = interp_rpattern ~wit_ssrpatternarg
 
-let ssrpatterntac _ist arg =
+let ssrpatterntac arg =
   let open Proofview.Notations in
   Proofview.Goal.enter begin fun gl ->
   let sigma0 = Proofview.Goal.sigma gl in
@@ -1385,15 +1398,15 @@ let () =
     let arg =
       let v = Id.Map.find (Names.Id.of_string "pattern") ist.lfun in
       Value.cast (topwit wit_ssrpatternarg) v in
-    ssrpatterntac ist arg in
-  let name = { mltac_plugin = "coq-core.plugins.ssrmatching"; mltac_tactic = "ssrpattern"; } in
+    ssrpatterntac arg in
+  let name = { mltac_plugin = "rocq-runtime.plugins.ssrmatching"; mltac_tactic = "ssrpattern"; } in
   let () = Tacenv.register_ml_tactic name [|mltac|] in
   let tac =
     CAst.make (TacFun ([Name (Id.of_string "pattern")],
       CAst.make (TacML ({ mltac_name = name; mltac_index = 0 }, [])))) in
   let obj () =
     Tacenv.register_ltac true false (Id.of_string "ssrpattern") tac in
-  Mltop.declare_cache_obj obj "coq-core.plugins.ssrmatching"
+  Mltop.declare_cache_obj obj "rocq-runtime.plugins.ssrmatching"
 
 let ssrinstancesof arg =
   Proofview.Goal.enter begin fun gl ->

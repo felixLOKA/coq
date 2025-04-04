@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -17,7 +17,6 @@ open Tacarg
 open Tactypes
 open Tactics
 open Globnames
-open Genredexpr
 open Patternops
 
 (** Substitution of tactics at module closing time *)
@@ -287,6 +286,7 @@ let () =
   Gensubst.register_subst0 wit_intropattern subst_intro_pattern [@warning "-3"];
   Gensubst.register_subst0 wit_simple_intropattern subst_intro_pattern;
   Gensubst.register_subst0 wit_tactic subst_tactic;
+  Gensubst.register_subst0 wit_ltac_in_term (fun s (used_ntnvars,tac) -> used_ntnvars, subst_tactic s tac);
   Gensubst.register_subst0 wit_ltac subst_tactic;
   Gensubst.register_subst0 wit_constr subst_glob_constr;
   Gensubst.register_subst0 wit_clause_dft_concl (fun _ v -> v);

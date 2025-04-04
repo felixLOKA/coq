@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -10,7 +10,7 @@
 
 (** Various syntactic shorthands that are useful with [Program]. *)
 
-Require Export Coq.Program.Tactics.
+Require Export Corelib.Program.Tactics.
 
 Set Implicit Arguments.
 
@@ -32,8 +32,6 @@ Notation " ! " := (False_rect _ _) : program_scope.
 Notation " `  t " := (proj1_sig t) (at level 10, t at next level) : program_scope.
 
 (** Coerces objects to their support before comparing them. *)
-
-Require Import Coq.Bool.Sumbool.
 
 (** Construct a dependent disjunction from a boolean. *)
 

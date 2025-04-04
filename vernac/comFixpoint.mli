@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -17,6 +17,8 @@ open Vernacexpr
 val do_mutually_recursive
   :  ?pm:Declare.OblState.t
      (* Obligation mode turns unresolved evars into obligations *)
+  -> refine:bool
+     (* [refine] means definitions are allowed to have holes *)
   -> program_mode:bool
      (* [program_mode] means here:
         - a special treatment of subsets in pretyping
@@ -29,6 +31,8 @@ val do_mutually_recursive
      (* Local or Global visibility *)
   -> ?clearbody:bool
      (* Hide body if in sections *)
+  -> kind:Decls.logical_kind
+     (* Logical kind: Theorem, Definition, Fixpoint, etc.*)
   -> poly:bool
      (* Use universe polymorphism *)
   -> ?typing_flags:Declarations.typing_flags

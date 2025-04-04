@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -21,7 +21,7 @@ type lambda = Nativevalues.t Genlambda.lambda
 
 let is_value lc =
   match lc with
-  | Lval _ | Lint _ | Luint _ | Lfloat _ -> true
+  | Lval _ | Lint _ | Luint _ | Lfloat _ | Lstring _ -> true
   | _ -> false
 
 let get_value lc =
@@ -30,6 +30,7 @@ let get_value lc =
   | Lint tag -> Nativevalues.mk_int tag
   | Luint i -> Nativevalues.mk_uint i
   | Lfloat f -> Nativevalues.mk_float f
+  | Lstring s -> Nativevalues.mk_string s
   | _ -> raise Not_found
 
 let as_value tag args =

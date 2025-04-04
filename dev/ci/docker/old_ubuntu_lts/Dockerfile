@@ -13,11 +13,15 @@ RUN apt-get update -qq && apt-get install --no-install-recommends -y -qq \
         m4 automake autoconf time wget rsync git gcc-multilib build-essential unzip jq \
         # Dependencies of ZArith
         perl libgmp-dev libgmp-dev:i386 \
+        # Dependencies of devtools
+        zlib1g-dev zlib1g-dev:i386 \
         # Dependencies of lablgtk (for CoqIDE)
         libgtksourceview-3.0-dev adwaita-icon-theme-full \
         # Dependencies of stdlib and sphinx doc
         texlive-latex-extra texlive-fonts-recommended texlive-xetex latexmk \
         python3-pip python3-setuptools python3-pexpect python3-bs4 fonts-freefont-otf \
+        # Dependency of stdlib-doc
+        graphviz \
         # Dependencies of source-doc and coq-makefile
         texlive-science tipa \
         # Dependencies of HB (test suite)
@@ -42,13 +46,15 @@ ENV NJOBS="2" \
     OPAMROOTISOK="true" \
     OPAMYES="true"
 
+RUN mkdir -p ~/.config/dune && printf '(lang dune 2.1)\n(jobs %s)\n' $NJOBS > ~/.config/dune/config
+
 # Base opam is the set of base packages required by Coq
 ENV COMPILER="4.09.0"
 
 # Common OPAM packages
-ENV BASE_OPAM="zarith.1.11 ounit2.2.2.6" \
+ENV BASE_OPAM="zarith.1.11 ounit2.2.2.6 yojson.1.7.0 camlzip.1.10" \
     CI_OPAM="ocamlgraph.2.0.0 cppo.1.6.9" \
-    BASE_ONLY_OPAM="dune.3.6.1 stdlib-shims.0.1.0 ocamlfind.1.8.1 odoc.2.0.2 yojson.1.7.0 num.1.4"
+    BASE_ONLY_OPAM="dune.3.8.3 stdlib-shims.0.1.0 ocamlfind.1.8.1 odoc.2.0.2 num.1.4"
 
 # BASE switch; CI_OPAM contains Coq's CI dependencies.
 ENV COQIDE_OPAM="cairo2.0.6.1 lablgtk3-sourceview3.3.1.2"

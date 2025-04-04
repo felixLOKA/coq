@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -12,24 +12,27 @@ Require Export Notations.
 Require Export Logic.
 Require Export Datatypes.
 Require Export Specif.
-Require Coq.Init.Byte.
-Require Coq.Init.Decimal.
-Require Coq.Init.Hexadecimal.
-Require Coq.Init.Number.
-Require Coq.Init.Nat.
+Require Corelib.Init.Byte.
+Require Corelib.Init.Decimal.
+Require Corelib.Init.Hexadecimal.
+Require Corelib.Init.Number.
+Require Corelib.Init.Nat.
 Require Export Peano.
-Require Export Coq.Init.Wf.
-Require Export Coq.Init.Ltac.
-Require Export Coq.Init.Tactics.
-Require Export Coq.Init.Tauto.
+Require Export Corelib.Init.Wf.
+Require Export Corelib.Init.Ltac.
+Require Export Corelib.Init.Tactics.
+Require Export Corelib.Init.Tauto.
+Require Export Corelib.Init.Sumbool.
 (* Some initially available plugins. See also:
    - ltac_plugin (in Ltac)
    - tauto_plugin (in Tauto).
 *)
-Declare ML Module "cc_core_plugin:coq-core.plugins.cc_core".
-Declare ML Module "cc_plugin:coq-core.plugins.cc".
-Declare ML Module "firstorder_core_plugin:coq-core.plugins.firstorder_core".
-Declare ML Module "firstorder_plugin:coq-core.plugins.firstorder".
+Declare ML Module "rocq-runtime.plugins.cc_core".
+Declare ML Module "rocq-runtime.plugins.cc".
+Declare ML Module "rocq-runtime.plugins.firstorder_core".
+Declare ML Module "rocq-runtime.plugins.firstorder".
+
+Global Set Firstorder Solver auto.
 
 (* Parsing / printing of hexadecimal numbers *)
 Arguments Nat.of_hex_uint d%_hex_uint_scope.

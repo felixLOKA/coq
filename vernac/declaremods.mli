@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -172,7 +172,7 @@ val append_end_library_hook : (unit -> unit) -> unit
     (together with their section path). Ignores synterp objects. *)
 
 val iter_all_interp_segments :
-  (Nametab.object_prefix -> Libobject.t -> unit) -> unit
+  (Libobject.object_prefix -> Libobject.t -> unit) -> unit
 
 
 val debug_print_modtab : unit -> Pp.t

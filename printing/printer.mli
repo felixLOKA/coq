@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -60,6 +60,7 @@ val pr_constr_n_env        : ?inctx:bool -> ?scope:scope_name -> env -> evar_map
 
 val safe_pr_constr_env  : env -> evar_map -> constr -> Pp.t
 val safe_pr_lconstr_env : env -> evar_map -> constr -> Pp.t
+val safe_extern_wrapper : (env -> evar_map -> 'a -> 'b) -> env -> evar_map -> 'a -> 'b option
 
 val pr_econstr_env      : ?inctx:bool -> ?scope:scope_name -> env -> evar_map -> EConstr.t -> Pp.t
 val pr_leconstr_env     : ?inctx:bool -> ?scope:scope_name -> env -> evar_map -> EConstr.t -> Pp.t
@@ -120,7 +121,7 @@ val pr_sort                : evar_map -> Sorts.t -> Pp.t
 (** Universe constraints *)
 
 val pr_universe_instance   : evar_map -> UVars.Instance.t -> Pp.t
-val pr_universe_instance_constraints : evar_map -> UVars.Instance.t -> Univ.Constraints.t -> Pp.t
+val pr_universe_instance_binder : evar_map -> UVars.Instance.t -> Univ.Constraints.t -> Pp.t
 val pr_universe_ctx        : evar_map -> ?variance:UVars.Variance.t array ->
   UVars.UContext.t -> Pp.t
 val pr_abstract_universe_ctx : evar_map -> ?variance:UVars.Variance.t array ->
@@ -140,7 +141,7 @@ val pr_universes  : evar_map ->
 
     Inefficient on large contexts due to name generation. *)
 val universe_binders_with_opt_names : UVars.AbstractContext.t ->
-  UnivNames.full_name_list option -> UnivNames.universe_binders * UnivNames.rev_binders
+  (GlobRef.t * UnivNames.full_name_list) option -> UnivNames.universe_binders * UnivNames.rev_binders
 
 (** Printing global references using names as short as possible *)
 

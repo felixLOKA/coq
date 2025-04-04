@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -45,7 +45,7 @@ let stm_allow_nested_proofs_option_name = ["Nested";"Proofs";"Allowed"]
 let options_affecting_stm_scheduling =
   [ Attributes.universe_polymorphism_option_name;
     stm_allow_nested_proofs_option_name;
-    Synterp.proof_mode_opt_name;
+    Pvernac.proof_mode_opt_name;
     Attributes.program_mode_option_name;
     Proof_using.proof_using_opt_name;
   ]
@@ -119,26 +119,26 @@ let classify_vernac e =
       let guarantee = if polymorphic then Doesn'tGuaranteeOpacity else GuaranteesOpacity in
       VtStartProof (guarantee,ids)
     | VernacFixpoint (discharge,(_,l)) ->
-      let polymorphic = Attributes.(parse_drop_extra polymorphic atts) in
+      let refine, polymorphic = Attributes.(parse_drop_extra Notations.(Classes.refine_att ++ polymorphic) atts) in
        let guarantee =
-         if discharge = DoDischarge || polymorphic then Doesn'tGuaranteeOpacity
+         if discharge = DoDischarge || polymorphic || refine then Doesn'tGuaranteeOpacity
          else GuaranteesOpacity
        in
         let ids, open_proof =
           List.fold_left (fun (l,b) {Vernacexpr.fname={CAst.v=id}; body_def} ->
-            id::l, b || body_def = None) ([],false) l in
+            id::l, b || body_def = None) ([],refine) l in
         if open_proof
         then VtStartProof (guarantee,ids)
         else VtSideff (ids, VtLater)
     | VernacCoFixpoint (discharge,l) ->
-      let polymorphic = Attributes.(parse_drop_extra polymorphic atts) in
+      let refine, polymorphic = Attributes.(parse_drop_extra Notations.(Classes.refine_att ++ polymorphic) atts) in
        let guarantee =
-         if discharge = DoDischarge || polymorphic then Doesn'tGuaranteeOpacity
+         if discharge = DoDischarge || polymorphic || refine then Doesn'tGuaranteeOpacity
          else GuaranteesOpacity
        in
         let ids, open_proof =
           List.fold_left (fun (l,b) { Vernacexpr.fname={CAst.v=id}; body_def } ->
-            id::l, b || body_def = None) ([],false) l in
+            id::l, b || body_def = None) ([],refine) l in
         if open_proof
         then VtStartProof (guarantee,ids)
         else VtSideff (ids, VtLater)
@@ -151,7 +151,13 @@ let classify_vernac e =
         VtSideff (ids, VtLater)
     | VernacPrimitive ((id,_),_,_) ->
         VtSideff ([id.CAst.v], VtLater)
-    | VernacDefinition (_,({v=id},_),DefineBody _) -> VtSideff (idents_of_name id, VtLater)
+    | VernacDefinition (_,({v=id},_),DefineBody _) ->
+        let refine = Attributes.(parse_drop_extra Classes.refine_att atts) in
+        if refine then
+          (* Type may still be an evar *)
+          VtStartProof (Doesn'tGuaranteeOpacity, idents_of_name id)
+        else
+          VtSideff (idents_of_name id, VtLater)
     | VernacInductive (_,l) ->
         let ids = List.map (fun (((_,({v=id},_)),_,_,cl),_) -> id :: match cl with
         | Constructors l -> List.map (fun (_,({v=id},_)) -> id) l

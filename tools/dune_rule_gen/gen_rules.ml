@@ -70,16 +70,16 @@ let main () =
   let { tname; base_dir; async; rule; user_flags; split; dependencies } = parse_args () in
   let root_lvl = List.length (String.split_on_char '/' base_dir) in
 
-  let stdlib =
+  let init =
     let directory = Path.make "theories" in
-    Coq_rules.Theory.{ directory; dirname = ["Coq"]; implicit = true; deps = [] }
+    Coq_rules.Theory.{ directory; dirname = ["Corelib"]; implicit = true; deps = [] }
   in
 
   (* usually the else case here is Ltac2, but other libraries could be
      handled as well *)
-  let boot, implicit = if tname = ["Coq"]
-    then Coq_rules.Boot_type.Stdlib, true
-    else Coq_rules.Boot_type.Regular stdlib, false
+  let boot, implicit = if tname = ["Corelib"]
+    then Coq_rules.Boot_type.Corelib, true
+    else Coq_rules.Boot_type.Regular init, false
   in
 
   (* Rule generation *)
@@ -110,11 +110,15 @@ let main () =
   Format.pp_print_flush fmt ();
   ()
 
+let pr_feedback (fb : Feedback.feedback) =
+  match fb.contents with
+  | Message (_,_,_,msg) -> Format.eprintf "%a" Pp.pp_with msg
+  | _ -> () [@@warning "-4"]
+
 let () =
   Printexc.record_backtrace true;
+  let _ : int = Feedback.add_feeder pr_feedback in
   try main ()
   with exn ->
-    let bt = Printexc.get_backtrace () in
-    let exn = Printexc.to_string exn in
-    Format.eprintf "[gen_rules] Fatal error: %s@\n%s@\n%!" exn bt;
+    Format.eprintf "[gen_rules] Fatal error:@ @[<2>%a@]@\n%!" Pp.pp_with (CErrors.print exn);
     exit 1

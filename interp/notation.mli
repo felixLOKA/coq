@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -80,7 +80,7 @@ type notation_location = (DirPath.t * DirPath.t) * string
     2nd dirpath: module and section-only dirpath (ie [Lib.current_dirpath true])
     string: string used to generate the notation
 
-    dirpaths are used for dumpglob, string for printing (pr_notation_info)
+    dirpaths are used for dumpglob and for Locate, string for printing (pr_notation_info)
 *)
 
 type required_module = full_path * string list
@@ -144,12 +144,12 @@ type pos_neg_int63_ty =
   { pos_neg_int63_ty : Names.inductive }
 
 type target_kind =
-  | Int of int_ty (* Coq.Init.Number.int + uint *)
-  | UInt of int_ty (* Coq.Init.Number.uint *)
-  | Z of z_pos_ty (* Coq.Numbers.BinNums.Z and positive *)
-  | Int63 of pos_neg_int63_ty (* Coq.Numbers.Cyclic.Int63.PrimInt63.pos_neg_int63 *)
-  | Float64 (* Coq.Floats.PrimFloat.float *)
-  | Number of number_ty (* Coq.Init.Number.number + uint + int *)
+  | Int of int_ty (* Corelib.Init.Number.int + uint *)
+  | UInt of int_ty (* Corelib.Init.Number.uint *)
+  | Z of z_pos_ty (* Corelib.Numbers.BinNums.Z and positive *)
+  | Int63 of pos_neg_int63_ty (* Corelib.Numbers.Cyclic.Int63.PrimInt63.pos_neg_int63 *)
+  | Float64 (* Corelib.Floats.PrimFloat.float *)
+  | Number of number_ty (* Corelib.Init.Number.number + uint + int *)
 
 type string_target_kind =
   | ListByte

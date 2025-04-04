@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -30,12 +30,14 @@ val subst_univs_constraints : universe_subst_fn -> Constraints.t -> Constraints.
 val map_universes_opt_subst_with_binders
   : ('a -> 'a)
   -> ('a -> constr -> constr)
+  -> (Sorts.relevance -> Sorts.relevance)
   -> quality_subst_fn
   -> universe_subst_fn
   -> 'a -> constr -> constr
 
 val nf_evars_and_universes_opt_subst
   : (existential -> constr option)
+  -> (Sorts.relevance -> Sorts.relevance)
   -> quality_subst_fn
   -> universe_subst_fn
   -> constr -> constr

@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -8,11 +8,11 @@
 (*         *     (see LICENSE file for the text of the license)         *)
 (************************************************************************)
 
-DECLARE PLUGIN "coq-core.plugins.ltac2_ltac1"
+DECLARE PLUGIN "rocq-runtime.plugins.ltac2_ltac1"
 
 {
 
-open Pcoq.Prim
+open Procq.Prim
 open Ltac2_plugin
 open Tac2expr
 open Ltac_plugin

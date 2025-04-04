@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -121,7 +121,7 @@ let ret_accu = Obj.repr (ref ())
 
 type accu_val = { mutable acc_atm : atom; acc_arg : t list }
 
-external set_tag : Obj.t -> int -> unit = "coq_obj_set_tag"
+external set_tag : Obj.t -> int -> unit = "rocq_obj_set_tag"
 
 let mk_accu (a : atom) : t =
   let rec accumulate data x =
@@ -261,7 +261,7 @@ let cast_accu v = (Obj.magic v:accumulator)
 let mk_int (x : int) = (Obj.magic x : t)
 [@@ocaml.inline always]
 
-(* Coq's booleans are reversed... *)
+(* Rocq's booleans are reversed... *)
 let mk_bool (b : bool) = (Obj.magic (not b) : t)
 [@@ocaml.inline always]
 
@@ -439,12 +439,12 @@ let l_or accu x y =
   else apply2 accu x y
 
 [@@@ocaml.warning "-37"]
-type coq_carry =
+type rocq_carry =
   | Caccu of t
   | C0 of t
   | C1 of t
 
-type coq_pair =
+type rocq_pair =
   | Paccu of t
   | PPair of t * t
 
@@ -532,12 +532,12 @@ let addMulDiv accu x y z =
   else apply3 accu x y z
 
 [@@@ocaml.warning "-34"]
-type coq_bool =
+type rocq_bool =
   | Baccu of t
   | Btrue
   | Bfalse
 
-type coq_cmp =
+type rocq_cmp =
   | CmpAccu of t
   | CmpEq
   | CmpLt
@@ -610,7 +610,7 @@ let print x =
 
 (** Support for machine floating point values *)
 
-external is_float : t -> bool = "coq_is_double"
+external is_float : t -> bool = "rocq_is_double"
 [@@noalloc]
 
 let to_float (x:t) = (Obj.magic x : Float64.t)
@@ -656,7 +656,7 @@ let fle accu x y =
   if is_float x && is_float y then no_check_fle x y
   else apply2 accu x y
 
-type coq_fcmp =
+type rocq_fcmp =
   | CFcmpAccu of t
   | CFcmpEq
   | CFcmpLt
@@ -680,7 +680,7 @@ let fequal accu x y =
   if is_float x && is_float y then no_check_fequal x y
   else apply2 accu x y
 
-type coq_fclass =
+type rocq_fclass =
   | CFclassAccu of t
   | CFclassPNormal
   | CFclassNNormal

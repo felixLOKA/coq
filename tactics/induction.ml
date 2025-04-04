@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -30,7 +30,7 @@ open Tacmach
 open Logic
 open Clenv
 open Tacticals
-open Coqlib
+open Rocqlib
 open Evarutil
 open Indrec
 open Unification
@@ -244,7 +244,7 @@ let mkletin_goal env sigma with_eq dep (id,lastlhyp,ccl,c) ty =
   in
   match with_eq with
   | Some (lr,heq) ->
-      let eqdata = build_coq_eq_data () in
+      let eqdata = build_rocq_eq_data () in
       let args = if lr then [mkVar id;c] else [c;mkVar id]in
       let (sigma, eq) = Evd.fresh_global env sigma eqdata.eq in
       let refl = mkRef (eqdata.refl, snd (destRef sigma eq)) in
@@ -426,7 +426,7 @@ let induct_discharge with_evars dests avoid' tac (avoid,ra) names =
         end
     | ({ ba_kind = IndArg } as iarg) :: ra' ->
         Proofview.Goal.enter begin fun gl ->
-        (* Rem: does not happen in Coq schemes, only in user-defined schemes *)
+        (* Rem: does not happen in Rocq schemes, only in user-defined schemes *)
         let pat,names =
           consume_pattern avoid (Name iarg.ba_name) iarg.ba_dep gl names in
         dest_intro_patterns with_evars avoid thin MoveLast [pat] (fun ids thin ->
@@ -1218,7 +1218,7 @@ let induction_without_atomization isrec with_evars elim names lid =
   let sigma = Proofview.Goal.sigma gl in
   let hyp0 = List.hd lid in
   (* Check that the elimination scheme has a form similar to the
-    elimination schemes built by Coq. Schemes may have the standard
+    elimination schemes built by Rocq. Schemes may have the standard
     form computed from an inductive type OR (feb. 2006) a non standard
     form. That is: with no main induction argument and with an optional
     extra final argument of the form (f x y ...) in the conclusion. In
@@ -1297,8 +1297,9 @@ let use_bindings env sigma elim must_be_closed (c,lbind) typ =
       if must_be_closed && occur_meta (clenv_evd indclause) (clenv_value indclause) then
         error NeedFullyAppliedArgument;
       (* We lose the possibility of coercions in with-bindings *)
-      let sigma, term = pose_all_metas_as_evars env (clenv_evd indclause) (clenv_value indclause) in
-      let sigma, typ = pose_all_metas_as_evars env sigma (clenv_type indclause) in
+      let metas = Clenv.clenv_meta_list indclause in
+      let sigma, metas, term = pose_all_metas_as_evars ~metas env (clenv_evd indclause) (clenv_value indclause) in
+      let sigma, metas, typ = pose_all_metas_as_evars ~metas env sigma (clenv_type indclause) in
       sigma, term, typ
     with e when noncritical e ->
     match red_product env sigma typ with

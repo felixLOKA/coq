@@ -1,4 +1,4 @@
-Require Import Coq.Setoids.Setoid.
+Require Import Corelib.Setoids.Setoid.
 Require Import Ltac2.Ltac2.
 
 Axiom f: nat -> nat.
@@ -139,4 +139,39 @@ Abort.
 
 Goal nat.
   Std.apply true false [fun () => Control.plus (fun () => 'I) (fun _ => '0), Std.NoBindings] None.
+Qed.
+
+(* rename *)
+Goal forall (x : nat), x = x.
+  intro x.
+  rename x into y.
+  exact (@eq_refl _ y).
+Qed.
+
+(* eassumption *)
+Goal forall (x : nat) y z, x = y -> y = z -> x = z.
+  intros **.
+  etransitivity; eassumption.
+Qed.
+
+(* cycle *)
+Goal nat * bool.
+  split.
+  all: cycle 1.
+  - exact true.
+  - exact 0.
+Qed.
+
+(* only *)
+Goal bool * nat * nat.
+  repeat split.
+  all: only 2 - 3: exact 0.
+  exact true.
+Qed.
+
+(* exfalso *)
+Goal False -> nat * nat.
+  intros oops.
+  split.
+  all: exfalso; assumption.
 Qed.

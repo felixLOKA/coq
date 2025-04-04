@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -188,10 +188,12 @@ let pattern_of_constr ~broken env sigma t =
       | Evar_kinds.GoalEvar | Evar_kinds.VarInstance _ ->
         (* These are the two evar kinds used for existing goals *)
         (* see Proofview.mark_in_evm *)
-         if Evd.is_defined sigma evk then pattern_of_constr env (Evd.existential_value0 sigma ev)
-         else
+        begin match Evd.existential_opt_value0 sigma ev with
+        | Some v -> pattern_of_constr env v
+        | None ->
           let ctxt = Evd.expand_existential sigma (EConstr.of_existential ev) in
           PEvar (evk,List.map (fun c -> pattern_of_constr env (EConstr.Unsafe.to_constr c)) ctxt)
+        end
       | Evar_kinds.MatchingVar (Evar_kinds.SecondOrderPatVar ido) -> assert false
       | _ ->
         PMeta None)
@@ -292,7 +294,7 @@ let rec subst_pattern
   | PInt _
   | PFloat _
   | PString _ -> pat
-  | PUninstantiated (PGenarg g) -> PUninstantiated (PGenarg (Genarg.generic_substitute subst g))
+  | PUninstantiated (PGenarg g) -> PUninstantiated (PGenarg (Gensubst.generic_substitute subst g))
   | PProj (p,c) ->
       let p' = Projection.map (subst_mind subst) p in
       let c' = subst_pattern env sigma subst c in

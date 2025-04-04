@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -18,13 +18,11 @@ open Tac2expr
 open Proofview.Notations
 open Tac2externals
 
-let ltac2_ltac1_plugin = "coq-core.plugins.ltac2_ltac1"
+let ltac2_ltac1_plugin = "rocq-runtime.plugins.ltac2_ltac1"
 
 let pname ?(plugin=ltac2_ltac1_plugin) s = { mltac_plugin = plugin; mltac_tactic = s }
 
 let define ?plugin s = define (pname ?plugin s)
-
-let ltac1 = Tac2ffi.repr_ext Tac2ffi.val_ltac1
 
 let val_tag wit = match val_tag wit with
 | Base t -> t
@@ -41,7 +39,7 @@ let in_gen wit v = Val.Dyn (val_tag wit, v)
 let out_gen wit v = prj (val_tag wit) v
 
 let () =
-  define "ltac1_of_intro_pattern" (Tac2stdlib.intro_pattern @-> ret ltac1) @@ fun v ->
+  define "ltac1_of_intro_pattern" (Tac2stdlib.intro_pattern @-> ret Tac2quote_ltac1.ltac1) @@ fun v ->
   let v = Tac2tactics.mk_intro_pattern v in
   in_gen (topwit Ltac_plugin.Tacarg.wit_simple_intropattern) v
 
@@ -80,7 +78,7 @@ and to_or_and_intro_pattern : Tactypes.delayed_open_constr Tactypes.or_and_intro
 and to_intro_patterns v = List.map to_intro_pattern v
 
 let () =
-  define "ltac1_to_intro_pattern" (ltac1 @-> ret (option Tac2stdlib.intro_pattern)) @@ fun v ->
+  define "ltac1_to_intro_pattern" (Tac2quote_ltac1.ltac1 @-> ret (option Tac2stdlib.intro_pattern)) @@ fun v ->
   (* should we be using Taccoerce.coerce_to_intro_pattern instead?
      semantics are different: it also handles wit_hyp and Var constr *)
   match out_gen (topwit Ltac_plugin.Tacarg.wit_simple_intropattern) v with

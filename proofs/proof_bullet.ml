@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -54,7 +54,7 @@ module Strict = struct
   | NeedClosingBrace (* Some unfocussed goal exists "{" needed to focus them *)
   | ProofFinished (* No more goal anywhere *)
 
-  (* give a message only if more informative than the standard coq message *)
+  (* give a message only if more informative than the standard rocq message *)
   let suggest_on_solved_goal sugg =
     match sugg with
     | NeedClosingBrace -> Pp.(str"Try unfocusing with \"}\".")

@@ -5,6 +5,9 @@ Micromega: solvers for arithmetic goals over ordered rings
 
 :Authors: Frédéric Besson and Evgeny Makarov
 
+.. note::
+   The tactics described in this chapter require the Stdlib library.
+
 Short description of the tactics
 --------------------------------
 
@@ -30,6 +33,12 @@ or only for reals by ``Require Import Lra``.
   Note that the CSDP driver
   generates a *proof cache* which makes it possible to rerun scripts
   even without CSDP.
+
+.. flag:: Info Micromega
+
+   When set, instructs the tactics :tacn:`lia`,
+   :tacn:`nia`, :tacn:`lra`, :tacn:`nra` and :tacn:`psatz` to print the
+   list of hypotheses needed by the proof. The default is unset.
 
 .. opt:: Dump Arith
 
@@ -312,10 +321,10 @@ proof by abstracting monomials by variables.
    that might miss a refutation.
 
    To illustrate the working of the tactic, consider we wish to prove the
-   following Coq goal:
+   following goal:
 
 .. needs csdp
-.. coqdoc::
+.. rocqdoc::
 
    Require Import ZArith Psatz.
    Open Scope Z_scope.
@@ -421,9 +430,9 @@ obtain :math:`-1`. Thus, by Theorem :ref:`Psatz <psatz_thm>`, the goal is valid.
 
   The :tacn:`lra` tactic automatically proves the following goal.
 
-  .. coqtop:: in
+  .. rocqtop:: in extra-stdlib
 
-    Require Import QArith Lqa. #[local] Open Scope Q_scope.
+    From Stdlib Require Import QArith Lqa. #[local] Open Scope Q_scope.
 
     Lemma example_lra x y : x + 2 * y <= 4 -> 2 * x + y <= 4 -> x + y < 3.
     Proof.
@@ -442,9 +451,9 @@ obtain :math:`-1`. Thus, by Theorem :ref:`Psatz <psatz_thm>`, the goal is valid.
   This is done thanks to the :term:`cone expression`
   :math:`p_2 + p_1 + 3 \times p_0 \equiv -1`.
 
-  .. coqtop:: all
+  .. rocqtop:: all extra-stdlib
 
-    From Coq.micromega Require Import RingMicromega QMicromega EnvRing Tauto.
+    From Stdlib.micromega Require Import RingMicromega QMicromega EnvRing Tauto.
 
     Print example_lra.
 
@@ -460,7 +469,7 @@ obtain :math:`-1`. Thus, by Theorem :ref:`Psatz <psatz_thm>`, the goal is valid.
   ``QTautoChecker ff wit`` returns ``true``, then the goal represented by
   ``ff`` is valid.
 
-  .. coqtop:: in
+  .. rocqtop:: in extra-stdlib
 
     Lemma example_lra' x y : x + 2 * y <= 4 -> 2 * x + y <= 4 -> x + y < 3.
     Proof.
@@ -478,14 +487,14 @@ obtain :math:`-1`. Thus, by Theorem :ref:`Psatz <psatz_thm>`, the goal is valid.
                Fop := OpLt; Frhs := PEc 3 |} tt))
       : BFormula (Formula Q) isProp).
 
-  .. coqtop:: all
+  .. rocqtop:: all extra-stdlib
 
     pose (varmap := VarMap.Branch (VarMap.Elt y) x VarMap.Empty).
     let ff' := eval unfold ff in ff in wlra_Q wit ff'.
     change (eval_bf (Qeval_formula (@VarMap.find Q 0 varmap)) ff).
     apply (QTautoChecker_sound ff wit).
 
-  .. coqtop:: in
+  .. rocqtop:: in extra-stdlib
 
     vm_compute.
     reflexivity.

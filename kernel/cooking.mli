@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -25,7 +25,7 @@ open Constr
 
 type abstr_inst_info
 
-type 'a entry_map = 'a Cmap.t * 'a Mindmap.t
+type 'a entry_map = 'a Cmap_env.t * 'a Mindmap_env.t
 type expand_info = abstr_inst_info entry_map
 
 (** The collection of instantiations to be done on generalized

@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -10,7 +10,7 @@
 
 open Constr
 
-let bt_lib_constr n = lazy (UnivGen.constr_of_monomorphic_global (Global.env ()) @@ Coqlib.lib_ref n)
+let bt_lib_constr n = lazy (UnivGen.constr_of_monomorphic_global (Global.env ()) @@ Rocqlib.lib_ref n)
 
 let decomp_term sigma (c : Constr.t) =
   Constr.kind (EConstr.Unsafe.to_constr (Termops.strip_outer_cast sigma (EConstr.of_constr c)))
@@ -20,7 +20,7 @@ let lapp c v  = Constr.mkApp (Lazy.force c, v)
 let (===) = Constr.equal
 
 
-module CoqList = struct
+module RocqList = struct
   let _nil =  bt_lib_constr "core.list.nil"
   let _cons = bt_lib_constr "core.list.cons"
 
@@ -32,12 +32,12 @@ module CoqList = struct
 
 end
 
-module CoqPositive = struct
+module RocqPositive = struct
   let _xH = bt_lib_constr "num.pos.xH"
   let _xO = bt_lib_constr "num.pos.xO"
   let _xI = bt_lib_constr "num.pos.xI"
 
-  (* A coq nat from an int *)
+  (* A Rocq nat from an int *)
   let rec of_int n =
     if n <= 1 then Lazy.force _xH
     else
@@ -75,7 +75,7 @@ end
 
 module Bool = struct
 
-  let ind    = lazy (Globnames.destIndRef (Coqlib.lib_ref "core.bool.type"))
+  let ind    = lazy (Globnames.destIndRef (Rocqlib.lib_ref "core.bool.type"))
   let typ    = bt_lib_constr "core.bool.type"
   let trueb  = bt_lib_constr "core.bool.true"
   let falseb = bt_lib_constr "core.bool.false"
@@ -150,7 +150,7 @@ module Btauto = struct
   let soundness = bt_lib_constr "plugins.btauto.soundness"
 
   let rec convert = function
-  | Bool.Var n -> lapp f_var [|CoqPositive.of_int n|]
+  | Bool.Var n -> lapp f_var [|RocqPositive.of_int n|]
   | Bool.Const true -> Lazy.force f_top
   | Bool.Const false -> Lazy.force f_btm
   | Bool.Andb (b1, b2) -> lapp f_cnj [|convert b1; convert b2|]
@@ -160,7 +160,7 @@ module Btauto = struct
   | Bool.Ifb (b1, b2, b3) -> lapp f_ifb [|convert b1; convert b2; convert b3|]
 
   let convert_env env : Constr.t =
-    CoqList.of_list (Lazy.force Bool.typ) env
+    RocqList.of_list (Lazy.force Bool.typ) env
 
   let reify env t = lapp eval [|convert_env env; convert t|]
 
@@ -173,9 +173,9 @@ module Btauto = struct
     let var = EConstr.Unsafe.to_constr var in
     let rec to_list l = match decomp_term sigma l with
       | App (c, _)
-        when c === (Lazy.force CoqList._nil) -> []
+        when c === (Lazy.force RocqList._nil) -> []
       | App (c, [|_; h; t|])
-        when c === (Lazy.force CoqList._cons) ->
+        when c === (Lazy.force RocqList._cons) ->
         if h === (Lazy.force Bool.trueb) then (true :: to_list t)
         else if h === (Lazy.force Bool.falseb) then (false :: to_list t)
         else invalid_arg "to_list"

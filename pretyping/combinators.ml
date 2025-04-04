@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -8,7 +8,7 @@
 (*         *     (see LICENSE file for the text of the license)         *)
 (************************************************************************)
 
-open Coqlib
+open Rocqlib
 open CErrors
 open Util
 open Termops
@@ -197,7 +197,8 @@ let sig_clausal_form env sigma sort_of_ty siglen ty dflt =
       let (a,p_i_minus_1) = match Reductionops.whd_beta_stack env sigma p_i with
         | (_sigT,[a;p]) -> (a, p)
         | _ -> anomaly ~label:"sig_clausal_form" (Pp.str "should be a sigma type.") in
-      let sigma, ev = Evarutil.new_evar env sigma a in
+      let typeclass_candidate = Typeclasses.is_maybe_class_type sigma a in
+      let sigma, ev = Evarutil.new_evar ~typeclass_candidate env sigma a in
       let rty = Reductionops.beta_applist sigma (p_i_minus_1,[ev]) in
       let sigma, tuple_tail = sigrec_clausal_form sigma (siglen-1) rty in
       if EConstr.isEvar sigma ev then

@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -9,7 +9,7 @@
 (************************************************************************)
 
 Require Import Ltac2.Init.
-Require Ltac2.Control Ltac2.Option Ltac2.Pattern Ltac2.Array Ltac2.Int Ltac2.Std Ltac2.Constr.
+Require Ltac2.Control Ltac2.Fresh Ltac2.Option Ltac2.Pattern Ltac2.Array Ltac2.Int Ltac2.Std Ltac2.Constr.
 
 (** Constr matching *)
 
@@ -97,6 +97,11 @@ Ltac2 Notation do := do0.
 Ltac2 Notation once := Control.once.
 
 Ltac2 Notation unshelve := Control.unshelve.
+
+Ltac2 cycle := Control.cycle.
+
+Ltac2 Notation "only" startgoal(tactic) endgoal(opt(seq("-", tactic))) ":" tac(thunk(tactic)) :=
+  Control.focus startgoal (Option.default startgoal endgoal) tac.
 
 Ltac2 progress0 tac := Control.enter (fun _ => Control.progress tac).
 
@@ -353,6 +358,11 @@ Ltac2 Notation "inversion_clear"
   ids(opt(seq("in", list1(ident)))) :=
   Std.inversion Std.FullInversionClear arg pat ids.
 
+Ltac2 exfalso0 () := Control.enter (fun () =>
+  unshelve (let f := '(_ :> False) in induction $f)).
+
+Ltac2 Notation exfalso := exfalso0 ().
+
 Ltac2 Notation "red" cl(opt(clause)) :=
   Std.red (default_on_concl cl).
 Ltac2 Notation red := red.
@@ -503,9 +513,14 @@ Ltac2 symmetry0 cl :=
 Ltac2 Notation "symmetry" cl(opt(clause)) := symmetry0 cl.
 Ltac2 Notation symmetry := symmetry.
 
+Ltac2 Notation "rename" renames(list1(seq(ident, "into", ident), ",")) :=
+  Std.rename renames.
+
 Ltac2 Notation "revert" ids(list1(ident)) := Std.revert ids.
 
 Ltac2 Notation assumption := Std.assumption ().
+
+Ltac2 Notation eassumption := Std.eassumption ().
 
 Ltac2 Notation etransitivity := Std.etransitivity ().
 
@@ -615,8 +630,9 @@ Ltac2 Notation "congruence" n(opt(tactic(0))) l(opt(seq("with", list1(constr))))
 
 Ltac2 Notation "simple" "congruence" n(opt(tactic(0))) l(opt(seq("with", list1(constr)))) := Std.simple_congruence n l.
 
-Ltac2 f_equal0 () := ltac1:(f_equal).
-Ltac2 Notation f_equal := f_equal0 ().
+#[deprecated(since="9.1", note="Use Std.f_equal instead.")]
+Ltac2 f_equal0 := Std.f_equal.
+Ltac2 Notation f_equal := Std.f_equal ().
 
 (** now *)
 

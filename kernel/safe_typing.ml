@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -62,6 +62,7 @@
 open Util
 open Names
 open Declarations
+open Mod_declarations
 open Constr
 open Context.Named.Declaration
 
@@ -80,7 +81,7 @@ module NamedDecl = Context.Named.Declaration
       module parameters [params] and earlier environment [oldsenv]
     * SIG (params,oldsenv) : same for a local module type
   - [modresolver] : delta_resolver concerning the module content, that needs to
-    be marshalled on disk
+    be marshalled on disk. Its root must be [modpath].
   - [paramresolver] : delta_resolver in scope but not part of the library per
     se, that is from functor parameters and required libraries
   - [revstruct] : current module content, most recent declarations first
@@ -115,6 +116,62 @@ type permanent_flags = {
   rewrite_rules_allowed : bool;
 }
 
+module ParamResolver :
+sig
+  type t
+  val empty : DirPath.t -> t
+  val add_delta_resolver : ModPath.t -> Mod_subst.delta_resolver -> t -> t
+  val constant_of_delta_kn : t -> KerName.t -> Constant.t
+  val mind_of_delta_kn : t -> KerName.t -> MutInd.t
+end =
+struct
+  type t = {
+    root : DirPath.t;
+    data : Mod_subst.delta_resolver MPmap.t;
+    (** Invariant: No [MPdot] in data *)
+  }
+
+  let empty root = {
+    root = root;
+    data = MPmap.empty;
+  }
+
+  let rec head mp = match mp with
+  | MPfile _ | MPbound _ -> mp
+  | MPdot (mp, _) -> head mp
+
+  let add_delta_resolver mp delta preso =
+    let self = MPfile preso.root in
+    let data =
+      if ModPath.subpath self mp then
+        match MPmap.find_opt self preso.data with
+        | None ->
+          (* we were at toplevel *)
+          MPmap.add self delta preso.data
+        | Some reso ->
+          MPmap.add self (Mod_subst.add_delta_resolver delta reso) preso.data
+      else
+        let () = match mp with
+        | MPfile _ | MPbound _ -> ()
+        | MPdot _ -> assert false
+        in
+        let () = assert (not (MPmap.mem mp preso.data)) in
+        MPmap.add mp delta preso.data
+    in
+    { preso with data }
+
+  let kn_of_delta preso kn =
+    let head = head (KerName.modpath kn) in
+    match MPmap.find_opt head preso.data with
+    | None -> kn
+    | Some delta -> Mod_subst.kn_of_delta delta kn
+
+  let constant_of_delta_kn preso kn = Constant.make kn (kn_of_delta preso kn)
+
+  let mind_of_delta_kn preso kn = MutInd.make kn (kn_of_delta preso kn)
+
+end
+
 type compiled_library = {
   comp_name : DirPath.t;
   comp_mod : module_body;
@@ -137,6 +194,7 @@ type section_data = {
   rev_objlabels : Label.Set.t;
   rev_reimport : reimport list;
   rev_revstruct : structure_body;
+  rev_paramresolver : ParamResolver.t;
 }
 
 module HandleMap = Opaqueproof.HandleMap
@@ -163,7 +221,7 @@ type safe_environment =
     modpath : ModPath.t;
     modvariant : modvariant;
     modresolver : Mod_subst.delta_resolver;
-    paramresolver : Mod_subst.delta_resolver;
+    paramresolver : ParamResolver.t;
     revstruct : structure_body;
     modlabels : Label.Set.t;
     objlabels : Label.Set.t;
@@ -191,8 +249,8 @@ let empty_environment =
   { env = Environ.empty_env;
     modpath = ModPath.dummy;
     modvariant = NONE;
-    modresolver = Mod_subst.empty_delta_resolver;
-    paramresolver = Mod_subst.empty_delta_resolver;
+    modresolver = Mod_subst.empty_delta_resolver ModPath.dummy;
+    paramresolver = ParamResolver.empty DirPath.dummy;
     revstruct = [];
     modlabels = Label.Set.empty;
     objlabels = Label.Set.empty;
@@ -212,13 +270,17 @@ let is_initial senv =
 
 let sections_are_opened senv = not (Option.is_empty senv.sections)
 
-let delta_of_senv senv = senv.modresolver,senv.paramresolver
+let delta_of_senv senv = senv.modresolver
 
 let constant_of_delta_kn_senv senv kn =
-  Mod_subst.constant_of_deltas_kn senv.paramresolver senv.modresolver kn
+  let mp = KerName.modpath kn in
+  if ModPath.subpath senv.modpath mp then Mod_subst.constant_of_delta_kn senv.modresolver kn
+  else ParamResolver.constant_of_delta_kn senv.paramresolver kn
 
 let mind_of_delta_kn_senv senv kn =
-  Mod_subst.mind_of_deltas_kn senv.paramresolver senv.modresolver kn
+  let mp = KerName.modpath kn in
+  if ModPath.subpath senv.modpath mp then Mod_subst.mind_of_delta_kn senv.modresolver kn
+  else ParamResolver.mind_of_delta_kn senv.paramresolver kn
 
 (** The safe_environment state monad *)
 
@@ -307,7 +369,7 @@ end =
 struct
 
 type t = {
-  certif_struc : Declarations.structure_body;
+  certif_struc : Mod_declarations.structure_body;
   certif_univs : Univ.ContextSet.t;
 }
 
@@ -375,6 +437,10 @@ end
 
 type private_constants = SideEffects.t
 
+let debug_print_private_constants seff =
+  let open Pp in
+  prlist_with_sep spc (fun seff -> Constant.print seff.seff_constant) (SideEffects.repr seff)
+
 let side_effects_of_private_constants l =
   List.rev (SideEffects.repr l)
 
@@ -418,6 +484,10 @@ let concat_private = SideEffects.concat
 let universes_of_private eff =
   let fold acc eff = Univ.ContextSet.union eff.seff_univs acc in
   List.fold_left fold Univ.ContextSet.empty (side_effects_of_private_constants eff)
+
+let constants_of_private eff =
+  let fold acc eff = eff.seff_constant :: acc in
+  List.fold_left fold [] (side_effects_of_private_constants eff)
 
 let env_of_safe_env senv = senv.env
 let env_of_senv = env_of_safe_env
@@ -559,7 +629,7 @@ let push_section_context uctx senv =
   let sections = Section.push_local_universe_context uctx sections in
   let senv = { senv with sections=Some sections } in
   let qualities, ctx = UVars.UContext.to_context_set uctx in
-  assert (Sorts.Quality.Set.is_empty qualities);
+  assert (Sorts.QVar.Set.is_empty qualities);
   (* push_context checks freshness *)
   { senv with
     env = Environ.push_context ~strict:false uctx senv.env;
@@ -592,8 +662,8 @@ type generic_name =
   | C of Constant.t
   | I of MutInd.t
   | R
-  | M (** name already known, cf the mod_mp field *)
-  | MT (** name already known, cf the mod_mp field *)
+  | M of ModPath.t
+  | MT of ModPath.t
 
 let add_field ((l,sfb) as field) gn senv =
   let mlabs,olabs = match sfb with
@@ -608,8 +678,8 @@ let add_field ((l,sfb) as field) gn senv =
   let env' = match sfb, gn with
     | SFBconst cb, C con -> Environ.add_constant con cb senv.env
     | SFBmind mib, I mind -> Environ.add_mind mind mib senv.env
-    | SFBmodtype mtb, MT -> Environ.add_modtype mtb senv.env
-    | SFBmodule mb, M -> Modops.add_module mb senv.env
+    | SFBmodtype mtb, MT mp -> Environ.add_modtype mp mtb senv.env
+    | SFBmodule mb, M mp -> Modops.add_module mp mb senv.env
     | SFBrules r, R -> Environ.add_rewrite_rules r.rewrules_rules senv.env
     | _ -> assert false
   in
@@ -623,7 +693,7 @@ let add_field ((l,sfb) as field) gn senv =
       | SFBmind mib, I mind ->
         let poly = Declareops.inductive_is_polymorphic mib in
         Some Section.(push_global ~poly env' (SecInductive mind) sections)
-      | _, (M | MT) -> Some sections
+      | _, (M _ | MT _) -> Some sections
       | _ -> assert false
   in
   { senv with
@@ -666,7 +736,7 @@ let make_hbody = function
   | None -> None
   | Some hc -> Some (fun c ->
       assert (c == HConstr.self hc);
-      HConstr.hcons hc)
+      snd @@ HConstr.hcons hc)
 
 let add_constant_aux senv ?hbody (kn, cb) =
   let l = Constant.label kn in
@@ -903,7 +973,7 @@ let export_private_constants eff senv =
     | Monomorphic -> None
     | Polymorphic auctx -> Some (UVars.AbstractContext.size auctx)
     in
-    let body = Constr.hcons body in
+    let _, body = Constr.hcons body in
     let opaque = { exp_body = body; exp_handle = h; exp_univs = univs } in
     senv, (kn, { c with const_body = OpaqueDef o }, Some opaque)
   | Def _ | Undef _ | Primitive _ | Symbol _ as body ->
@@ -974,15 +1044,15 @@ let check_opaque senv (i : Opaqueproof.opaque_handle) pf =
     body, uctx, trusted
   in
   let (hbody, c, ctx) = Constant_typing.check_delayed handle ty_ctx pf in
-  let c = match hbody with
+  let _, c = match hbody with
     | Some hbody -> assert (c == HConstr.self hbody); HConstr.hcons hbody
     | None -> Constr.hcons c
   in
   let ctx = match ctx with
   | Opaqueproof.PrivateMonomorphic u ->
-    Opaqueproof.PrivateMonomorphic (Univ.hcons_universe_context_set u)
+    Opaqueproof.PrivateMonomorphic (snd @@ Univ.ContextSet.hcons u)
   | Opaqueproof.PrivatePolymorphic u ->
-    Opaqueproof.PrivatePolymorphic (Univ.hcons_universe_context_set u)
+    Opaqueproof.PrivatePolymorphic (snd @@ Univ.ContextSet.hcons u)
   in
   { opq_body = c; opq_univs = ctx; opq_handle = i; opq_nonce = nonce }
 
@@ -1080,15 +1150,19 @@ let add_mind l mie senv =
   let () = check_mind mie l in
   let kn = MutInd.make2 senv.modpath l in
   let sec_univs = Option.map Section.all_poly_univs senv.sections in
-  let mib = Indtypes.check_inductive senv.env ~sec_univs kn mie in
+  let mib, why_not_prim_record = Indtypes.check_inductive senv.env ~sec_univs kn mie in
   (* We still have to add the template monomorphic constraints, and only those
      ones. In all other cases, they are already part of the environment at this
      point. *)
   let senv = match mib.mind_template with
   | None -> senv
-  | Some { template_context = ctx; _ } -> push_context_set ~strict:true ctx senv
+  | Some { template_context = ctx; template_defaults = u; _ } ->
+    let qs, levels = UVars.Instance.levels u in
+    assert (Sorts.Quality.Set.for_all (fun q -> Sorts.Quality.equal Sorts.Quality.qtype q) qs);
+    let csts = UVars.AbstractContext.instantiate u ctx in
+    push_context_set ~strict:true (levels,csts) senv
   in
-  kn, add_checked_mind kn mib senv
+  (kn, why_not_prim_record), add_checked_mind kn mib senv
 
 let add_mind ?typing_flags l mie senv =
   with_typing_flags ?typing_flags senv ~f:(add_mind l mie)
@@ -1113,19 +1187,16 @@ let add_modtype l params_mte inl senv =
   let vmstate = vm_state senv in
   let mtb, _, vmtab = Mod_typing.translate_modtype state vmstate senv.env mp inl params_mte  in
   let senv = set_vm_library vmtab senv in
-  let mtb = Declareops.hcons_module_type mtb in
-  let senv = add_field (l,SFBmodtype mtb) MT senv in
+  let mtb = Mod_declarations.hcons_module_type mtb in
+  let senv = add_field (l,SFBmodtype mtb) (MT mp) senv in
   mp, senv
 
 (** full_add_module adds module with universes and constraints *)
 
-let full_add_module mb senv =
-  let dp = ModPath.dp mb.mod_mp in
+let full_add_module mp mb senv =
+  let dp = ModPath.dp mp in
   let linkinfo = Nativecode.link_info_of_dirpath dp in
-  { senv with env = Modops.add_linked_module mb linkinfo senv.env }
-
-let full_add_module_type mp mt senv =
-  { senv with env = Modops.add_module_type mp mt senv.env }
+  { senv with env = Modops.add_linked_module mp mb linkinfo senv.env }
 
 (** Insertion of modules *)
 
@@ -1135,13 +1206,13 @@ let add_module l me inl senv =
   let vmstate = vm_state senv in
   let mb, _, vmtab = Mod_typing.translate_module state vmstate senv.env mp inl me in
   let senv = set_vm_library vmtab senv in
-  let mb = Declareops.hcons_module_body mb in
-  let senv = add_field (l,SFBmodule mb) M senv in
-  let senv =
-    if Modops.is_functor mb.mod_type then senv
-    else update_resolver (Mod_subst.add_delta_resolver mb.mod_delta) senv
+  let mb = Mod_declarations.hcons_module_body mb in
+  let senv = add_field (l,SFBmodule mb) (M mp) senv in
+  let senv = match mod_global_delta mb with
+  | None -> senv
+  | Some delta -> update_resolver (Mod_subst.add_delta_resolver delta) senv
   in
-  (mp,mb.mod_delta),senv
+  (mp, mod_delta mb), senv
 
 (** {6 Starting / ending interactive modules and module types } *)
 
@@ -1158,8 +1229,8 @@ let start_mod_modtype ~istype l senv =
     (* carried over fields *)
     env = senv.env;
     future_cst = senv.future_cst;
-    modresolver = Mod_subst.empty_delta_resolver;
-    paramresolver = Mod_subst.add_delta_resolver senv.modresolver senv.paramresolver;
+    modresolver = Mod_subst.empty_delta_resolver mp;
+    paramresolver = ParamResolver.add_delta_resolver senv.modpath senv.modresolver senv.paramresolver;
     univ = senv.univ;
     required = senv.required;
     opaquetab = senv.opaquetab;
@@ -1187,17 +1258,17 @@ let add_module_parameter mbid mte inl senv =
   let vmstate = vm_state senv in
   let mtb, _, vmtab = Mod_typing.translate_modtype state vmstate senv.env mp inl ([],mte) in
   let senv = set_vm_library vmtab senv in
-  let senv = full_add_module_type mp mtb senv in
+  let senv = { senv with env = Modops.add_module_parameter mbid mtb senv.env } in
   let new_variant = match senv.modvariant with
     | STRUCT (params,oldenv) -> STRUCT ((mbid,mtb) :: params, oldenv)
     | SIG (params,oldenv) -> SIG ((mbid,mtb) :: params, oldenv)
     | _ -> assert false
   in
-  let new_paramresolver =
-    if Modops.is_functor mtb.mod_type then senv.paramresolver
-    else Mod_subst.add_delta_resolver mtb.mod_delta senv.paramresolver
+  let new_paramresolver = match mod_global_delta mtb with
+  | None -> senv.paramresolver
+  | Some delta -> ParamResolver.add_delta_resolver mp delta senv.paramresolver
   in
-  mtb.mod_delta,
+  mod_delta mtb,
   { senv with
     modvariant = new_variant;
     paramresolver = new_paramresolver }
@@ -1219,20 +1290,12 @@ let functorize params init =
 
 let propagate_loads senv =
   List.fold_left
-    (fun env (_,mb) -> full_add_module mb env)
+    (fun env (mp, mb) -> full_add_module mp mb env)
     senv
     (List.rev senv.loads)
 
 (** Build the module body of the current module, taking in account
     a possible return type (_:T) *)
-
-let functorize_module params mb =
-  let f x = functorize params x in
-  let fe x = iterate (fun e -> MEMoreFunctor e) (List.length params) x in
-  { mb with
-    mod_expr = Modops.implem_smart_map (fun x -> x) fe mb.mod_expr;
-    mod_type = f mb.mod_type;
-    mod_type_alg = Option.map fe mb.mod_type_alg }
 
 let build_module_body params restype senv =
   let struc = NoFunctor (List.rev senv.revstruct) in
@@ -1245,7 +1308,7 @@ let build_module_body params restype senv =
   in
   let senv = set_vm_library vmtab senv in
   let mb' = functorize_module params mb in
-  { mb' with mod_retroknowledge = ModBodyRK senv.local_retroknowledge }
+  set_retroknowledge mb' senv.local_retroknowledge
 
 (** Returning back to the old pre-interactive-module environment,
     with one extra component and some updated fields
@@ -1284,21 +1347,15 @@ let end_module l restype senv =
   let newenv = if Environ.rewrite_rules_allowed senv.env then Environ.allow_rewrite_rules newenv else newenv in
   let newenv = Environ.set_vm_library (Environ.vm_library senv.env) newenv in
   let senv' = propagate_loads { senv with env = newenv } in
-  let newenv = Modops.add_module mb senv'.env in
-  let newresolver =
-    if Modops.is_functor mb.mod_type then oldsenv.modresolver
-    else Mod_subst.add_delta_resolver mb.mod_delta oldsenv.modresolver
+  let newenv = Modops.add_module mp mb senv'.env in
+  let newresolver = match mod_global_delta mb with
+  | None -> oldsenv.modresolver
+  | Some delta -> Mod_subst.add_delta_resolver delta oldsenv.modresolver
   in
-  (mp,mbids,mb.mod_delta),
+  (mp, mbids, mod_delta mb),
   propagate_senv (l,SFBmodule mb) newenv newresolver senv' oldsenv
 
-let build_mtb mp sign delta =
-  { mod_mp = mp;
-    mod_expr = ();
-    mod_type = sign;
-    mod_type_alg = None;
-    mod_delta = delta;
-    mod_retroknowledge = ModTypeRK }
+let build_mtb = Mod_declarations.make_module_type
 
 let end_modtype l senv =
   let mp = senv.modpath in
@@ -1311,8 +1368,8 @@ let end_modtype l senv =
   let newenv = Environ.set_vm_library (Environ.vm_library senv.env) newenv in
   let senv' = propagate_loads {senv with env=newenv} in
   let auto_tb = functorize params (NoFunctor (List.rev senv.revstruct)) in
-  let mtb = build_mtb mp auto_tb senv.modresolver in
-  let newenv = Environ.add_modtype mtb senv'.env in
+  let mtb = build_mtb auto_tb senv.modresolver in
+  let newenv = Environ.add_modtype mp mtb senv'.env in
   let newresolver = oldsenv.modresolver in
   (mp,mbids),
   propagate_senv (l,SFBmodtype mtb) newenv newresolver senv' oldsenv
@@ -1330,18 +1387,18 @@ let add_include me is_module inl senv =
   let senv = set_vm_library vmtab senv in
   (* Include Self support  *)
   let struc = NoFunctor (List.rev senv.revstruct) in
-  let mb = build_mtb mp_sup struc senv.modresolver in
+  let mb = build_mtb struc senv.modresolver in
   let rec compute_sign sign resolver =
     match sign with
     | MoreFunctor(mbid,mtb,str) ->
       let state = check_state senv in
-      let (_ : UGraph.t) = Subtyping.check_subtypes state senv.env mb mtb in
+      let (_ : UGraph.t) = Subtyping.check_subtypes state senv.env mp_sup mb (MPbound mbid) mtb in
       let mpsup_delta =
         Modops.inline_delta_resolver senv.env inl mp_sup mbid mtb senv.modresolver
       in
       let subst = Mod_subst.map_mbid mbid mp_sup mpsup_delta in
       let resolver = Mod_subst.subst_codom_delta_resolver subst resolver in
-      compute_sign (Modops.subst_signature subst str) resolver
+      compute_sign (Modops.subst_signature subst mp_sup str) resolver
     | NoFunctor str -> resolver, str
   in
   let resolver, str = compute_sign sign resolver in
@@ -1353,14 +1410,16 @@ let add_include me is_module inl senv =
       | SFBmind _ ->
         I (Mod_subst.mind_of_delta_kn resolver (KerName.make mp_sup l))
       | SFBrules _ -> R
-      | SFBmodule _ -> M
-      | SFBmodtype _ -> MT
+      | SFBmodule _ -> M (MPdot (mp_sup, l))
+      | SFBmodtype _ -> MT (MPdot (mp_sup, l))
     in
     add_field field new_name senv
   in
   resolver, List.fold_left add senv str
 
 (** {6 Libraries, i.e. compiled modules } *)
+
+let dirpath_of_library lib = lib.comp_name
 
 let module_of_library lib = lib.comp_mod
 
@@ -1386,8 +1445,8 @@ let start_library dir senv =
     modvariant = LIBRARY;
     required = senv.required;
 
-    modresolver = Mod_subst.empty_delta_resolver;
-    paramresolver = Mod_subst.empty_delta_resolver;
+    modresolver = Mod_subst.empty_delta_resolver mp;
+    paramresolver = ParamResolver.empty dir;
     revstruct = [];
     modlabels = Label.Set.empty;
     objlabels = Label.Set.empty;
@@ -1402,18 +1461,10 @@ let start_library dir senv =
 let export ~output_native_objects senv dir =
   let () = check_current_library dir senv in
   (* qualities are in the senv only during sections *)
-  let () = assert (Sorts.QVar.Set.is_empty senv.env.Environ.env_qualities) in
+  let () = assert (Sorts.QVar.Set.is_empty @@ Environ.qualities senv.env) in
   let mp = senv.modpath in
   let str = NoFunctor (List.rev senv.revstruct) in
-  let mb =
-    { mod_mp = mp;
-      mod_expr = FullStruct;
-      mod_type = str;
-      mod_type_alg = None;
-      mod_delta = senv.modresolver;
-      mod_retroknowledge = ModBodyRK senv.local_retroknowledge
-    }
-  in
+  let mb = Mod_declarations.make_module_body str senv.modresolver senv.local_retroknowledge in
   let ast, symbols =
     if output_native_objects then
       Nativelibrary.dump_library mp senv.env str
@@ -1449,7 +1500,7 @@ let import lib vmtab vodigest senv =
   let env = Environ.link_vm_library vmtab env in
   let env =
     let linkinfo = Nativecode.link_info_of_dirpath lib.comp_name in
-    Modops.add_linked_module mb linkinfo env
+    Modops.add_linked_module mp mb linkinfo env
   in
   let sections =
     Option.map (Section.map_custom (fun custom ->
@@ -1467,7 +1518,7 @@ let import lib vmtab vodigest senv =
     env;
     (* Do NOT store the name quotient from the dependencies in the set of
        constraints that will be marshalled on disk. *)
-    paramresolver = Mod_subst.add_delta_resolver mb.mod_delta senv.paramresolver;
+    paramresolver = ParamResolver.add_delta_resolver mp (mod_delta mb) senv.paramresolver;
     required;
     loads = (mp,mb)::senv.loads;
     sections;
@@ -1482,6 +1533,7 @@ let open_section senv =
     rev_objlabels = senv.objlabels;
     rev_reimport = [];
     rev_revstruct = senv.revstruct;
+    rev_paramresolver = senv.paramresolver;
   } in
   let sections = Section.open_section ~custom senv.sections in
   { senv with sections=Some sections }
@@ -1497,9 +1549,9 @@ let close_section senv =
      that are going to be replayed. Those that are not forced are not readded
      by {!add_constant_aux}. *)
   let { rev_env = env; rev_univ = univ; rev_objlabels = objlabels;
-        rev_reimport; rev_revstruct = revstruct } = revert in
+        rev_reimport; rev_revstruct = revstruct; rev_paramresolver = paramresolver } = revert in
   let env = if Environ.rewrite_rules_allowed env0 then Environ.allow_rewrite_rules env else env in
-  let senv = { senv with env; revstruct; sections; univ; objlabels; } in
+  let senv = { senv with env; revstruct; sections; univ; objlabels; paramresolver } in
   (* Second phase: replay Requires *)
   let senv = List.fold_left (fun senv (lib,vmtab,vodigest) -> snd (import lib vmtab vodigest senv))
       senv (List.rev rev_reimport)

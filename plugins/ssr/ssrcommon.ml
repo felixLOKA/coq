@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -130,8 +130,8 @@ let mkRInd mind = DAst.make @@ GRef (GlobRef.IndRef mind,None)
 let mkRLambda n s t = DAst.make @@ GLambda (n, None, Explicit, s, t)
 
 let rec mkRnat n =
-  if n <= 0 then DAst.make @@ GRef (Coqlib.lib_ref "num.nat.O", None) else
-  mkRApp (DAst.make @@ GRef (Coqlib.lib_ref "num.nat.S", None)) [mkRnat (n - 1)]
+  if n <= 0 then DAst.make @@ GRef (Rocqlib.lib_ref "num.nat.O", None) else
+  mkRApp (DAst.make @@ GRef (Rocqlib.lib_ref "num.nat.S", None)) [mkRnat (n - 1)]
 
 let glob_constr ist genv = function
   | _, Some ce ->
@@ -619,7 +619,7 @@ let ssrdirpath = DirPath.make [Id.of_string "ssreflect"]
 let ssrqid name = Libnames.make_qualid ssrdirpath (Id.of_string name)
 let mkSsrRef name =
   let qn = Format.sprintf "plugins.ssreflect.%s" name in
-  if Coqlib.has_ref qn then Coqlib.lib_ref qn else
+  if Rocqlib.has_ref qn then Rocqlib.lib_ref qn else
   CErrors.user_err Pp.(str "Small scale reflection library not loaded (" ++ str name ++ str ")")
 let mkSsrRRef name = (DAst.make @@ GRef (mkSsrRef name,None)), None
 let mkSsrConst env sigma name =
@@ -638,7 +638,7 @@ let mkEtaApp c n imin =
   mkApp (c, Array.init nargs mkarg)
 
 let mkRefl env sigma t c =
-  let (sigma, refl) = EConstr.fresh_global env sigma Coqlib.(lib_ref "core.eq.refl") in
+  let (sigma, refl) = EConstr.fresh_global env sigma Rocqlib.(lib_ref "core.eq.refl") in
   sigma, EConstr.mkApp (refl, [|t; c|])
 
 let discharge_hyp (id', (id, mode)) =
@@ -687,8 +687,8 @@ let abs_ssrterm ?(resolve_typeclasses=false) ist env sigma t =
        sigma, Evarutil.nf_evar sigma ct in
   let c, abstracted_away, ucst = abs_evars env sigma0 t in
   let n = List.length abstracted_away in
-  let t = abs_cterm env sigma0 n c in
   let sigma = Evd.merge_universe_context sigma0 ucst in
+  let t = abs_cterm env sigma n c in
   sigma, t, n
 
 let top_id = mk_internal_id "top assumption"
@@ -761,9 +761,9 @@ let pf_interp_ty ?(resolve_typeclasses=false) env sigma0 ist ty =
        sigma, Evarutil.nf_evar sigma cty in
    let c, evs, ucst = abs_evars env sigma0 ty in
    let n = List.length evs in
+   let sigma0 = Evd.merge_universe_context sigma0 ucst in
    let lam_c = abs_cterm env sigma0 n c in
    let ctx, c = EConstr.decompose_lambda_n_assum sigma n lam_c in
-   let sigma0 = Evd.merge_universe_context sigma0 ucst in
    sigma0, n, EConstr.it_mkProd_or_LetIn c ctx, lam_c
 
 (* TASSI: given (c : ty), generates (c ??? : ty[???/...]) with m evars *)
@@ -780,7 +780,8 @@ let saturate ?(beta=false) ?(bi_types=false) env sigma c ?(ty=Retyping.get_type_
   | ProdType (_, src, tgt) ->
       let sigma = create_evar_defs sigma in
       let argty = if bi_types then Reductionops.nf_betaiota env sigma src else src in
-      let (sigma, x) = Evarutil.new_evar env sigma argty in
+      let typeclass_candidate = Typeclasses.is_maybe_class_type sigma argty in
+      let (sigma, x) = Evarutil.new_evar ~typeclass_candidate env sigma argty in
       loop (EConstr.Vars.subst1 x tgt) ((m - n,x,argty) :: args) sigma (n-1)
   | CastType (t, _) -> loop t args sigma n
   | LetInType (_, v, _, t) -> loop (EConstr.Vars.subst1 v t) args sigma n
@@ -797,7 +798,7 @@ let saturate ?(beta=false) ?(bi_types=false) env sigma c ?(ty=Retyping.get_type_
 let dependent_apply_error =
   CErrors.UserError (Pp.str "Could not fill dependent hole in \"apply\"")
 
-(* TASSI: Sometimes Coq's apply fails. According to my experience it may be
+(* TASSI: Sometimes Rocq's apply fails. According to my experience it may be
  * related to goals that are products and with beta redexes. In that case it
  * guesses the wrong number of implicit arguments for your lemma. What follows
  * is just like apply, but with a user-provided number n of implicits.
@@ -825,7 +826,8 @@ let applyn ?(beta=false) ~with_evars ?(first_goes_last=false) n t =
         else match EConstr.kind sigma c with
         | Lambda (_, argty, c) ->
           let argty = Reductionops.nf_betaiota env sigma (EConstr.Vars.substl args argty) in
-          let (sigma, x) = Evarutil.new_evar env sigma argty in
+          let typeclass_candidate = Typeclasses.is_maybe_class_type sigma argty in
+          let (sigma, x) = Evarutil.new_evar ~typeclass_candidate env sigma argty in
           saturate c (x :: args) sigma (n-1)
         | _ -> assert false
       in
@@ -862,10 +864,11 @@ let applyn ?(beta=false) ~with_evars ?(first_goes_last=false) n t =
         | 0 -> (t, args, sigma)
         | n ->
           match EConstr.kind sigma bo with
-          | Lambda (_, ty, bo) ->
+          | Lambda (na, ty, bo) ->
             let () = if not (EConstr.Vars.closed0 sigma ty) then raise dependent_apply_error in
             let ty = Reductionops.nf_betaiota env sigma ty in
-            let (sigma, evk) = Evarutil.new_pure_evar ~typeclass_candidate:false hyps sigma ty in
+            let relevance = na.binder_relevance in
+            let (sigma, evk) = Evarutil.new_pure_evar ~typeclass_candidate:false hyps sigma ~relevance ty in
             loop sigma bo (evk :: args) (n - 1)
           | _ -> assert false
       in
@@ -1162,7 +1165,7 @@ let tacTYPEOF c = Goal.enter_one ~__LOC__ (fun g ->
 
 (** This tactic creates a partial proof realizing the introduction rule, but
     does not check anything. *)
-let unsafe_intro env decl b =
+let unsafe_intro env decl ~relevance b =
   let open Context.Named.Declaration in
   Refine.refine_with_principal ~typecheck:false begin fun sigma ->
     let ctx = Environ.named_context_val env in
@@ -1170,7 +1173,7 @@ let unsafe_intro env decl b =
     let inst = EConstr.identity_subst_val (Environ.named_context_val env) in
     let ninst = SList.cons (EConstr.mkRel 1) inst in
     let nb = EConstr.Vars.subst1 (EConstr.mkVar (get_id decl)) b in
-    let sigma, ev = Evarutil.new_pure_evar nctx sigma nb in
+    let sigma, ev = Evarutil.new_pure_evar nctx sigma ~relevance nb in
     sigma, EConstr.mkNamedLambda_or_LetIn sigma decl (EConstr.mkEvar (ev, ninst)), Some ev
   end
 
@@ -1219,7 +1222,7 @@ let-in even after reduction, it fails. In case of success, the original name
 and final id are passed to the continuation [k] which gets evaluated. *)
 let tclINTRO ~id ~conclusion:k = Goal.enter begin fun gl ->
   let open Context in
-  let env, sigma, g = Goal.(env gl, sigma gl, concl gl) in
+  let env, sigma, g, relevance = Goal.(env gl, sigma gl, concl gl, relevance gl) in
   let decl, t, no_red = decompose_assum env sigma g in
   let original_name = Rel.Declaration.get_name decl in
   let already_used = Tacmach.pf_ids_of_hyps gl in
@@ -1235,7 +1238,7 @@ let tclINTRO ~id ~conclusion:k = Goal.enter begin fun gl ->
   in
   if List.mem id already_used then
     errorstrm Pp.(Id.print id ++ str" already used");
-  unsafe_intro env (set_decl_id id decl) t <*>
+  unsafe_intro env (set_decl_id id decl) ~relevance t <*>
   (if no_red then tclUNIT () else tclFULL_BETAIOTA) <*>
   k ~orig_name:original_name ~new_name:id
 end
@@ -1308,7 +1311,7 @@ let tclOPTION o d =
 let tacIS_INJECTION_CASE ?ty t = begin
   tclOPTION ty (tacTYPEOF t) >>= fun ty ->
   tacEVAL_TO_QUANTIFIED_IND ty >>= fun (mind,_) ->
-  tclUNIT (Coqlib.check_ref "core.eq.type" (GlobRef.IndRef mind))
+  tclUNIT (Rocqlib.check_ref "core.eq.type" (GlobRef.IndRef mind))
 end
 
 let tclWITHTOP tac = Goal.enter begin fun gl ->

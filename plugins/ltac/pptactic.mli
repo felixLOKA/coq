@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -77,11 +77,7 @@ val declare_extra_genarg_pprule_with_level :
   'a raw_extra_genarg_printer_with_level ->
   'b glob_extra_genarg_printer_with_level ->
   'c extra_genarg_printer_with_level ->
-  (* surroounded *) entry_relative_level -> (* non-surroounded *) entry_relative_level -> unit
-
-val declare_extra_vernac_genarg_pprule :
-  ('a, 'b, 'c) genarg_type ->
-  'a raw_extra_genarg_printer -> unit
+  (* surrounded *) entry_relative_level -> (* non-surrounded *) entry_relative_level -> unit
 
 type grammar_terminals = Genarg.ArgT.any Extend.user_symbol grammar_tactic_prod_item_expr list
 
@@ -107,7 +103,7 @@ val pr_may_eval :
   env -> Evd.evar_map ->
   (env -> Evd.evar_map -> 'a -> Pp.t) -> (env -> Evd.evar_map -> 'a -> Pp.t) -> ('b -> Pp.t) ->
   (env -> Evd.evar_map -> 'c -> Pp.t) -> ('occvar -> Pp.t) ->
-  ('a,'b,'c,'occvar) Genredexpr.may_eval -> Pp.t
+  ('a,'b,'c,'occvar) may_eval -> Pp.t
 
 val pr_and_short_name : ('a -> Pp.t) -> 'a Genredexpr.and_short_name -> Pp.t
 
@@ -121,10 +117,6 @@ val pr_in_clause :
 val pr_clauses : (* default: *) bool option ->
   ('a -> Pp.t) -> 'a Locus.clause_expr -> Pp.t
   (* Some true = default is concl; Some false = default is all; None = no default *)
-
-val pr_raw_generic : env -> Evd.evar_map -> rlevel generic_argument -> Pp.t
-
-val pr_glb_generic : env -> Evd.evar_map -> glevel generic_argument -> Pp.t
 
 val pr_raw_extend: env -> Evd.evar_map -> int ->
   ml_tactic_entry -> raw_tactic_arg list -> Pp.t

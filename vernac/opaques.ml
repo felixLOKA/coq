@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -58,7 +58,7 @@ let set_opaque_disk i (c, priv) t =
   let i = Opaqueproof.repr_handle i in
   let () = assert (0 <= i && i < Array.length t) in
   let () = assert (Option.is_empty t.(i)) in
-  let c = Constr.hcons c in
+  let _, c = Constr.hcons c in
   t.(i) <- Some (c, priv)
 
 let current_opaques = Summary.state

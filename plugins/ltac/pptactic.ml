@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -19,7 +19,6 @@ open Geninterp
 open Stdarg
 open Tactypes
 open Locus
-open Genredexpr
 open Ppconstr
 open Pputils
 open Printer
@@ -166,7 +165,7 @@ let string_of_genarg_arg (ArgumentType arg) =
   let pr_with_occurrences prvar pr c = Ppred.pr_with_occurrences prvar pr keyword c
   let pr_red_expr env sigma pr c = Ppred.pr_red_expr_env env sigma pr keyword c
 
-  let pr_may_eval env sigma test prc prlc pr2 pr3 pr4 = function
+  let pr_may_eval env sigma prc prlc pr2 pr3 pr4 = function
     | ConstrEval (r,c) ->
       hov 0
         (keyword "eval" ++ brk (1,1) ++
@@ -178,13 +177,8 @@ let string_of_genarg_arg (ArgumentType arg) =
            str "[ " ++ prlc env sigma c ++ str " ]")
     | ConstrTypeOf c ->
       hov 1 (keyword "type of" ++ spc() ++ prc env sigma c)
-    | ConstrTerm c when test c ->
-      h (str "(" ++ prc env sigma c ++ str ")")
     | ConstrTerm c ->
       prc env sigma c
-
-  let pr_may_eval env sigma a =
-    pr_may_eval env sigma (fun _ -> false) a
 
   let pr_arg pr x = spc () ++ pr x
 
@@ -289,7 +283,7 @@ let string_of_genarg_arg (ArgumentType arg) =
       in
       let prods = pack pp.pptac_prods l in
       let p = pr_tacarg_using_rule pr_gen prods in
-      if pp.pptac_level > lev then surround p else p
+      if pp.pptac_level > lev then surround p else hov 2 p
     with Not_found ->
       let pr _ = str "_" in
       KerName.print key ++ spc() ++ pr_sequence pr l ++ str" (* Generic printer *)"
@@ -569,25 +563,24 @@ let pr_goal_selector ~toplevel s =
 
   let pr_funvar n = spc () ++ Name.print n
 
-  let pr_let_clause k pr_gen pr_arg (na,(bl,t)) =
+  let pr_let_clause pr_gen pr_arg (na,(bl,t)) =
     let pr = function
       | TacGeneric (_,arg) ->
          let name = string_of_genarg_arg (genarg_tag arg) in
          if name = "unit" || name = "int" then
            (* Hard-wired parsing rules *)
-           pr_gen  arg
+           pr_gen ltop arg
          else
-           str name ++ str ":" ++ surround (pr_gen arg)
+           str name ++ str ":" ++ surround (pr_gen ltop arg)
       | _ -> pr_arg (CAst.make (TacArg t)) in
-    hov 0 (keyword k ++ spc () ++ pr_lname na ++ prlist pr_funvar bl ++
-             str " :=" ++ brk (1,1) ++ pr t)
+    hov 2 (pr_lname na ++ prlist pr_funvar bl ++ str " :=" ++ spc() ++ hov 2 (pr t))
 
-  let pr_let_clauses recflag pr_gen pr = function
-    | hd::tl ->
-      hv 0
-        (pr_let_clause (if recflag then "let rec" else "let") pr_gen pr hd ++
-           prlist (fun t -> spc () ++ pr_let_clause "with" pr_gen pr t) tl)
-    | [] -> anomaly (Pp.str "LetIn must declare at least one binding.")
+let pr_let_clauses recflag pr_gen pr l =
+  hov 2
+    (v 0
+       (str (if recflag then "let rec " else "let ") ++
+        (prlist_with_sep (fun () -> spc() ++ str "with ") (pr_let_clause pr_gen pr) l)) ++
+     spc() ++ str "in")
 
   let pr_seq_body pr tl =
     hv 0 (str "[ " ++
@@ -659,7 +652,7 @@ let pr_goal_selector ~toplevel s =
     pr_reference : 'ref -> Pp.t;
     pr_name      : 'nam -> Pp.t;
     pr_occvar    : 'occvar -> Pp.t;
-    pr_generic   : Environ.env -> Evd.evar_map -> 'lev generic_argument -> Pp.t;
+    pr_generic   : Environ.env -> Evd.evar_map -> entry_relative_level -> 'lev generic_argument -> Pp.t;
     pr_extend    : int -> ml_tactic_entry -> 'a gen_tactic_arg list -> Pp.t;
     pr_alias     : int -> KerName.t -> 'a gen_tactic_arg list -> Pp.t;
   }
@@ -894,10 +887,8 @@ let pr_goal_selector ~toplevel s =
             | TacLetIn (recflag,llc,u) ->
               let llc = List.map (fun (id,t) -> (id,extract_binders t)) llc in
               v 0
-                (hv 0 (
-                  pr_let_clauses recflag (pr.pr_generic env sigma) (pr_tac ltop) llc
-                  ++ spc () ++ keyword "in"
-                 ) ++ fnl () ++ pr_tac (LevelLe llet) u),
+                (pr_let_clauses recflag (pr.pr_generic env sigma) (pr_tac ltop) llc ++ spc () ++
+                 pr_tac (LevelLe llet) u),
               llet
             | TacMatch (lz,t,lrul) ->
               hov 0 (
@@ -1024,7 +1015,7 @@ let pr_goal_selector ~toplevel s =
               keyword "solve" ++ spc () ++ pr_seq_body (pr_tac ltop) tl, llet
             | TacSelect (s, tac) -> pr_goal_selector ~toplevel:false s ++ spc () ++ pr_tac ltop tac, ltactical
             | TacId l ->
-              keyword "idtac" ++ prlist (pr_arg (pr_message_token pr.pr_name)) l, latom
+              hov 2 (keyword "idtac" ++ prlist (pr_arg (pr_message_token pr.pr_name)) l), latom
             | TacAtom t ->
               pr_with_comments ?loc (hov 1 (pr_atom env sigma pr strip_prod_binders tag_atom t)), ltatom
             | TacArg (Tacexp e) ->
@@ -1036,7 +1027,7 @@ let pr_goal_selector ~toplevel s =
             | TacArg (TacFreshId l) ->
               primitive "fresh" ++ pr_fresh_ids l, latom
             | TacArg (TacGeneric (isquot,arg)) ->
-              let p = pr.pr_generic env sigma arg in
+              let p = pr.pr_generic env sigma (if Option.has_some isquot then ltop else LevelLe 0) arg in
               (match isquot with Some name -> str name ++ str ":(" ++ p ++ str ")" | None -> p), latom
             | TacArg (TacCall {CAst.v=(f,[])}) ->
               pr.pr_reference f, latom
@@ -1097,7 +1088,7 @@ let pr_goal_selector ~toplevel s =
       pr_reference = pr_qualid;
       pr_name = pr_lident;
       pr_occvar = pr_or_var int;
-      pr_generic = Pputils.pr_raw_generic;
+      pr_generic = (fun env sigma level v -> Pputils.pr_raw_generic env sigma ~level v);
       pr_extend = pr_raw_extend_rec @@ pr_raw_tactic_level env sigma;
       pr_alias = pr_raw_alias @@ pr_raw_tactic_level env sigma;
     } in
@@ -1129,7 +1120,7 @@ let pr_goal_selector ~toplevel s =
         pr_reference = pr_ltac_or_var (pr_located pr_ltac_constant);
         pr_name = pr_lident;
         pr_occvar = pr_or_var int;
-        pr_generic = Pputils.pr_glb_generic;
+        pr_generic = (fun env sigma level v -> Pputils.pr_glb_generic env sigma ~level v);
         pr_extend = pr_glob_extend_rec prtac;
         pr_alias = pr_glob_alias prtac;
       } in
@@ -1175,10 +1166,6 @@ let pr_goal_selector ~toplevel s =
       pr_atom env sigma pr strip_prod_binders_constr tag_atomic_tactic_expr t
     in
     prtac t
-
-  let pr_raw_generic = Pputils.pr_raw_generic
-
-  let pr_glb_generic = Pputils.pr_glb_generic
 
   let pr_raw_extend env sigma = pr_raw_extend_rec @@ pr_raw_tactic_level env sigma
 
@@ -1261,10 +1248,6 @@ let declare_extra_genarg_pprule_with_level wit
           h env sigma pr_econstr_env pr_leconstr_env (fun _env _sigma _ _ -> str "<tactic>") n x) }
   in
   Genprint.register_print0 wit f g h
-
-let declare_extra_vernac_genarg_pprule wit f =
-  let f x = Genprint.PrinterBasic (fun env sigma -> f env sigma pr_constr_expr pr_lconstr_expr pr_raw_tactic_level x) in
-  Genprint.register_vernac_print0 wit f
 
 (** Registering *)
 
@@ -1403,6 +1386,19 @@ let () =
 let () =
   let printer env sigma _ _ prtac = prtac env sigma in
   declare_extra_genarg_pprule_with_level wit_tactic printer printer printer
+  ltop (LevelLe 0)
+
+let () =
+  declare_extra_genarg_pprule_with_level wit_ltac_in_term
+    (fun env sigma _ _ prtac l tac -> prtac env sigma l tac)
+    (fun env sigma _ _ prtac l (used_ntnvars,tac) ->
+       let ppids =
+         let ids = Id.Set.elements used_ntnvars in
+         if List.is_empty ids then mt()
+         else hov 0 (pr_sequence Id.print ids ++ str " |-") ++ spc()
+       in
+       hov 2 (ppids ++ prtac env sigma l tac))
+    (fun env sigma _ _ _ _ tac -> Util.Empty.abort tac)
   ltop (LevelLe 0)
 
 let () =

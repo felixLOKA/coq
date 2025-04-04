@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -118,8 +118,7 @@ module PrintObj =
 struct
   type ('raw, 'glb, 'top) obj = ('raw, 'glb, 'top) genprinter
   let name = "printer"
-  let default wit = match wit with
-  | ExtraArg tag ->
+  let default tag =
     let name = try ArgT.repr tag with Assert_failure _ when !Flags.in_debugger -> "UNKNOWN" in
     let printer = {
       raw = (fun _ -> PrinterBasic (fun env sigma -> str "<genarg:" ++ str name ++ str ">"));
@@ -127,7 +126,6 @@ struct
       top = (fun _ -> TopPrinterBasic (fun () -> str "<genarg:" ++ str name ++ str ">"));
     } in
     Some printer
-  | _ -> assert false
 end
 
 module Print = Register (PrintObj)
@@ -142,9 +140,14 @@ let register_print0 wit raw glb top =
      (* An alias, thus no primitive printer attached *)
      ()
 
+let register_noval_print0 wit raw glb =
+  let top = Util.Empty.abort in
+  let printer = { raw; glb; top; } in
+  Print.register0 wit printer
+
 let register_vernac_print0 wit raw =
-  let glb _ = CErrors.anomaly (Pp.str "vernac argument needs not globwit printer.") in
-  let top _ = CErrors.anomaly (Pp.str "vernac argument needs not wit printer.") in
+  let glb = Util.Empty.abort in
+  let top = Util.Empty.abort in
   let printer = { raw; glb; top; } in
   Print.register0 wit printer
 

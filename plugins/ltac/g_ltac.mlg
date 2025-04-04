@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -8,7 +8,7 @@
 (*         *     (see LICENSE file for the text of the license)         *)
 (************************************************************************)
 
-DECLARE PLUGIN "coq-core.plugins.ltac"
+DECLARE PLUGIN "rocq-runtime.plugins.ltac"
 
 {
 
@@ -17,13 +17,12 @@ open Pp
 open Constrexpr
 open Tacexpr
 open Genarg
-open Genredexpr
 open Names
 open Attributes
 
-open Pcoq
-open Pcoq.Prim
-open Pcoq.Constr
+open Procq
+open Procq.Prim
+open Procq.Constr
 open Pvernac.Vernac_
 open Pltac
 
@@ -37,7 +36,6 @@ let genarg_of_unit () = in_gen (rawwit Stdarg.wit_unit) ()
 let genarg_of_int n = in_gen (rawwit Stdarg.wit_int) n
 let genarg_of_ipattern pat = in_gen (rawwit Tacarg.wit_simple_intropattern) pat
 let genarg_of_uconstr c = in_gen (rawwit Stdarg.wit_uconstr) c
-let in_tac tac = in_gen (rawwit Tacarg.wit_ltac) tac
 
 let reference_to_id qid =
   if Libnames.qualid_is_ident qid then
@@ -51,7 +49,12 @@ let tactic_mode = Entry.make "tactic_command"
 let tacdef_body = Entry.make "tacdef_body"
 
 (* Registers [tactic_mode] as a parser for proof editing *)
-let classic_proof_mode = Pvernac.register_proof_mode "Classic" tactic_mode
+let classic_proof_mode = Pvernac.register_proof_mode "Classic"
+    (ProofMode {
+        command_entry = tactic_mode;
+        wit_tactic_expr = Tacarg.wit_ltac;
+        tactic_expr_entry = Pltac.tactic;
+      })
 
 (* Tactics grammar rules *)
 
@@ -190,10 +193,6 @@ GRAMMAR EXTEND Gram
       | IDENT "type"; IDENT "of"; c = Constr.constr ->
           { ConstrTypeOf c } ] ]
   ;
-  constr_may_eval: (* For extensions *)
-    [ [ c = constr_eval -> { c }
-      | c = Constr.constr -> { ConstrTerm c } ] ]
-  ;
   tactic_atom:
     [ [ n = integer -> { TacGeneric (None, genarg_of_int n) }
       | r = reference -> { TacCall (CAst.make ~loc (r,[])) }
@@ -289,22 +288,9 @@ GRAMMAR EXTEND Gram
       | g = OPT toplevel_selector; p = subprf_with_selector -> { Vernacexpr.VernacSynPure (p g) }
       ] ]
   ;
-  command: TOP
-    [ [ IDENT "Proof"; "with"; ta = Pltac.tactic;
-        l = OPT [ IDENT "using"; l = G_vernac.section_subset_expr -> { l } ] ->
-          { Vernacexpr.VernacSynPure (Vernacexpr.VernacProof (Some (in_tac ta), l)) }
-      | IDENT "Proof"; IDENT "using"; l = G_vernac.section_subset_expr;
-        "with"; ta = Pltac.tactic ->
-          { Vernacexpr.VernacSynPure (Vernacexpr.VernacProof (Some (in_tac ta),Some l)) } ] ]
-  ;
-  hint: TOP
-    [ [ IDENT "Extern"; n = natural; c = OPT Constr.constr_pattern ; "=>";
-        tac = Pltac.tactic ->
-        { Vernacexpr.HintsExtern (n,c, in_tac tac) } ] ]
-  ;
   term: LEVEL "0"
     [ [ IDENT "ltac"; ":"; "("; tac = Pltac.ltac_expr; ")" ->
-        { let arg = Genarg.in_gen (Genarg.rawwit Tacarg.wit_tactic) tac in
+        { let arg = Genarg.in_gen (Genarg.rawwit Tacarg.wit_ltac_in_term) tac in
           CAst.make ~loc @@ CGenarg arg } ] ]
   ;
   END
@@ -475,12 +461,12 @@ PRINTED BY { pr_tacdef_body env sigma }
 END
 
 VERNAC COMMAND EXTEND VernacDeclareTacticDefinition
-| #[ deprecation; locality; ] [ "Ltac" ne_ltac_tacdef_body_list_sep(l, "with") ] => {
+| #[ raw_attributes; ] [ "Ltac" ne_ltac_tacdef_body_list_sep(l, "with") ] => {
     VtSideff (List.map (function
       | TacticDefinition ({CAst.v=r},_) -> r
       | TacticRedefinition (qid,_) -> qualid_basename qid) l, VtLater)
   } -> {
-         Tacentries.register_ltac (Locality.make_module_locality locality) ?deprecation l;
+         Tacentries.register_ltac raw_attributes l;
   }
 END
 

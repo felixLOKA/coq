@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -10,14 +10,14 @@
 
 type t =
   { boot : bool
+  ; coqlib : string option
   ; sort : bool
   ; vos : bool
   ; noglob : bool
-  ; coqproject : string option
   ; ml_path : string list
   ; vo_path : (bool * string * string) list
   ; dyndep : string
-  ; meta_files : string list
+  ; worker : string option
   ; files : string list
   }
 

@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -20,19 +20,18 @@ type is_type = bool (* Module Type or just Module *)
 type export_flag = Export | Import
 type export = (export_flag * Libobject.open_filter) option (* None for a Module Type *)
 
-val make_oname : Nametab.object_prefix -> Names.Id.t -> Libobject.object_name
+val make_oname : Libobject.object_prefix -> Names.Id.t -> Libobject.object_name
 val make_foname : Names.Id.t -> Libobject.object_name
-val oname_prefix : Libobject.object_name -> Nametab.object_prefix
 
 type 'summary node =
-  | CompilingLibrary of Nametab.object_prefix
-  | OpenedModule of is_type * export * Nametab.object_prefix * 'summary
-  | OpenedSection of Nametab.object_prefix * 'summary
+  | CompilingLibrary of Libobject.object_prefix
+  | OpenedModule of is_type * export * Libobject.object_prefix * 'summary
+  | OpenedSection of Libobject.object_prefix * 'summary
 
 (** Extract the [object_prefix] component. Note that it is the prefix
    of the objects *inside* this node, eg in [Module M.] we have
    [OpenedModule] with prefix containing [M]. *)
-val node_prefix : 'summary node -> Nametab.object_prefix
+val node_prefix : 'summary node -> Libobject.object_prefix
 
 type 'summary library_segment = ('summary node * Libobject.t list) list
 
@@ -62,15 +61,15 @@ val contents : unit -> Summary.Interp.frozen library_segment
     - cwd = A.B.M.S
     - cwd_except_section = A.B.M
     - current_dirpath true = M.S
-    - current_dirpath false = S
+    - current_dirpath false = M
     - current_mp = MPdot(MPfile A.B, M)
 
     make_path (resp make_path_except_section) uses cwd (resp cwd_except_section)
     make_kn uses current_mp
 *)
-val prefix : unit -> Nametab.object_prefix
-val cwd : unit -> DirPath.t
-val cwd_except_section : unit -> DirPath.t
+val prefix : unit -> Libobject.object_prefix
+val cwd : unit -> Libnames.full_path
+val cwd_except_section : unit -> Libnames.full_path
 val current_dirpath : bool -> DirPath.t (* false = except sections *)
 val make_path : Id.t -> Libnames.full_path
 val make_path_except_section : Id.t -> Libnames.full_path
@@ -95,18 +94,18 @@ type discharged_item =
   | DischargedExport of Libobject.ExportObj.t
   | DischargedLeaf of Libobject.discharged_obj
 
+type classified_objects = {
+  substobjs : Libobject.t list;
+  keepobjs : Libobject.keep_objects;
+  escapeobjs : Libobject.escape_objects;
+  anticipateobjs : Libobject.t list;
+}
+
 (** The [StagedLibS] abstraction describes operations and traversal for Lib at a
     given stage. *)
 module type StagedLibS = sig
 
   type summary
-
-  type classified_objects = {
-    substobjs : Libobject.t list;
-    keepobjs : Libobject.t list;
-    anticipateobjs : Libobject.t list;
-  }
-  val classify_segment : Libobject.t list -> classified_objects
 
   (** Returns the opening node of a given name *)
   val find_opening_node : ?loc:Loc.t -> Id.t -> summary node
@@ -124,20 +123,20 @@ module type StagedLibS = sig
   (** {6 Modules and module types } *)
 
   val start_module :
-    export -> module_ident -> ModPath.t ->
-    summary -> Nametab.object_prefix
+    export -> Id.t -> ModPath.t ->
+    summary -> Libobject.object_prefix
 
   val start_modtype :
-    module_ident -> ModPath.t ->
-    summary -> Nametab.object_prefix
+    Id.t -> ModPath.t ->
+    summary -> Libobject.object_prefix
 
   val end_module :
     unit ->
-    Nametab.object_prefix * summary * classified_objects
+    Libobject.object_prefix * summary * classified_objects
 
   val end_modtype :
     unit ->
-    Nametab.object_prefix * summary * classified_objects
+    Libobject.object_prefix * summary * classified_objects
 
   type frozen
 
@@ -162,9 +161,14 @@ module Interp : StagedLibS with type summary = Summary.Interp.frozen
 
 val start_compilation : DirPath.t -> ModPath.t -> unit
 
-(** Finalize the compilation of a library and return respectively the library
-    prefix, the regular objects, and the syntax-related objects. *)
-val end_compilation : DirPath.t -> Nametab.object_prefix * Library_info.t * Interp.classified_objects * Synterp.classified_objects
+type compilation_result = {
+  info : Library_info.t;
+  synterp_objects : classified_objects;
+  interp_objects : classified_objects;
+}
+
+(** Finalize the compilation of a library. *)
+val end_compilation : DirPath.t -> compilation_result
 
 (** The function [library_dp] returns the [DirPath.t] of the current
    compiling library (or [default_library]) *)
@@ -184,6 +188,9 @@ val is_in_section : GlobRef.t -> bool
 
 (** {6 Discharge: decrease the section level if in the current section } *)
 
+(** [discharge_proj_repr p] discharges projection [p] if the associated record
+    was defined in the current section. If that is not the case, it returns [p]
+    unchanged. *)
 val discharge_proj_repr : Projection.Repr.t -> Projection.Repr.t
 
 (** Compatibility layer *)

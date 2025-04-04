@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -13,6 +13,8 @@ open Mod_subst
 open Util
 
 module RelDecl = Context.Rel.Declaration
+
+let noh hcons x = snd (hcons x)
 
 (** Operations concernings types in [Declarations] :
     [constant_body], [mutual_inductive_body], [module_body] ... *)
@@ -33,27 +35,12 @@ let safe_flags oracle = {
 
 (** {6 Arities } *)
 
-let subst_decl_arity f g subst ar =
-  match ar with
-  | RegularArity x ->
-    let x' = f subst x in
-      if x' == x then ar
-      else RegularArity x'
-  | TemplateArity x ->
-    let x' = g subst x in
-      if x' == x then ar
-      else TemplateArity x'
-
-let map_decl_arity f g = function
-  | RegularArity a -> RegularArity (f a)
-  | TemplateArity a -> TemplateArity (g a)
-
-let hcons_template_arity ar =
-  { template_level = Sorts.hcons ar.template_level; }
-
 let hcons_template_universe ar =
-  { template_param_arguments = ar.template_param_arguments;
-    template_context = Univ.hcons_universe_context_set ar.template_context }
+  { template_param_arguments = List.Smart.map (Option.Smart.map (noh Sorts.hcons)) ar.template_param_arguments;
+    template_concl = noh Sorts.hcons ar.template_concl;
+    template_context = noh UVars.hcons_abstract_universe_context ar.template_context;
+    template_defaults = noh UVars.Instance.hcons ar.template_defaults;
+  }
 
 let universes_context = function
   | Monomorphic -> UVars.AbstractContext.empty
@@ -132,11 +119,11 @@ let subst_const_body subst cb =
     themselves. But would it really bring substantial gains ? *)
 
 let hcons_rel_decl =
-  RelDecl.map_name Names.Name.hcons %> RelDecl.map_value Constr.hcons %> RelDecl.map_type Constr.hcons
+  RelDecl.map_name (noh Names.Name.hcons) %> RelDecl.map_value (noh Constr.hcons) %> RelDecl.map_type (noh Constr.hcons)
 
 let hcons_rel_context l = List.Smart.map hcons_rel_decl l
 
-let hcons_const_def ?(hbody=Constr.hcons) = function
+let hcons_const_def ?(hbody=noh Constr.hcons) = function
   | Undef inl -> Undef inl
   | Primitive p -> Primitive p
   | Symbol r -> Symbol r
@@ -148,12 +135,12 @@ let hcons_universes cbu =
   match cbu with
   | Monomorphic -> Monomorphic
   | Polymorphic ctx ->
-    Polymorphic (UVars.hcons_abstract_universe_context ctx)
+    Polymorphic (noh UVars.hcons_abstract_universe_context ctx)
 
 let hcons_const_body ?hbody cb =
   { cb with
     const_body = hcons_const_def ?hbody cb.const_body;
-    const_type = Constr.hcons cb.const_type;
+    const_type = noh Constr.hcons cb.const_type;
     const_universes = hcons_universes cb.const_universes;
   }
 
@@ -202,7 +189,7 @@ let mk_paths r recargs =
   Rtree.mk_node r
     (Array.map Array.of_list recargs)
 
-let dest_recarg p = fst (Rtree.dest_node p)
+let dest_recarg p = Rtree.dest_head p
 
 (* dest_subterms returns the sizes of each argument of each constructor of
    an inductive object of size [p]. This should never be done for Norec,
@@ -222,17 +209,6 @@ let subst_wf_paths subst p = Rtree.Smart.map (subst_recarg subst) p
 
 (** {7 Substitution of inductive declarations } *)
 
-let subst_regular_ind_arity subst s =
-  let uar' = subst_mps subst s.mind_user_arity in
-    if uar' == s.mind_user_arity then s
-    else { mind_user_arity = uar'; mind_sort = s.mind_sort }
-
-let subst_template_ind_arity _sub s = s
-
-(* FIXME records *)
-let subst_ind_arity =
-  subst_decl_arity subst_regular_ind_arity subst_template_ind_arity
-
 let subst_mind_packet subst mbp =
   { mind_consnames = mbp.mind_consnames;
     mind_consnrealdecls = mbp.mind_consnrealdecls;
@@ -240,7 +216,8 @@ let subst_mind_packet subst mbp =
     mind_typename = mbp.mind_typename;
     mind_nf_lc = Array.Smart.map (fun (ctx, c) -> Context.Rel.map (subst_mps subst) ctx, subst_mps subst c) mbp.mind_nf_lc;
     mind_arity_ctxt = subst_rel_context subst mbp.mind_arity_ctxt;
-    mind_arity = subst_ind_arity subst mbp.mind_arity;
+    mind_user_arity = subst_mps subst mbp.mind_user_arity;
+    mind_sort = mbp.mind_sort;
     mind_user_lc = Array.Smart.map (subst_mps subst) mbp.mind_user_lc;
     mind_nrealargs = mbp.mind_nrealargs;
     mind_nrealdecls = mbp.mind_nrealdecls;
@@ -323,26 +300,18 @@ let inductive_make_projections ind mib =
 
 (** {6 Hash-consing of inductive declarations } *)
 
-let hcons_regular_ind_arity a =
-  { mind_user_arity = Constr.hcons a.mind_user_arity;
-    mind_sort = Sorts.hcons a.mind_sort }
-
 (** Just as for constants, this hash-consing is quite partial *)
 
-let hcons_ind_arity =
-  map_decl_arity hcons_regular_ind_arity hcons_template_arity
-
-(** Substitution of inductive declarations *)
-
 let hcons_mind_packet oib =
-  let user = Array.Smart.map Constr.hcons oib.mind_user_lc in
-  let map (ctx, c) = Context.Rel.map Constr.hcons ctx, Constr.hcons c in
+  let user = Array.Smart.map (noh Constr.hcons) oib.mind_user_lc in
+  let map (ctx, c) = Context.Rel.map (noh Constr.hcons) ctx, noh Constr.hcons c in
   let nf = Array.Smart.map map oib.mind_nf_lc in
   { oib with
-    mind_typename = Names.Id.hcons oib.mind_typename;
+    mind_typename = noh Names.Id.hcons oib.mind_typename;
     mind_arity_ctxt = hcons_rel_context oib.mind_arity_ctxt;
-    mind_arity = hcons_ind_arity oib.mind_arity;
-    mind_consnames = Array.Smart.map Names.Id.hcons oib.mind_consnames;
+    mind_user_arity = noh Constr.hcons oib.mind_user_arity;
+    mind_sort = noh Sorts.hcons oib.mind_sort;
+    mind_consnames = Array.Smart.map (noh Names.Id.hcons) oib.mind_consnames;
     mind_user_lc = user;
     mind_nf_lc = nf }
 
@@ -361,97 +330,3 @@ let subst_rewrite_rules subst ({ rewrules_rules } as rules) =
   in
   if rewrules_rules == body' then rules else
     { rewrules_rules = body' }
-
-(** Hashconsing of modules *)
-
-let hcons_functorize hty he hself f = match f with
-| NoFunctor e ->
-  let e' = he e in
-  if e == e' then f else NoFunctor e'
-| MoreFunctor (mid, ty, nf) ->
-  (** FIXME *)
-  let mid' = mid in
-  let ty' = hty ty in
-  let nf' = hself nf in
-  if mid == mid' && ty == ty' && nf == nf' then f
-  else MoreFunctor (mid, ty', nf')
-
-let hcons_module_alg_expr me = me
-
-let rec hcons_module_expression me = match me with
-| MENoFunctor malg ->
-  let malg' = hcons_module_alg_expr malg in
-  if malg == malg' then me else MENoFunctor malg'
-| MEMoreFunctor mf ->
-  let mf' = hcons_module_expression mf in
-  if mf' == mf then me else MEMoreFunctor mf'
-
-let rec hcons_structure_field_body sb = match sb with
-| SFBconst cb ->
-  let cb' = hcons_const_body cb in
-  if cb == cb' then sb else SFBconst cb'
-| SFBmind mib ->
-  let mib' = hcons_mind mib in
-  if mib == mib' then sb else SFBmind mib'
-| SFBmodule mb ->
-  let mb' = hcons_module_body mb in
-  if mb == mb' then sb else SFBmodule mb'
-| SFBmodtype mb ->
-  let mb' = hcons_module_type mb in
-  if mb == mb' then sb else SFBmodtype mb'
-| SFBrules _ -> sb (* TODO? *)
-
-and hcons_structure_body sb =
-  (** FIXME *)
-  let map (l, sfb as fb) =
-    let l' = Names.Label.hcons l in
-    let sfb' = hcons_structure_field_body sfb in
-    if l == l' && sfb == sfb' then fb else (l', sfb')
-  in
-  List.Smart.map map sb
-
-and hcons_module_signature ms =
-  hcons_functorize hcons_module_type hcons_structure_body hcons_module_signature ms
-
-and hcons_module_implementation mip = match mip with
-| Abstract -> Abstract
-| Algebraic me ->
-  let me' = hcons_module_expression me in
-  if me == me' then mip else Algebraic me'
-| Struct ms ->
-  let ms' = hcons_structure_body ms in
-  if ms == ms' then mip else Struct ms
-| FullStruct -> FullStruct
-
-and hcons_generic_module_body :
-  'a. ('a -> 'a) -> 'a generic_module_body -> 'a generic_module_body =
-  fun hcons_impl mb ->
-  let mp' = mb.mod_mp in
-  let expr' = hcons_impl mb.mod_expr in
-  let type' = hcons_module_signature mb.mod_type in
-  let type_alg' = mb.mod_type_alg in
-  let delta' = mb.mod_delta in
-  let retroknowledge' = mb.mod_retroknowledge in
-
-  if
-    mb.mod_mp == mp' &&
-    mb.mod_expr == expr' &&
-    mb.mod_type == type' &&
-    mb.mod_type_alg == type_alg' &&
-    mb.mod_delta == delta' &&
-    mb.mod_retroknowledge == retroknowledge'
-  then mb
-  else {
-    mod_mp = mp';
-    mod_expr = expr';
-    mod_type = type';
-    mod_type_alg = type_alg';
-    mod_delta = delta';
-    mod_retroknowledge = retroknowledge';
-  }
-
-and hcons_module_body mb =
-  hcons_generic_module_body hcons_module_implementation mb
-
-and hcons_module_type mb =
-  hcons_generic_module_body (fun () -> ()) mb

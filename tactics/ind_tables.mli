@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -36,7 +36,7 @@ type individual_scheme_object_function =
    on backtracking.
 
     In [declare_X_scheme_object key ?suff ?deps f], [key] is the name
-    of the scheme kind. It must be unique across the Coq process's
+    of the scheme kind. It must be unique across the Rocq process's
     lifetime. It is used to generate [scheme_kind] in a marshal-stable
     way and as the scheme name in Register Scheme.
 

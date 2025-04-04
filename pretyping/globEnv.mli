@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -60,13 +60,13 @@ val push_rec_types : hypnaming:naming_mode -> evar_map -> Name.t EConstr.binder_
 (** Declare an evar using renaming information *)
 
 val new_evar : t -> evar_map -> ?src:Evar_kinds.t Loc.located ->
-  ?naming:Namegen.intro_pattern_naming_expr -> constr -> evar_map * constr
+  ?naming:Namegen.intro_pattern_naming_expr -> ?relevance:ERelevance.t ->
+  constr -> evar_map * constr
 
 val new_type_evar : t -> evar_map -> src:Evar_kinds.t Loc.located -> evar_map * constr
 
-(** [hide_variable env na id] tells to hide the binding of [id] in
-    the ltac environment part of [env] and to additionally rebind
-    it to [id'] in case [na] is some [Name id']. It is useful e.g.
+(** [hide_variable env id] tells to hide the binding of [id] in
+    the ltac environment part of [env]. It is useful e.g.
     for the dual status of [y] as term and binder. This is the case
     of [match y return p with ... end] which implicitly denotes
     [match z as z return p with ... end] when [y] is bound to a
@@ -74,7 +74,7 @@ val new_type_evar : t -> evar_map -> src:Evar_kinds.t Loc.located -> evar_map * 
     is bound to a non-variable term [t]. In the latter case, the
     binding of [y] to [t] should be hidden in [p]. *)
 
-val hide_variable : t -> Name.t -> Id.t -> t
+val hide_variable : t -> Id.t -> t
 
 (** In case a variable is not bound by a term binder, look if it has
     an interpretation as a term in the ltac_var_map *)

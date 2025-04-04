@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -1541,16 +1541,16 @@ let con_of_string s =
 
 let manual_inline_set =
   List.fold_right (fun x -> Cset_env.add (con_of_string x))
-    [ "Coq.Init.Wf.well_founded_induction_type";
-      "Coq.Init.Wf.well_founded_induction";
-      "Coq.Init.Wf.Acc_iter";
-      "Coq.Init.Wf.Fix_F";
-      "Coq.Init.Wf.Fix";
-      "Coq.Init.Datatypes.andb";
-      "Coq.Init.Datatypes.orb";
-      "Coq.Init.Logic.eq_rec_r";
-      "Coq.Init.Logic.eq_rect_r";
-      "Coq.Init.Specif.proj1_sig";
+    [ "Corelib.Init.Wf.well_founded_induction_type";
+      "Corelib.Init.Wf.well_founded_induction";
+      "Corelib.Init.Wf.Acc_iter";
+      "Corelib.Init.Wf.Fix_F";
+      "Corelib.Init.Wf.Fix";
+      "Corelib.Init.Datatypes.andb";
+      "Corelib.Init.Datatypes.orb";
+      "Corelib.Init.Logic.eq_rec_r";
+      "Corelib.Init.Logic.eq_rect_r";
+      "Corelib.Init.Specif.proj1_sig";
     ]
     Cset_env.empty
 

@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -11,9 +11,9 @@
 DECLARE GLOBAL PLUGIN
 
 {
-open Pcoq
-open Pcoq.Prim
-open Pcoq.Constr
+open Procq
+open Procq.Prim
+open Procq.Constr
 open Pvernac.Vernac_
 
 open Util
@@ -61,7 +61,7 @@ GRAMMAR EXTEND Gram
   ;
   ref_or_pattern_occ:
     (* If a string, it is interpreted as a ref
-       (anyway a Coq string does not reduce) *)
+       (anyway a Rocq string does not reduce) *)
     [ [ c = smart_global; nl = occs -> { nl,Inl c }
       | c = constr; nl = occs -> { nl,Inr c } ] ]
   ;

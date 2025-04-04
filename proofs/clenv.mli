@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -23,9 +23,10 @@ open Tactypes
 type clausenv
 
 val clenv_evd : clausenv -> Evd.evar_map
+val clenv_meta_list : clausenv -> Meta.t
 
 (* Ad-hoc primitives *)
-val update_clenv_evd : clausenv -> evar_map -> clausenv
+val update_clenv_evd : clausenv -> evar_map -> Meta.t -> clausenv
 val clenv_strip_proj_params : clausenv -> clausenv
 val clenv_refresh : env -> evar_map -> UnivGen.sort_context_set option -> clausenv -> clausenv
 val clenv_arguments : clausenv -> metavariable list
@@ -41,7 +42,7 @@ val mk_clenv_from_n : env -> evar_map -> int -> EConstr.constr * EConstr.types -
 
 (** {6 linking of clenvs } *)
 
-val clenv_instantiate : ?flags:unify_flags -> ?submetas:(metavariable * clbinding) list ->
+val clenv_instantiate : ?flags:unify_flags -> ?submetas:(metavariable list * Unification.Meta.t) ->
   metavariable -> clausenv -> (constr * types) -> clausenv
 
 (** {6 Bindings } *)

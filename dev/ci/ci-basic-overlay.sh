@@ -68,9 +68,6 @@ function subproject {
 project mathcomp "https://github.com/math-comp/math-comp" "master"
 # Contact @CohenCyril, @proux01 on github
 
-project mathcomp_1 "https://github.com/math-comp/math-comp" "a526d8dc7956ce1c1bc88051d0656d35b76608a3"
-# Contact @CohenCyril, @proux01 on github
-
 project fourcolor "https://github.com/math-comp/fourcolor" "master"
 # Contact @ybertot, @proux01 on github
 
@@ -79,6 +76,9 @@ project oddorder "https://github.com/math-comp/odd-order" "master"
 
 project mczify "https://github.com/math-comp/mczify" "master"
 # Contact @pi8027 on github
+
+project algebra_tactics "https://github.com/math-comp/algebra-tactics" "master"
+# Contact @pi8027, @proux01 on github
 
 project finmap "https://github.com/math-comp/finmap" "master"
 # Contact @CohenCyril on github
@@ -393,7 +393,7 @@ project http "https://github.com/liyishuai/coq-http" "master"
 # paramcoq
 ########################################################################
 project paramcoq "https://github.com/coq-community/paramcoq" "master"
-# Contact @proux01 on github
+# Contact @ppedrot on github
 
 ########################################################################
 # relation_algebra
@@ -420,10 +420,10 @@ project verdi_raft "https://github.com/uwplse/verdi-raft" "master"
 # Contact @palmskog on github
 
 ########################################################################
-# stdlib2
+# Stdlib
 ########################################################################
-project stdlib2 "https://github.com/coq/stdlib2" "master"
-# Contact @maximedenes, @vbgl on github
+project stdlib "https://github.com/coq/stdlib" "master"
+# Contact TODO on github
 
 ########################################################################
 # argosy
@@ -504,14 +504,8 @@ project jasmin "https://github.com/jasmin-lang/jasmin" "main"
 ########################################################################
 # Lean Importer
 ########################################################################
-project lean_importer "https://github.com/SkySkimmer/coq-lean-import" "master"
+project lean_importer "https://github.com/coq-community/rocq-lean-import" "master"
 # Contact @SkySkimmer on github
-
-########################################################################
-# SerAPI
-########################################################################
-project serapi "https://github.com/ejgallego/coq-serapi" "main"
-# Contact @ejgallego on github
 
 ########################################################################
 # SMTCoq

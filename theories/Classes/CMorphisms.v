@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -14,9 +14,9 @@
    Institution: LRI, CNRS UMR 8623 - University Paris Sud
 *)
 
-Require Import Coq.Program.Basics.
-Require Import Coq.Program.Tactics.
-Require Export Coq.Classes.CRelationClasses.
+Require Import Corelib.Program.Basics.
+Require Import Corelib.Program.Tactics.
+Require Export Corelib.Classes.CRelationClasses.
 
 Generalizable Variables A eqA B C D R RA RB RC m f x y.
 Local Obligation Tactic := try solve [ simpl_crelation ].
@@ -274,7 +274,7 @@ Section GenericInstances.
   (* Share universes *)
   Implicit Types A B C : Type.
 
-  (** We can build a PER on the Coq function space if we have PERs on the domain and
+  (** We can build a PER on the Rocq function space if we have PERs on the domain and
    codomain. *)
   
   Program Instance respectful_per `(PER A R, PER B R') : PER (R ==> R').
@@ -411,7 +411,7 @@ Section GenericInstances.
     unfold compose. firstorder. 
   Qed.
 
-  (** Coq functions are morphisms for Leibniz equality,
+  (** Rocq functions are morphisms for Leibniz equality,
      applied only if really needed. *)
 
   Global Instance reflexive_eq_dom_reflexive `(Reflexive B R') {A} :
@@ -710,8 +710,9 @@ split.
 - intros x. right. apply reflexivity.
 - intros x y z [Hxy|Hxy] [Hyz|Hyz].
   + left. apply transitivity with y; auto.
-  + left. eapply H1; try eassumption. apply reflexivity.
-    now apply symmetry.
+  + left. eapply H1; try eassumption.
+    * apply reflexivity.
+    * now apply symmetry.
   + left. eapply H1; [eassumption|apply reflexivity|eassumption].
   + right. apply transitivity with y; auto.
 Qed.
@@ -748,4 +749,5 @@ Register forall_def as rewrite.type.forall_def.
 Register do_subrelation as rewrite.type.do_subrelation.
 Register apply_subrelation as rewrite.type.apply_subrelation.
 Register Proper as rewrite.type.Proper.
+Register proper_prf as rewrite.type.proper_prf.
 Register ProperProxy as rewrite.type.ProperProxy.

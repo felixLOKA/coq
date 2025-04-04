@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -8,7 +8,7 @@
 (*         *     (see LICENSE file for the text of the license)         *)
 (************************************************************************)
 
-(** {5 Coqtop specific system utilities} *)
+(** {5 Rocq REPL specific system utilities} *)
 
 (** {6 Directories} *)
 
@@ -80,7 +80,7 @@ val all_in_path :
 
 val trust_file_cache : bool ref
 (** [trust_file_cache] indicates whether we trust the underlying
-    mapped file-system not to change along the execution of Coq. This
+    mapped file-system not to change along the execution of Rocq. This
     assumption greatly speeds up file search, but it is often
     inconvenient in interactive mode *)
 
@@ -157,8 +157,7 @@ val fmt_instructions_result : 'a instructions_result -> Pp.t
    - locating the directory: we don't rely on PATH as to make calls to
    /foo/bin/coqtop chose the right /foo/bin/coqproofworker
 
-   - adding the proper suffixes: .opt/.byte depending on the current
-   mode, + .exe if in windows.
+   - adding the proper suffix: .exe if in windows.
 
  Note that this function doesn't check that the executable actually
  exists. This is left back to caller, as well as the choice of
@@ -166,5 +165,5 @@ val fmt_instructions_result : 'a instructions_result -> Pp.t
  better not to as in most cases if this function fails to construct
  the right name you want you execution to fail rather than fall into
  choosing some random binary from the system-wide installation of
- Coq. *)
-val get_toplevel_path : ?byte:bool -> string -> string
+ Rocq. *)
+val get_toplevel_path : string -> string

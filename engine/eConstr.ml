@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -61,6 +61,92 @@ module EInstance = struct
 
   let equal sigma i1 i2 =
     UVars.Instance.equal (kind sigma i1) (kind sigma i2)
+
+  let length u = UVars.Instance.length (unsafe_to_instance u)
+end
+
+module Expand :
+sig
+
+type t
+type kind = (t, t, ESorts.t, EInstance.t, ERelevance.t) Constr.kind_of_term
+type handle
+val make : Evd.econstr -> handle * t
+val repr : Evd.evar_map -> handle -> t -> Evd.econstr
+val liftn_handle : int -> handle -> handle
+val kind : Evd.evar_map -> handle -> t -> handle * kind
+val expand_instance : skip:bool -> Evd.undefined Evd.evar_info -> handle -> t SList.t -> t SList.t
+val iter : Evd.evar_map -> (handle -> t -> unit) -> handle -> kind -> unit
+val iter_with_binders : Evd.evar_map -> ('a -> 'a) -> ('a -> handle -> t -> unit) -> 'a -> handle -> kind -> unit
+
+end
+=
+struct
+  include Evd.Expand
+  type t = Evd.econstr
+  type kind = (t, t, ESorts.t, EInstance.t, ERelevance.t) Constr.kind_of_term
+
+  let make c = (empty_handle, c)
+  let repr = expand
+
+  let iter sigma f h knd = match knd with
+  | Evar (evk, args) ->
+    let evi = Evd.find_undefined sigma evk in
+    let args = expand_instance ~skip:false evi h args in
+    (* Despite the type, the sparse list contains no default element *)
+    SList.Skip.iter (f h) args
+  | Rel _ | Meta _ | Var _   | Sort _ | Const _ | Ind _
+  | Construct _ | Int _ | Float _ | String _ -> ()
+  | Cast (c, _, t) -> f h c; f h t
+  | Prod (_, t, c) -> f h t; f (liftn_handle 1 h) c
+  | Lambda (_, t, c) -> f h t; f (liftn_handle 1 h) c
+  | LetIn (_, b, t, c) -> f h b; f h t; f (liftn_handle 1 h) c
+  | App (c, l) -> f h c; Array.Fun1.iter f h l
+  | Case (_, _, pms, (p, _), iv, c, bl) ->
+    Array.Fun1.iter f h pms;
+    f (liftn_handle (Array.length (fst p)) h) (snd p);
+    iter_invert (f h) iv;
+    f h c;
+    Array.Fun1.iter (fun h (ctx, b) -> f (liftn_handle (Array.length ctx) h) b) h bl
+  | Proj (_p, _r, c) -> f h c
+  | Fix (_, (_, tl, bl)) ->
+    Array.Fun1.iter f h tl;
+    Array.Fun1.iter f (liftn_handle (Array.length tl) h) bl
+  | CoFix (_, (_, tl, bl)) ->
+    Array.Fun1.iter f h tl;
+    Array.Fun1.iter f (liftn_handle (Array.length tl) h) bl
+  | Array(_u, t, def, ty) ->
+    Array.iter (f h) t; f h def; f h ty
+
+  let iter_with_binders sigma g f l h knd = match knd with
+  | Evar (evk, args) ->
+    let evi = Evd.find_undefined sigma evk in
+    let args = expand_instance ~skip:false evi h args in
+    (* Despite the type, the sparse list contains no default element *)
+    SList.Skip.iter (f l h) args
+  | Rel _ | Meta _ | Var _   | Sort _ | Const _ | Ind _
+  | Construct _ | Int _ | Float _ | String _ -> ()
+  | Cast (c, _, t) -> f l h c; f l h t
+  | Prod (_, t, c) -> f l h t; f (g l) (liftn_handle 1 h) c
+  | Lambda (_, t, c) -> f l h t; f (g l) (liftn_handle 1 h) c
+  | LetIn (_, b, t, c) -> f l h b; f l h t; f (g l) (liftn_handle 1 h) c
+  | App (c, args) -> f l h c; Array.iter (fun c -> f l h c) args
+  | Case (_, _, pms, (p, _), iv, c, bl) ->
+    Array.iter (fun c -> f l h c) pms;
+    f (iterate g (Array.length (fst p)) l) (liftn_handle (Array.length (fst p)) h) (snd p);
+    iter_invert (fun c -> f l h c) iv;
+    f l h c;
+    Array.iter (fun (ctx, b) -> f (iterate g (Array.length ctx) l) (liftn_handle (Array.length ctx) h) b) bl
+  | Proj (_p, _r, c) -> f l h c
+  | Fix (_, (_, tl, bl)) ->
+    Array.iter (fun c -> f l h c) tl;
+    Array.iter (f (iterate g (Array.length tl) l) (liftn_handle (Array.length tl) h)) bl
+  | CoFix (_, (_, tl, bl)) ->
+    Array.iter (fun c -> f l h c) tl;
+    Array.iter (f (iterate g (Array.length tl) l) (liftn_handle (Array.length tl) h)) bl
+  | Array(_u, t, def, ty) ->
+    Array.iter (fun c -> f l h c) t; f l h def; f l h ty
+
 end
 
 include (Evd.MiniEConstr : module type of Evd.MiniEConstr
@@ -182,7 +268,7 @@ let isRefX env sigma x c =
   | _ -> false
 
 let is_lib_ref env sigma x c =
-  match Coqlib.lib_ref_opt x with
+  match Rocqlib.lib_ref_opt x with
   | Some x -> isRefX env sigma x c
   | None -> false
 
@@ -417,17 +503,29 @@ let of_binder_annot : 'a Constr.binder_annot -> 'a binder_annot =
   match Evd.MiniEConstr.unsafe_relevance_eq with
   | Refl -> fun x -> x
 
-let to_binder_annot sigma x = Context.map_annot_relevance (ERelevance.kind sigma) x
+let to_binder_annot sigma (x:_ binder_annot) : _ Constr.binder_annot =
+  let Refl = unsafe_relevance_eq in
+  Context.map_annot_relevance (ERelevance.kind sigma) x
 
-let to_rel_decl sigma d =
-  Context.Rel.Declaration.map_constr_het (ERelevance.kind sigma) (to_constr sigma) d
+let to_rel_decl sigma (d:rel_declaration) : Constr.rel_declaration =
+  let Refl = unsafe_eq in
+  let Refl = unsafe_relevance_eq in
+  Context.Rel.Declaration.map_constr_with_relevance (ERelevance.kind sigma) (to_constr sigma) d
 
-let to_rel_context sigma ctx = List.map (to_rel_decl sigma) ctx
+let to_rel_context sigma (ctx:rel_context) : Constr.rel_context =
+  let Refl = unsafe_eq in
+  let Refl = unsafe_relevance_eq in
+  List.Smart.map (to_rel_decl sigma) ctx
 
-let to_named_decl sigma d =
-  Context.Named.Declaration.map_constr_het (ERelevance.kind sigma) (to_constr sigma) d
+let to_named_decl sigma (d:named_declaration) : Constr.named_declaration =
+  let Refl = unsafe_eq in
+  let Refl = unsafe_relevance_eq in
+  Context.Named.Declaration.map_constr_with_relevance (ERelevance.kind sigma) (to_constr sigma) d
 
-let to_named_context sigma ctx = List.map (to_named_decl sigma) ctx
+let to_named_context sigma (ctx:named_context) : Constr.named_context =
+  let Refl = unsafe_eq in
+  let Refl = unsafe_relevance_eq in
+  List.Smart.map (to_named_decl sigma) ctx
 
 let map_branches f br =
   let f c = unsafe_to_constr (f (of_constr c)) in
@@ -913,28 +1011,46 @@ let subst_instance_relevance subst r =
 
 (** Operations that dot NOT commute with evar-normalization *)
 let noccurn sigma n term =
-  let rec occur_rec n c = match kind sigma c with
+  let rec occur_rec n h c =
+    let (h, knd) = Expand.kind sigma h c in
+    match knd with
     | Rel m -> if Int.equal m n then raise LocalOccur
-    | Evar (_, l) -> SList.Skip.iter (fun c -> occur_rec n c) l
-    | _ -> iter_with_binders sigma succ occur_rec n c
+    | Evar (evk, l) ->
+      let evi = Evd.find_undefined sigma evk in
+      let l = Expand.expand_instance ~skip:true evi h l in
+      SList.Skip.iter (fun c -> occur_rec n h c) l
+    | _ -> Expand.iter_with_binders sigma succ occur_rec n h knd
   in
-  try occur_rec n term; true with LocalOccur -> false
+  let h, term = Expand.make term in
+  try occur_rec n h term; true with LocalOccur -> false
 
 let noccur_between sigma n m term =
-  let rec occur_rec n c = match kind sigma c with
+  let rec occur_rec n h c =
+    let (h, knd) = Expand.kind sigma h c in
+    match knd with
     | Rel p -> if n<=p && p<n+m then raise LocalOccur
-    | Evar (_, l) -> SList.Skip.iter (fun c -> occur_rec n c) l
-    | _        -> iter_with_binders sigma succ occur_rec n c
+    | Evar (evk, l) ->
+      let evi = Evd.find_undefined sigma evk in
+      let l = Expand.expand_instance ~skip:true evi h l in
+      SList.Skip.iter (fun c -> occur_rec n h c) l
+    | _        -> Expand.iter_with_binders sigma succ occur_rec n h knd
   in
-  try occur_rec n term; true with LocalOccur -> false
+  let h, term = Expand.make term in
+  try occur_rec n h term; true with LocalOccur -> false
 
 let closedn sigma n c =
-  let rec closed_rec n c = match kind sigma c with
+  let rec closed_rec n h c =
+    let (h, knd) = Expand.kind sigma h c in
+    match knd with
     | Rel m -> if m>n then raise LocalOccur
-    | Evar (_, l) -> SList.Skip.iter (fun c -> closed_rec n c) l
-    | _ -> iter_with_binders sigma succ closed_rec n c
+    | Evar (evk, l) ->
+      let evi = Evd.find_undefined sigma evk in
+      let l = Expand.expand_instance ~skip:true evi h l in
+      SList.Skip.iter (fun c -> closed_rec n h c) l
+    | _ -> Expand.iter_with_binders sigma succ closed_rec n h knd
   in
-  try closed_rec n c; true with LocalOccur -> false
+  let h, c = Expand.make c in
+  try closed_rec n h c; true with LocalOccur -> false
 
 let closed0 sigma c = closedn sigma 0 c
 

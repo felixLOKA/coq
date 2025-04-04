@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -422,7 +422,7 @@ Ltac2 remove (eqb : 'a -> 'a -> bool) (x : 'a) (ls : 'a list) :=
 Ltac2 count_occ (eqb : 'a -> 'a -> bool) (x : 'a) (ls : 'a list) :=
   length (filter (eqb x) ls).
 
-(* from the Coq stdlib *)
+(* from the Rocq stdlib *)
 Ltac2 rec list_power (ls1 : 'a list) (ls2 : 'b list) :=
   match ls1 with
   | [] => [] :: []
@@ -442,7 +442,7 @@ Ltac2 rec partition (f : 'a -> bool) (l : 'a list) :=
        end
   end.
 
-(* from the Coq stdlib *)
+(* from the Rocq stdlib *)
 (** [list_prod] has the same signature as [combine], but unlike
      [combine], it adds every possible pairs, not only those at the
      same position. *)
@@ -507,7 +507,7 @@ Ltac2 init (len : int) (f : int -> 'a) :=
   Control.assert_valid_argument "List.init" (Int.ge len 0);
   map f (seq 0 1 len).
 
-Ltac2 repeat (x : 'a) (n : 'int) :=
+Ltac2 repeat (x : 'a) (n : int) :=
   init n (fun _ => x).
 
 Ltac2 assoc (eqk : 'k -> 'k -> bool) (k : 'k) (l : ('k * 'v) list) :=
@@ -557,8 +557,8 @@ Ltac2 rec combine (ls1 : 'a list) (ls2 : 'b list) :=
 Ltac2 enumerate (ls : 'a list) :=
   combine (seq 0 1 (length ls)) ls.
 
-(* from Coq stdlib *)
-Ltac2 rec merge (cmp : 'a -> 'a -> int) (l1 : 'a list) (l2 : 'b list) :=
+(* from Rocq stdlib *)
+Ltac2 rec merge (cmp : 'a -> 'a -> int) (l1 : 'a list) (l2 : 'a list) :=
   let rec merge_aux l2 :=
       match l1 with
       | [] => l2

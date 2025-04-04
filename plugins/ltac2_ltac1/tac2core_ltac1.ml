@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -20,7 +20,7 @@ open Tac2expr
 open Proofview.Notations
 open Tac2externals
 
-let ltac2_ltac1_plugin = "coq-core.plugins.ltac2_ltac1"
+let ltac2_ltac1_plugin = "rocq-runtime.plugins.ltac2_ltac1"
 
 let pname ?(plugin=ltac2_ltac1_plugin) s = { mltac_plugin = plugin; mltac_tactic = s }
 
@@ -30,8 +30,7 @@ let return x = Proofview.tclUNIT x
 
 (** Ltac1 in Ltac2 *)
 
-let ltac1 = Tac2ffi.repr_ext Tac2ffi.val_ltac1
-let of_ltac1 v = Tac2ffi.of_ext Tac2ffi.val_ltac1 v
+let ltac1 = Tac2quote_ltac1.ltac1
 
 let () =
   define "ltac1_ref" (list ident @-> ret ltac1) @@ fun ids ->
@@ -60,7 +59,7 @@ let () =
   let open Tacexpr in
   let open Locus in
   let k ret =
-    Proofview.tclIGNORE (Tac2val.apply k [Tac2ffi.of_ext val_ltac1 ret])
+    Proofview.tclIGNORE (Tac2val.apply k [Tac2ffi.repr_of ltac1 ret])
   in
   let fold arg (i, vars, lfun) =
     let id = Id.of_string ("x" ^ string_of_int i) in
@@ -124,9 +123,10 @@ open Tac2core.Core
 let core_prefix path n = KerName.make path (Label.of_id (Id.of_string_soft n))
 let ltac1_core n = core_prefix Tac2env.ltac1_prefix n
 let t_ltac1 = ltac1_core "t"
+let ltac1_lambda = ltac1_core "lambda"
 
 let () =
-  let intern self ist (ids, tac) =
+  let intern ist (ids, tac) =
     let map { CAst.v = id } = id in
     let ids = List.map map ids in
     (* Prevent inner calls to Ltac2 values *)
@@ -141,7 +141,7 @@ let () =
   let interp _ (ids, tac) =
     let clos args =
       let add lfun id v =
-        let v = Tac2ffi.to_ext val_ltac1 v in
+        let v = Tac2ffi.repr_to ltac1 v in
         Id.Map.add id v lfun
       in
       let lfun = List.fold_left2 add Id.Map.empty ids args in
@@ -185,7 +185,7 @@ let () =
 
 let () =
   let open Ltac_plugin in
-  let intern self ist (ids, tac) =
+  let intern ist (ids, tac) =
     let map { CAst.v = id } = id in
     let ids = List.map map ids in
     (* Prevent inner calls to Ltac2 values *)
@@ -200,7 +200,7 @@ let () =
   let interp _ (ids, tac) =
     let clos args =
       let add lfun id v =
-        let v = Tac2ffi.to_ext val_ltac1 v in
+        let v = Tac2ffi.repr_to ltac1 v in
         Id.Map.add id v lfun
       in
       let lfun = List.fold_left2 add Id.Map.empty ids args in
@@ -208,7 +208,7 @@ let () =
       let lfun = Tac2interp.set_env ist lfun in
       let ist = Ltac_plugin.Tacinterp.default_ist () in
       let ist = { ist with Geninterp.lfun = lfun } in
-      return (Tac2ffi.of_ext val_ltac1 (Tacinterp.Value.of_closure ist tac))
+      return (Tac2ffi.repr_of ltac1 (Tacinterp.Value.of_closure ist tac))
     in
     let len = List.length ids in
     if Int.equal len 0 then
@@ -241,6 +241,74 @@ let () =
   define_ml_object Tac2quote_ltac1.wit_ltac1val obj
 
 (** Ltac2 in Ltac1 *)
+
+(** Embedding Ltac2 closures of type [Ltac1.t -> Ltac1.t] inside Ltac1. There is
+    no relevant data because arguments are passed by conventional names. *)
+let wit_ltac2_val : (Util.Empty.t, unit, Util.Empty.t) genarg_type =
+  Genarg.make0 "ltac2:Ltac1.lambda"
+
+(** Ltac2 quotations in Ltac1 code *)
+let wit_ltac2in1 : (Id.t CAst.t list * raw_tacexpr, Id.t list * glb_tacexpr, Util.Empty.t) genarg_type
+  = Genarg.make0 "ltac2in1"
+
+(** Ltac2 quotations in Ltac1 returning Ltac1 values.
+    When ids are bound interning turns them into Ltac1.lambda. *)
+let wit_ltac2in1_val : (Id.t CAst.t list * raw_tacexpr, glb_tacexpr, Util.Empty.t) genarg_type
+  = Genarg.make0 "ltac2in1val"
+
+let pr_ltac2in1_ids ids =
+  if List.is_empty ids then mt ()
+  else hov 0 (pr_sequence Id.print ids ++ str " |- ")
+
+let () =
+  let pr_raw (ids, e) = Genprint.PrinterBasic (fun _env _sigma ->
+      let ids = List.map (fun v -> v.CAst.v) ids in
+      pr_ltac2in1_ids ids ++ Tac2print.pr_rawexpr_gen E5 ~avoid:(Id.Set.of_list ids) e)
+  in
+  let pr_glb (ids, e) =
+    Genprint.PrinterBasic Pp.(fun _env _sigma ->
+        pr_ltac2in1_ids ids ++ Tac2print.pr_glbexpr ~avoid:(Id.Set.of_list ids) e)
+  in
+  Genprint.register_noval_print0 wit_ltac2in1 pr_raw pr_glb
+
+let () =
+  let pr_raw (ids, e) = Genprint.PrinterBasic (fun _env _sigma ->
+      let ids = List.map (fun v -> v.CAst.v) ids in
+      pr_ltac2in1_ids ids ++ Tac2print.pr_rawexpr_gen E5 ~avoid:(Id.Set.of_list ids) e)
+  in
+  let pr_glb e =
+    Genprint.PrinterBasic (fun _env _sigma ->
+        Tac2print.pr_glbexpr ~avoid:Id.Set.empty e)
+  in
+  Genprint.register_noval_print0 wit_ltac2in1_val pr_raw pr_glb
+
+let () =
+  let open Tac2typing_env in
+  let intern ist (ids, tac) =
+    let t_ltac1 = monomorphic (GTypRef (Other t_ltac1, [])) in
+    let bnd = List.map (fun id -> Name id.CAst.v, t_ltac1) ids in
+    let tac = Tac2intern.genintern_warn_not_unit ist bnd tac in
+    (ist, (List.map (fun id -> id.CAst.v) ids, tac))
+  in
+  Genintern.register_intern0 wit_ltac2in1 intern
+
+let () =
+  let add_lambda id tac =
+    let pat = CAst.make ?loc:id.CAst.loc (CPatVar (Name id.v)) in
+    let loc = tac.CAst.loc in
+    let mk v = CAst.make ?loc v in
+    let lam = mk @@ CTacFun ([pat], tac) in
+    mk @@ CTacApp (mk @@ CTacRef (AbsKn (TacConstant ltac1_lambda)), [lam])
+  in
+  let intern ist (bnd,tac) =
+    let tac = List.fold_right add_lambda bnd tac in
+    let tac = Tac2intern.genintern ist [] (GTypRef (Other t_ltac1, [])) tac in
+    ist, tac
+  in
+  Genintern.register_intern0 wit_ltac2in1_val intern
+
+let () = Gensubst.register_subst0 wit_ltac2in1 (fun s (ids, e) -> ids, Tac2intern.subst_expr s e)
+let () = Gensubst.register_subst0 wit_ltac2in1_val Tac2intern.subst_expr
 
 let () =
   let create name wit =
@@ -279,8 +347,8 @@ let () =
     let tac = cast_typ typ_ltac2 @@ Id.Map.get tac_id ist.Tacinterp.lfun in
     let arg = Id.Map.get arg_id ist.Tacinterp.lfun in
     let tac = Tac2ffi.to_closure tac in
-    Tac2val.apply tac [of_ltac1 arg] >>= fun ans ->
-    let ans = Tac2ffi.to_ext val_ltac1 ans in
+    Tac2val.apply tac [Tac2ffi.repr_of ltac1 arg] >>= fun ans ->
+    let ans = Tac2ffi.repr_to ltac1 ans in
     Ftactic.return ans
   in
   let () = Geninterp.register_interp0 wit_ltac2_val interp_fun in
@@ -305,7 +373,7 @@ let ltac2_eval =
       being the arguments it should be fed with *)
     let tac = cast_typ typ_ltac2 tac in
     let tac = Tac2ffi.to_closure tac in
-    let args = List.map (fun arg -> Tac2ffi.of_ext val_ltac1 arg) args in
+    let args = List.map (fun arg -> Tac2ffi.repr_of ltac1 arg) args in
     Proofview.tclIGNORE (Tac2val.apply tac args)
   in
   let () = Tacenv.register_ml_tactic ml_name [|eval_fun|] in

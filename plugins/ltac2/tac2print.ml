@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -30,7 +30,7 @@ let change_kn_label kn id =
 let paren p = hov 2 (str "(" ++ p ++ str ")")
 
 let t_list =
-  KerName.make Tac2env.coq_prefix (Label.of_id (Id.of_string "list"))
+  KerName.make Tac2env.rocq_prefix (Label.of_id (Id.of_string "list"))
 
 let c_nil = change_kn_label t_list (Id.of_string_soft "[]")
 let c_cons = change_kn_label t_list (Id.of_string_soft "::")
@@ -45,7 +45,7 @@ type typ_level =
 | T0
 
 let t_unit =
-  KerName.make Tac2env.coq_prefix (Label.of_id (Id.of_string "unit"))
+  KerName.make Tac2env.rocq_prefix (Label.of_id (Id.of_string "unit"))
 
 let pr_typref kn =
   Libnames.pr_qualid (Tac2env.shortest_qualid_of_type kn)
@@ -126,12 +126,12 @@ let pr_name = function
 let find_constructor n empty def =
   let rec find n = function
   | [] -> assert false
-  | (id, []) as ans :: rem ->
+  | (_, id, []) as ans :: rem ->
     if empty then
       if Int.equal n 0 then ans
       else find (pred n) rem
     else find n rem
-  | (id, _ :: _) as ans :: rem ->
+  | (_, id, _ :: _) as ans :: rem ->
     if not empty then
       if Int.equal n 0 then ans
       else find (pred n) rem
@@ -144,17 +144,17 @@ let pr_internal_constructor tpe n is_const =
   | (_, GTydAlg data) -> data
   | _ -> assert false
   in
-  let (id, _) = find_constructor n is_const data.galg_constructors in
+  let (_, id, _) = find_constructor n is_const data.galg_constructors in
   let kn = change_kn_label tpe id in
   pr_constructor kn
 
 let order_branches cbr nbr def =
   let rec order cidx nidx def = match def with
   | [] -> []
-  | (id, []) :: rem ->
+  | (_, id, []) :: rem ->
     let ans = order (succ cidx) nidx rem in
     (id, [], cbr.(cidx)) :: ans
-  | (id, _ :: _) :: rem ->
+  | (_, id, _ :: _) :: rem ->
     let ans = order cidx (succ nidx) rem in
     let (vars, e) = nbr.(nidx) in
     (id, Array.to_list vars, e) :: ans
@@ -305,20 +305,16 @@ let pr_glbexpr_gen lvl ~avoid c =
     | E0 | E1 | E2 | E3 | E4 -> paren
     | E5 -> fun x -> x
     in
-    let pprec = if isrec then str "rec" ++ spc () else mt () in
+    let pprec = if isrec then str "rec " else mt () in
     let avoidbnd = List.fold_left (fun avoid (na,_) -> Termops.add_vname avoid na) avoid bnd in
     let pr_bnd (na, e) =
       let avoid = if isrec then avoidbnd else avoid in
-      pr_name na ++ spc () ++ str ":=" ++ spc () ++ hov 2 (pr_glbexpr E5 avoid e) ++ spc ()
+      hov 2 (pr_name na ++ str " :=" ++ spc () ++ hov 2 (pr_glbexpr E5 avoid e))
     in
-    let bnd = prlist_with_sep (fun () -> str "with" ++ spc ()) pr_bnd bnd in
-    paren (hv 0 (hov 2 (str "let" ++ spc () ++ pprec ++ bnd ++ str "in") ++ spc () ++ pr_glbexpr E5 avoidbnd e))
+    let bnd = prlist_with_sep (fun () -> spc() ++ str "with ") pr_bnd bnd in
+    paren (v 0 (hov 2 (v 0 (str "let " ++ pprec ++ bnd) ++ spc() ++ str "in") ++ spc ()) ++ pr_glbexpr E5 avoidbnd e)
   | GTacCst (Tuple 0, _, _) -> str "()"
   | GTacCst (Tuple _, _, cl) ->
-    let paren = match lvl with
-    | E0 | E1 -> paren
-    | E2 | E3 | E4 | E5 -> fun x -> x
-    in
     paren (prlist_with_sep (fun () -> str "," ++ spc ()) (pr_glbexpr E1 avoid) cl)
   | GTacCst (Other tpe, n, cl) ->
     pr_applied_constructor lvl avoid tpe n cl
@@ -795,7 +791,7 @@ let rec pr_valexpr_gen env sigma lvl v t = match kind t with
           | E1 | E2 | E3 | E4 | E5 -> fun x -> x
         in
         let (n, args) = Tac2ffi.to_block v in
-        let (id, tpe) = find_constructor n false alg.galg_constructors in
+        let (_, id, tpe) = find_constructor n false alg.galg_constructors in
         let knc = change_kn_label kn id in
         let args = pr_constrargs env sigma params args tpe in
         paren (pr_constructor knc ++ spc () ++ args)
@@ -850,7 +846,7 @@ and pr_val_list env sigma args tpe =
 let pr_valexpr env sigma v t = pr_valexpr_gen env sigma E5 v t
 
 let register_init n f =
-  let kn = KerName.make Tac2env.coq_prefix (Label.make n) in
+  let kn = KerName.make Tac2env.rocq_prefix (Label.make n) in
   register_val_printer kn { val_printer = fun env sigma v _ -> f env sigma v }
 
 let () = register_init "int" begin fun _ _ n ->
@@ -892,12 +888,12 @@ let () = register_init "message" begin fun _ _ pp ->
 end
 
 let () = register_init "err" begin fun _ _ e ->
-  let e = to_ext val_exn e in
+  let e = to_err e in
   hov 2 (str "err:(" ++ CErrors.iprint_no_report e ++ str ")")
 end
 
 let () =
-  let kn = KerName.make Tac2env.coq_prefix (Label.make "array") in
+  let kn = KerName.make Tac2env.rocq_prefix (Label.make "array") in
   let val_printer env sigma v arg = match arg with
   | [arg] ->
     let (_, v) = to_block v in

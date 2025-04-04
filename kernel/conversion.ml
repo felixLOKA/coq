@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -297,10 +297,7 @@ let esubst_of_context ctx u args e =
   aux 0 e args (List.rev ctx)
 
 let irr_flex infos = function
-  | ConstKey (con,u) -> begin match Cmap_env.find_opt con (info_env infos).Environ.irr_constants with
-      | None -> false
-      | Some r -> is_irrelevant infos @@ UVars.subst_instance_relevance u r
-    end
+  | ConstKey (con,u) -> is_irrelevant infos @@ UVars.subst_instance_relevance u @@ Environ.constant_relevance con (info_env infos)
   | VarKey x -> is_irrelevant infos @@ Context.Named.Declaration.get_relevance (Environ.lookup_named x (info_env infos))
   | RelKey x -> is_irrelevant infos @@ Context.Rel.Declaration.get_relevance (Environ.lookup_rel x (info_env infos))
 
@@ -373,6 +370,10 @@ let rec fast_test lft1 term1 lft2 term2 = match fterm_of term1, fterm_of term2 w
     compare_under (e1, u1) c1 (e2, u2) c2
   | _ -> false
 
+let assert_reduced_constructor s =
+  if not @@ CList.is_empty s then
+    CErrors.anomaly Pp.(str "conversion was given unreduced term (FConstruct).")
+
 (* Conversion between  [lft1]term1 and [lft2]term2 *)
 let rec ccnv cv_pb l2r infos lft1 lft2 term1 term2 cuniv =
   let fast = fast_test lft1 term1 lft2 term2 in
@@ -385,9 +386,12 @@ and eqappr cv_pb l2r infos (lft1,st1) (lft2,st2) cuniv =
   Control.check_for_interrupt ();
   (* First head reduce both terms *)
   let ninfos = infos_with_reds infos.cnv_inf RedFlags.betaiotazeta in
-  let (hd1, v1 as appr1) = whd_stack ninfos infos.lft_tab (fst st1) (snd st1) in
-  let (hd2, v2 as appr2) = whd_stack ninfos infos.rgt_tab (fst st2) (snd st2) in
-  let appr1 = (lft1, appr1) and appr2 = (lft2, appr2) in
+  let appr1 = whd_stack ninfos infos.lft_tab (fst st1) (snd st1) in
+  let appr2 = whd_stack ninfos infos.rgt_tab (fst st2) (snd st2) in
+  eqwhnf cv_pb l2r infos (lft1, appr1) (lft2, appr2) cuniv
+
+(* assumes that appr1 and appr2 are in whnf *)
+and eqwhnf cv_pb l2r infos (lft1, (hd1, v1) as appr1) (lft2, (hd2, v2) as appr2) cuniv =
   (** We delay the computation of the lifts that apply to the head of the term
       with [el_stack] inside the branches where they are actually used. *)
   (** Irrelevant terms are guaranteed to be [FIrrelevant], except for [FFlex],
@@ -407,7 +411,6 @@ and eqappr cv_pb l2r infos (lft1,st1) (lft2,st2) cuniv =
                else raise NotConvertible
            | _ -> raise NotConvertible)
     | (FEvar (ev1, args1, env1, _), FEvar (ev2, args2, env2, _)) ->
-        (* TODO: handle irrelevance *)
         if Evar.equal ev1 ev2 then
           let el1 = el_stack lft1 v1 in
           let el2 = el_stack lft2 v2 in
@@ -451,7 +454,7 @@ and eqappr cv_pb l2r infos (lft1,st1) (lft2,st2) cuniv =
         let r2 = unfold_ref_with_args infos.cnv_inf infos.rgt_tab fl2 v2 in
         match r1, r2 with
         | None, None -> raise NotConvertible
-        | Some t1, Some t2 ->
+        | Some (t1, v1), Some (t2, v2) ->
           (* else the oracle tells which constant is to be expanded *)
           let oracle = CClosure.oracle_of_infos infos.cnv_inf in
           let to_er fl =
@@ -460,18 +463,22 @@ and eqappr cv_pb l2r infos (lft1,st1) (lft2,st2) cuniv =
             | VarKey id -> Some (Conv_oracle.EvalVarRef id)
             | RelKey _ -> None
           in
+          let ninfos = infos_with_reds infos.cnv_inf RedFlags.betaiotazeta in
+          let () = Control.check_for_interrupt () in
           if Conv_oracle.oracle_order oracle l2r (to_er fl1) (to_er fl2) then
-            eqappr cv_pb l2r infos (lft1, t1) appr2 cuniv
+            let appr1 = whd_stack ninfos infos.lft_tab t1 v1 in
+            eqwhnf cv_pb l2r infos (lft1, appr1) appr2 cuniv
           else
-            eqappr cv_pb l2r infos appr1 (lft2, t2) cuniv
+            let appr2 = whd_stack ninfos infos.rgt_tab t2 v2 in
+            eqwhnf cv_pb l2r infos appr1 (lft2, appr2) cuniv
         | Some (t1, v1), None ->
           let all = RedFlags.(red_add_transparent all (red_transparent (info_flags infos.cnv_inf))) in
           let t1 = whd_stack (infos_with_reds infos.cnv_inf all) infos.lft_tab t1 v1 in
-          eqappr cv_pb l2r infos (lft1, t1) appr2 cuniv
+          eqwhnf cv_pb l2r infos (lft1, t1) appr2 cuniv
         | None, Some (t2, v2) ->
           let all = RedFlags.(red_add_transparent all (red_transparent (info_flags infos.cnv_inf))) in
           let t2 = whd_stack (infos_with_reds infos.cnv_inf all) infos.rgt_tab t2 v2 in
-          eqappr cv_pb l2r infos appr1 (lft2, t2) cuniv
+          eqwhnf cv_pb l2r infos appr1 (lft2, t2) cuniv
         )
 
     | (FProj (p1,r1,c1), FProj (p2, r2, c2)) ->
@@ -583,13 +590,14 @@ and eqappr cv_pb l2r infos (lft1,st1) (lft2,st2) cuniv =
               unfoldings, we perform reduction with all flags on. *)
             let all = RedFlags.(red_add_transparent all (red_transparent (info_flags infos.cnv_inf))) in
             let r1 = whd_stack (infos_with_reds infos.cnv_inf all) infos.lft_tab def1 v1 in
-            eqappr cv_pb l2r infos (lft1, r1) appr2 cuniv
+            eqwhnf cv_pb l2r infos (lft1, r1) appr2 cuniv
         | None ->
           (match c2 with
-           | FConstruct ((ind2,_j2),u2) ->
+           | FConstruct (((ind2,1),u2),_) ->
+             let () = assert_reduced_constructor v2 in
              (try
                 let v2, v1 =
-                  eta_expand_ind_stack (info_env infos.cnv_inf) (ind2,u2) hd2 v2 (snd appr1)
+                  eta_expand_ind_stack (info_env infos.cnv_inf) (ind2,u2) hd2 (snd appr1)
                 in convert_stacks l2r infos lft1 lft2 v1 v2 cuniv
               with Not_found -> raise NotConvertible)
            | _ -> raise NotConvertible)
@@ -601,12 +609,13 @@ and eqappr cv_pb l2r infos (lft1,st1) (lft2,st2) cuniv =
           (** Symmetrical case of above. *)
           let all = RedFlags.(red_add_transparent all (red_transparent (info_flags infos.cnv_inf))) in
           let r2 = whd_stack (infos_with_reds infos.cnv_inf all) infos.rgt_tab def2 v2 in
-          eqappr cv_pb l2r infos appr1 (lft2, r2) cuniv
+          eqwhnf cv_pb l2r infos appr1 (lft2, r2) cuniv
         | None ->
           match c1 with
-          | FConstruct ((ind1,_j1),u1) ->
+          | FConstruct (((ind1,1),u1),_) ->
+            let () = assert_reduced_constructor v1 in
             (try let v1, v2 =
-                   eta_expand_ind_stack (info_env infos.cnv_inf) (ind1,u1) hd1 v1 (snd appr2)
+                   eta_expand_ind_stack (info_env infos.cnv_inf) (ind1,u1) hd1 (snd appr2)
                in convert_stacks l2r infos lft1 lft2 v1 v2 cuniv
              with Not_found -> raise NotConvertible)
           | _ -> raise NotConvertible
@@ -630,14 +639,19 @@ and eqappr cv_pb l2r infos (lft1,st1) (lft2,st2) cuniv =
             eqappr cv_pb l2r infos (lft1,(hd1,v1)) (lft2,(hd2,v2)) cuniv
       else raise NotConvertible
 
-    | (FConstruct ((ind1,j1),u1 as pctor1), FConstruct ((ind2,j2),u2 as pctor2)) ->
+    | (FConstruct (((ind1,j1),u1 as pctor1,args1)), FConstruct (((ind2,j2),u2 as pctor2),args2)) ->
+      let () = assert_reduced_constructor v1 in
+      let () = assert_reduced_constructor v2 in
+      let nargs = Array.length args1 in
+      let () = if not @@ Int.equal nargs (Array.length args2) then raise NotConvertible in
+      let v1 = append_stack args1 v1 in
+      let v2 = append_stack args2 v2 in
       if Int.equal j1 j2 && Ind.CanOrd.equal ind1 ind2 then
         if UVars.Instance.is_empty u1 || UVars.Instance.is_empty u2 then
           let cuniv = fail_check infos @@ convert_instances ~flex:false u1 u2 cuniv in
           convert_stacks l2r infos lft1 lft2 v1 v2 cuniv
         else
           let mind = Environ.lookup_mind (fst ind1) (info_env infos.cnv_inf) in
-          let nargs = same_args_size v1 v2 in
           match fail_check infos @@ convert_constructors (mind, snd ind1, j1) nargs u1 u2 cuniv with
           | cuniv -> convert_stacks l2r infos lft1 lft2 v1 v2 cuniv
           | exception MustExpand ->
@@ -648,17 +662,23 @@ and eqappr cv_pb l2r infos (lft1,st1) (lft2,st2) cuniv =
       else raise NotConvertible
 
     (* Eta expansion of records *)
-    | (FConstruct ((ind1,_j1),u1), _) ->
+    | (FConstruct (((ind1,j1),u1), _),_) ->
+      let () = assert_reduced_constructor v1 in
+      (* records only have 1 constructor *)
+      let () = if not @@ Int.equal j1 1 then raise NotConvertible in
       (try
          let v1, v2 =
-            eta_expand_ind_stack (info_env infos.cnv_inf) (ind1,u1) hd1 v1 (snd appr2)
+            eta_expand_ind_stack (info_env infos.cnv_inf) (ind1,u1) hd1 (snd appr2)
          in convert_stacks l2r infos lft1 lft2 v1 v2 cuniv
        with Not_found -> raise NotConvertible)
 
-    | (_, FConstruct ((ind2,_j2),u2)) ->
+    | (_, FConstruct (((ind2,j2),u2),_)) ->
+      let () = assert_reduced_constructor v2 in
+      (* records only have 1 constructor *)
+      let () = if not @@ Int.equal j2 1 then raise NotConvertible in
       (try
          let v2, v1 =
-            eta_expand_ind_stack (info_env infos.cnv_inf) (ind2,u2) hd2 v2 (snd appr1)
+            eta_expand_ind_stack (info_env infos.cnv_inf) (ind2,u2) hd2 (snd appr1)
          in convert_stacks l2r infos lft1 lft2 v1 v2 cuniv
        with Not_found -> raise NotConvertible)
 

@@ -1,4 +1,4 @@
-Require Import Coq.Program.Tactics.
+Require Import Corelib.Program.Tactics.
 
 #[deprecated(note="deprecable")]
 Lemma depr1 : True.

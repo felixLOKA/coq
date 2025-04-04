@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -18,20 +18,7 @@ open Vernacexpr
 open Locality
 open Attributes
 
-(* Default proof mode, to be set at the beginning of proofs for
-   programs that cannot be statically classified. *)
-let proof_mode_opt_name = ["Default";"Proof";"Mode"]
-
-let { Goptions.get = get_default_proof_mode } =
-  Goptions.declare_interpreted_string_option_and_ref
-    ~stage:Summary.Stage.Synterp
-    ~key:proof_mode_opt_name
-    ~value:(Pvernac.register_proof_mode "Noedit" Pvernac.Vernac_.noedit_mode)
-    (fun name -> match Pvernac.lookup_proof_mode name with
-    | Some pm -> pm
-    | None -> CErrors.user_err Pp.(str (Format.sprintf "No proof mode named \"%s\"." name)))
-    Pvernac.proof_mode_to_string
-    ()
+let get_default_proof_mode = Pvernac.get_default_proof_mode
 
 let module_locality = Attributes.Notations.(locality >>= fun l -> return (make_module_locality l))
 
@@ -75,14 +62,6 @@ let with_generic_atts ~check atts f =
 
 type module_entry = Modintern.module_struct_expr * Names.ModPath.t * Modintern.module_kind * Entries.inline
 
-type control_entry =
-  | ControlTime of { synterp_duration: System.duration }
-  | ControlInstructions of { synterp_instructions: System.instruction_count }
-  | ControlRedirect of string
-  | ControlTimeout of { remaining : float }
-  | ControlFail of { st : Vernacstate.Synterp.t }
-  | ControlSucceed of { st : Vernacstate.Synterp.t }
-
 type synterp_entry =
   | EVernacNoop
   | EVernacNotation of { local : bool; decl : Metasyntax.notation_interpretation_decl }
@@ -113,7 +92,9 @@ type synterp_entry =
 
 and vernac_entry = synterp_entry Vernacexpr.vernac_expr_gen
 
-and vernac_control_entry = (control_entry, synterp_entry) Vernacexpr.vernac_control_gen_r CAst.t
+and vernac_control_entry =
+  (Vernacstate.Synterp.t VernacControl.control_entry, synterp_entry)
+    Vernacexpr.vernac_control_gen_r CAst.t
 
 let synterp_reserved_notation ~module_local ~infix l =
   Metasyntax.add_reserved_notation ~local:module_local ~infix l
@@ -282,7 +263,55 @@ let _ = CErrors.register_handler begin function
   | _ -> None
 end
 
+let warn_deprecated_from_Coq =
+  CWarnings.create_with_quickfix ~name:"deprecated-from-Coq"
+    ~category:Deprecation.Version.v9_0
+    (fun () -> strbrk
+        "\"From Coq\" has been replaced by \"From Stdlib\".")
+
+let deprecated_Coq from qidl =
+  let coq_id = Id.of_string "Coq" in
+  let stdlib_id =
+    (* temporary hack to enable HoTT and UniMath to compile with rocq-core *)
+    let qidl =
+      let qid2idl qid =
+        let p, id = Libnames.repr_qualid qid in
+        List.rev (id :: DirPath.repr p) in
+      let from = match from with None -> [] | Some from -> qid2idl from in
+      List.map (fun (qid, _) -> from @ qid2idl qid) qidl in
+    let ids' = List.map Id.of_string ["Init"; "Setoids"; "Ltac"] in
+    let in_rocq idl = match idl with
+      | id :: id' :: _ -> Id.equal id coq_id && (CList.mem_f Id.equal id' ids')
+      | _ -> false in
+    Id.of_string (if List.for_all in_rocq qidl then "Corelib" else "Stdlib") in
+  let repl_id id =
+    if Id.equal id coq_id then true, stdlib_id else false, id in
+  let repl_Coq_qid qid =
+    let p, id = Libnames.repr_qualid qid in
+    let warn, p, id =
+      if DirPath.is_empty p then let w, id = repl_id id in w, p, id else
+        let warn, p = match List.rev (DirPath.repr p) with
+          | id :: p' -> let w, id' = repl_id id in w, (id' :: p')
+          | [] -> false, [] in
+        warn, DirPath.make (List.rev p), id in
+    let qid = Libnames.make_qualid ?loc:qid.loc p id in
+    let warn = if warn then Some qid else None in
+    warn, Libnames.make_qualid ?loc:qid.loc p id in
+  let warn, from, qidl = match from with
+    | Some from -> let w, from = repl_Coq_qid from in w, Some from, qidl
+    | None ->
+       let w, qidl = CList.fold_left_map (fun w (qid, fe) ->
+           let w', qid = repl_Coq_qid qid in Option.append w w', (qid, fe))
+         None qidl in
+       w, from, qidl in
+  let () = match warn with None -> () | Some qid ->
+    let quickfix = Option.map (fun loc ->
+      [Quickfix.make ~loc (Libnames.pr_qualid qid)]) qid.loc in
+    warn_deprecated_from_Coq ?quickfix () in
+  from, qidl
+
 let synterp_require ~intern from export qidl =
+  let from, qidl = deprecated_Coq from qidl in
   let root = match from with
   | None -> None
   | Some from ->
@@ -314,7 +343,6 @@ let expand filename =
 
 let synterp_declare_ml_module ~local l =
   let local = Option.default false local in
-  let l = List.map expand l in
   Mltop.declare_ml_modules local l
 
 let warn_chdir = CWarnings.create ~name:"change-dir-deprecated" ~category:Deprecation.Version.v8_20
@@ -349,104 +377,15 @@ let synterp_begin_section ({v=id} as lid) =
   Dumpglob.dump_definition lid true "sec";
   Lib.Synterp.open_section id
 
-(** A global default timeout, controlled by option "Set Default Timeout n".
-    Use "Unset Default Timeout" to deactivate it (or set it to 0). *)
-
-let check_timeout n =
-  if n <= 0 then CErrors.user_err Pp.(str "Timeout must be > 0.")
-
-(* Timeout *)
-let with_timeout ~timeout:n (f : 'a -> 'b) (x : 'a) : 'b =
-  check_timeout n;
-  let n = float_of_int n in
-  let start = Unix.gettimeofday () in
-  begin match Control.timeout n f x with
-  | None -> Exninfo.iraise (Exninfo.capture CErrors.Timeout)
-  | Some (ctrl,v) ->
-    let stop = Unix.gettimeofday () in
-    let remaining = n -. (start -. stop) in
-    if remaining <= 0. then Exninfo.iraise (Exninfo.capture CErrors.Timeout)
-    else ControlTimeout { remaining } :: ctrl, v
-  end
-
-(* Restoring the state is the caller's responsibility *)
-let with_fail f : (Loc.t option * Pp.t, 'a) result =
-  try
-    let x = f () in
-    Error x
-  with
-  (* Fail Timeout is a common pattern so we need to support it. *)
-  | e ->
-    (* The error has to be printed in the failing state *)
-    let _, info as exn = Exninfo.capture e in
-    if CErrors.is_anomaly e && e != CErrors.Timeout then Exninfo.iraise exn;
-    Ok (Loc.get_loc info, CErrors.iprint exn)
-
-let real_error_loc ~cmdloc ~eloc =
-  if Loc.finer eloc cmdloc then eloc
-  else cmdloc
-
-let with_fail ~loc f =
-  let st = Vernacstate.Synterp.freeze () in
-  let res = with_fail f in
-  let transient_st = Vernacstate.Synterp.freeze () in
-  Vernacstate.Synterp.unfreeze st;
-  match res with
-  | Error (ctrl, v) ->
-    ControlFail { st = transient_st } :: ctrl, v
-  | Ok (eloc, msg) ->
-    let loc = if !Flags.test_mode then real_error_loc ~cmdloc:loc ~eloc else None in
-    if not !Flags.quiet || !Flags.test_mode
-    then Feedback.msg_notice ?loc Pp.(str "The command has indeed failed with message:" ++ fnl () ++ msg);
-    [], VernacSynterp EVernacNoop
-
-let with_succeed f =
-  let st = Vernacstate.Synterp.freeze () in
-  let (ctrl, v) = f () in
-  let transient_st = Vernacstate.Synterp.freeze () in
-  Vernacstate.Synterp.unfreeze st;
-  ControlSucceed { st = transient_st } :: ctrl, v
-
-let synpure_control : control_flag -> control_entry =
-  let freeze = Vernacstate.Synterp.freeze in function
-  | ControlTime -> ControlTime { synterp_duration = System.empty_duration }
-  | ControlInstructions -> ControlInstructions { synterp_instructions = Ok 0L }
-  | ControlRedirect s -> ControlRedirect s
-  | ControlTimeout timeout ->
-    check_timeout timeout;
-    ControlTimeout { remaining = float_of_int timeout }
-  | ControlFail -> ControlFail { st = freeze() }
-  | ControlSucceed -> ControlSucceed { st = freeze() }
-
-(* We restore the state always *)
-let rec synterp_control_flag ~loc (f : control_flag list) fn expr =
-  match f with
-  | [] -> [], fn expr
-  | ControlFail :: l ->
-    with_fail ~loc (fun () -> synterp_control_flag ~loc l fn expr)
-  | ControlSucceed :: l ->
-    with_succeed (fun () -> synterp_control_flag ~loc l fn expr)
-  | ControlTimeout timeout :: l ->
-    with_timeout ~timeout (synterp_control_flag ~loc l fn) expr
-  | ControlTime :: l ->
-    begin match System.measure_duration (synterp_control_flag ~loc l fn) expr with
-    | Ok((ctrl,v), synterp_duration) ->
-      ControlTime { synterp_duration } :: ctrl, v
-    | Error(exn, synterp_duration) as e ->
-      Feedback.msg_notice @@ System.fmt_transaction_result e;
-      Exninfo.iraise exn
-    end
-  | ControlInstructions :: l ->
-    begin match System.count_instructions (synterp_control_flag ~loc l fn) expr with
-    | Ok((ctrl,v), synterp_instructions) ->
-      ControlInstructions { synterp_instructions } :: ctrl, v
-    | Error(exn, synterp_instructions) as e ->
-      Feedback.msg_notice @@ System.fmt_instructions_result e;
-      Exninfo.iraise exn
-    end
-  | ControlRedirect s :: l ->
-    let (ctrl, v) = Topfmt.with_output_to_file s (synterp_control_flag ~loc l fn) expr in
-    (ControlRedirect s :: ctrl, v)
+let with_synterp_state =
+  let with_local_state () f =
+    let st = Vernacstate.Synterp.freeze () in
+    let v = f () in
+    let transient_st = Vernacstate.Synterp.freeze () in
+    Vernacstate.Synterp.unfreeze st;
+    transient_st, v
+  in
+  { VernacControl.with_local_state }
 
 let rec synterp ~intern ?loc ~atts v =
   match v with
@@ -529,12 +468,12 @@ and synterp_load ~intern verbosely fname =
   let input =
     let longfname = Loadpath.locate_file fname in
     let in_chan = Util.open_utf8_file_in longfname in
-    Pcoq.Parsable.make ~loc:Loc.(initial (InFile { dirpath=None; file=longfname}))
+    Procq.Parsable.make ~loc:Loc.(initial (InFile { dirpath=None; file=longfname}))
         (Gramlib.Stream.of_channel in_chan) in
   (* Parsing loop *)
   let v_mod = if verbosely then Flags.verbosely else Flags.silently in
   let parse_sentence proof_mode =
-    Pcoq.Entry.parse (Pvernac.main_entry proof_mode)
+    Procq.Entry.parse (Pvernac.main_entry proof_mode)
   in
   let proof_mode = Some (get_default_proof_mode ()) in
   let rec load_loop entries =
@@ -553,34 +492,13 @@ and synterp_control ~intern CAst.{ loc; v = cmd } =
     with_generic_atts ~check:true cmd.attrs (fun ~atts ->
         synterp ~intern ?loc ~atts cmd.expr)
   in
-  let control, expr = synterp_control_flag ~loc cmd.control fn cmd.expr in
+  let control, expr =
+    VernacControl.under_control ~loc ~with_local_state:with_synterp_state
+      (VernacControl.from_syntax cmd.control)
+      ~noop:(VernacSynterp EVernacNoop)
+      (fun () -> fn cmd.expr)
+  in
   CAst.make ?loc { expr; control; attrs = cmd.attrs }
-
-let default_timeout = ref None
-
-let () = let open Goptions in
-  declare_int_option
-    { optstage = Summary.Stage.Synterp;
-      optdepr  = None;
-      optkey   = ["Default";"Timeout"];
-      optread  = (fun () -> !default_timeout);
-      optwrite = (fun n -> Option.iter check_timeout n; default_timeout := n) }
-
-let has_timeout ctrl = ctrl |> List.exists (function
-    | Vernacexpr.ControlTimeout _ -> true
-    | _ -> false)
-
-let add_default_timeout control =
-  match !default_timeout with
-  | None -> control
-  | Some n ->
-    if has_timeout control then control
-    else Vernacexpr.ControlTimeout n :: control
-
-let synterp_control ~intern cmd =
-  synterp_control ~intern (CAst.map (fun cmd ->
-      { cmd with control = add_default_timeout cmd.control })
-      cmd)
 
 let synterp_control ~intern cmd =
   Flags.with_option Flags.in_synterp_phase (synterp_control ~intern) cmd

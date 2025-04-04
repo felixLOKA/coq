@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -18,11 +18,6 @@ open UVars
 val universes_context : universes -> AbstractContext.t
 
 val abstract_universes : Entries.universes_entry -> UVars.sort_level_subst * universes
-
-(** {6 Arities} *)
-
-val map_decl_arity : ('a -> 'c) -> ('b -> 'd) ->
-  ('a, 'b) declaration_arity -> ('c, 'd) declaration_arity
 
 (** {6 Constants} *)
 
@@ -91,5 +86,3 @@ val safe_flags : Conv_oracle.oracle -> typing_flags
 val hcons_const_body : ?hbody:(Constr.t -> Constr.t) ->
   ('a, 'b) pconstant_body -> ('a, 'b) pconstant_body
 val hcons_mind : mutual_inductive_body -> mutual_inductive_body
-val hcons_module_body : module_body -> module_body
-val hcons_module_type : module_type_body -> module_type_body

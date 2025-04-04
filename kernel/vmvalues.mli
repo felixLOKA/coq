@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -85,7 +85,7 @@ type vswitch = {
     sw_env : vm_env
   }
 
-external mkAccuCode : int -> tcode = "coq_makeaccu"
+external mkAccuCode : int -> tcode = "rocq_makeaccu"
 
 val fun_code : vfun -> tcode
 val fix_code : vfix -> tcode
@@ -140,6 +140,7 @@ val val_of_int : int -> structured_values
 val val_of_block : tag -> structured_values array -> structured_values
 val val_of_uint : Uint63.t -> structured_values
 val val_of_float : Float64.t -> structured_values
+val val_of_string : Pstring.t -> structured_values
 
 external val_of_annot_switch : annot_switch -> values = "%identity"
 
@@ -159,7 +160,7 @@ val dom : vprod -> values
 val codom : vprod -> vfun
 
 (** Fun *)
-external closure_arity : vfun -> int = "coq_closure_arity"
+external closure_arity : vfun -> int = "rocq_closure_arity"
 
 (** Fix *)
 

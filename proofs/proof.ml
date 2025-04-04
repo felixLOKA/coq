@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -202,7 +202,7 @@ let focus_id cond inf id pr =
         (* goal is already under focus *)
         _focus cond inf i i pr
      | None ->
-        if CList.mem_f Evar.equal ev (Evd.shelf evar_map) then
+        if Evd.mem_shelf ev evar_map then
           (* goal is on the shelf, put it in focus *)
           let proofview = Proofview.unshelve [ev] pr.proofview in
           let pr = { pr with proofview } in
@@ -387,6 +387,7 @@ let goal_uid e = string_of_int (Evar.repr e)
 
 let pr_proof p =
   let { goals=fg_goals; stack=bg_goals; sigma } = data p in
+  let entry = Proofview.partial_proof p.entry p.proofview in
   Pp.(
     let pr_goal_list = prlist_with_sep spc pr_goal in
     let rec aux acc = function
@@ -397,7 +398,8 @@ let pr_proof p =
     str "[" ++ str "focus structure: " ++
                aux (pr_goal_list fg_goals) bg_goals ++ str ";" ++ spc () ++
     str "shelved: " ++ pr_goal_list (Evd.shelf sigma) ++ str ";" ++ spc () ++
-    str "given up: " ++ pr_goal_list (Evar.Set.elements @@ Evd.given_up sigma) ++
+    str "given up: " ++ pr_goal_list (Evar.Set.elements @@ Evd.given_up sigma) ++ spc() ++
+    str "partial proof: " ++ prlist_with_sep spc (Termops.Internal.print_constr_env (Global.env()) sigma) entry ++
     str "]"
   )
 
@@ -423,6 +425,17 @@ let solve_constraints =
   Proofview.tclOR Refine.solve_constraints
     (fun (e,info) -> Proofview.tclZERO ~info (FailedConstraints e))
 
+let register_side_effects eff =
+  let open Names in
+  let cst = Safe_typing.constants_of_private eff.Evd.seff_private in
+  let iter kn =
+    let gr = GlobRef.ConstRef kn in
+    let id = Label.to_id (Constant.label kn) in
+    let sp = Lib.make_path id in
+    Nametab.push (Nametab.Until 1) sp gr
+  in
+  List.iter iter cst
+
 let solve ?with_end_tac gi info_lvl tac pr =
     let tac = match with_end_tac with
       | None -> tac
@@ -444,6 +457,7 @@ let solve ?with_end_tac gi info_lvl tac pr =
     let env = Global.env () in
     let env = Environ.update_typing_flags ?typing_flags:pr.typing_flags env in
     let (p,(status,info),()) = run_tactic env tac pr in
+    let () = register_side_effects (Evd.eval_side_effects (Proofview.return p.proofview)) in
     let env = Global.env () in
     let sigma = Evd.from_env env in
     let () =

@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -53,7 +53,7 @@ let z_spec =
   ; zero = Mc.Z0
   ; unit = Mc.Zpos Mc.XH
   ; mult = Mc.Z.mul
-  ; eqb = Mc.zeq_bool }
+  ; eqb = Mc.Z.eqb }
 
 let q_spec =
   { bigint_to_number = (fun x -> {Mc.qnum = Ml2C.bigint x; Mc.qden = Mc.XH})
@@ -677,7 +677,7 @@ let rec term_to_z_expr = function
 
 let term_to_z_pol e =
   Mc.norm_aux (Ml2C.z 0) (Ml2C.z 1) Mc.Z.add Mc.Z.mul Mc.Z.sub Mc.Z.opp
-    Mc.zeq_bool (term_to_z_expr e)
+    Mc.Z.eqb (term_to_z_expr e)
 
 let z_cert_of_pos pos =
   let s, pos = scale_certificate pos in
@@ -1010,7 +1010,7 @@ let nlia prfdepth sys =
     let sys3 = nlinear_preprocess (rev_concat [bnd1; sys1; sys2]) in
     xlia env sys3
 
-(* For regression testing, if bench = true generate a Coq goal *)
+(* For regression testing, if bench = true generate a Rocq goal *)
 
 let lia  prfdepth sys = gen_bench ("lia", lia)  prfdepth sys
 let nlia  prfdepth sys = gen_bench ("nia", nlia)  prfdepth sys

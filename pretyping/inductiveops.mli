@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -59,9 +59,13 @@ val ind_of_ind_type : inductive_type -> inductive
 val relevance_of_inductive_type : env -> inductive_type -> ERelevance.t
 
 val mkAppliedInd : inductive_type -> EConstr.constr
-val mis_is_recursive_subset : inductive list -> wf_paths -> bool
+
+val dest_recarg : recarg Rtree.Kind.t -> recarg
+val dest_subterms : recarg Rtree.Kind.t -> recarg Rtree.Kind.t array array
+
+val mis_is_recursive_subset : env -> inductive list -> recarg Rtree.Kind.t -> bool
 val mis_is_recursive :
-  inductive * mutual_inductive_body * one_inductive_body -> bool
+  env -> inductive * mutual_inductive_body * one_inductive_body -> bool
 val mis_nf_constructor_type :
   constructor puniverses -> mutual_inductive_body * one_inductive_body -> constr
 
@@ -132,7 +136,7 @@ val quality_leq : Sorts.Quality.t -> Sorts.Quality.t -> bool
 
 val is_squashed : evar_map -> (mind_specif * EInstance.t) -> squash option
 
-val squash_elim_sort : env -> evar_map -> squash -> ESorts.t -> evar_map
+val squash_elim_sort : evar_map -> squash -> ESorts.t -> evar_map
 (** Take into account elimination constraints. When there is an
     elimination constraint and the predicate is underspecified, i.e. a
     QSort, we make a non-canonical choice for the return type.
@@ -227,9 +231,6 @@ val compute_projections : Environ.env -> inductive -> (constr * types) array
     projection and its type. *)
 
 (********************)
-
-val type_of_inductive_knowing_conclusion :
-  env -> evar_map -> mind_specif puniverses -> EConstr.types -> evar_map * EConstr.types
-
-(********************)
 val control_only_guard : env -> Evd.evar_map -> EConstr.types -> unit
+
+val error_not_allowed_dependent_analysis : Environ.env -> bool -> Names.inductive -> Pp.t

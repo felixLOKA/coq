@@ -70,13 +70,18 @@ described elsewhere
 
 .. cmd:: About @reference {? @univ_name_list }
 
-   Displays information about the :n:`@reference` object, which,
-   if a proof is open,  may be a hypothesis of the selected goal,
-   or an accessible theorem, axiom, etc.:
-   its kind (module, constant, assumption, inductive,
-   constructor, abbreviation, …), long name, type, implicit arguments and
+   Displays information about the :n:`@reference` object, which may be the
+   name of any accessible defined symbol, such as a theorem, constructor,
+   fixpoint or module.  If a proof is open, :n:`@reference` may refer to a
+   hypothesis of the selected goal.  The information includes:
+   the kind of the object (module, constant, assumption, inductive,
+   constructor, abbreviation, projection, coercion,  …), long name, type,
+   opacity/transparency, implicit arguments, argument names and
    argument scopes (as set in the definition of :token:`reference` or
-   subsequently with the :cmd:`Arguments` command). It does not print the body of definitions or proofs.
+   subsequently with the :cmd:`Arguments` command). It does not print the
+   body of definitions or proofs.
+
+   See :cmd:`Strategy` for details on opacity.
 
 .. cmd:: Check @term
 
@@ -214,14 +219,15 @@ described elsewhere
 
    .. example:: Searching for a pattern
 
-      .. coqtop:: none reset
+      .. rocqtop:: none reset extra-stdlib
 
-         Require Import PeanoNat.
+         From Stdlib Require Import PeanoNat.
 
       We can repeat meta-variables to narrow down the search.  Here,
       we are looking for commutativity lemmas.
+      The following example requires the Stdlib library.
 
-      .. coqtop:: all
+      .. rocqtop:: all
 
          Search (_ ?n ?m = _ ?m ?n).
 
@@ -229,7 +235,7 @@ described elsewhere
 
    .. example:: Searching for part of an identifier
 
-      .. coqtop:: all reset
+      .. rocqtop:: all reset
 
          Search "_assoc".
 
@@ -237,7 +243,7 @@ described elsewhere
 
    .. example:: Searching for a reference by notation
 
-      .. coqtop:: all reset
+      .. rocqtop:: all reset
 
          Search "+".
 
@@ -245,15 +251,17 @@ described elsewhere
 
    .. example:: Disambiguating between part of identifier and notation
 
-      .. coqtop:: none reset
+      The following example requires the Stdlib library.
 
-         Require Import PeanoNat.
+      .. rocqtop:: none reset extra-stdlib
+
+         From Stdlib Require Import PeanoNat.
 
       In this example, we show two ways of searching for all the
       objects whose type contains `Nat.modulo` but which do not
       contain the substring "mod".
 
-      .. coqtop:: all
+      .. rocqtop:: all extra-stdlib
 
          Search "'mod'" -"mod".
          Search "mod"%nat -"mod".
@@ -265,11 +273,11 @@ described elsewhere
       The following search shows the objects whose type contains
       `bool` in an hypothesis as a strict subterm only:
 
-      .. coqtop:: none reset
+      .. rocqtop:: none reset
 
          Add Search Blacklist "internal_".
 
-      .. coqtop:: all
+      .. rocqtop:: all
 
          Search hyp:bool -headhyp:bool.
 
@@ -280,7 +288,7 @@ described elsewhere
       The following search shows the objects whose type contains `bool`
       in the conclusion as a strict subterm only:
 
-      .. coqtop:: all
+      .. rocqtop:: all
 
          Search concl:bool -headconcl:bool.
 
@@ -291,25 +299,25 @@ described elsewhere
       The following search shows the definitions whose type is a `nat`
       or a function which returns a `nat` and the lemmas about `+`:
 
-      .. coqtop:: all reset
+      .. rocqtop:: all reset
 
          Search [ is:Definition headconcl:nat | is:Lemma (_ + _) ].
 
       The following search shows the instances whose type includes the
       classes `Reflexive` or `Symmetric`:
 
-      .. coqtop:: none reset
+      .. rocqtop:: none reset
 
          Require Import Morphisms.
 
-      .. coqtop:: all
+      .. rocqtop:: all
 
          Search is:Instance [ Reflexive | Symmetric ].
 
       The following search outputs operations on `nat` defined in the
       prelude either with the `Definition` or `Fixpoint` keyword:
 
-      .. coqtop:: all reset
+      .. rocqtop:: all reset
 
          Search (nat -> nat -> nat) -bool [ is:Definition | is:Fixpoint ].
 
@@ -324,17 +332,19 @@ described elsewhere
 
    .. example:: :cmd:`SearchPattern` examples
 
-      .. coqtop:: in
+      The following example requires the Stdlib library.
 
-         Require Import Arith.
+      .. rocqtop:: in reset extra-stdlib
 
-      .. coqtop:: all
+         From Stdlib Require Import Arith.
+
+      .. rocqtop:: all extra-stdlib
 
          SearchPattern (_ + _ = _ + _).
          SearchPattern (nat -> bool).
          SearchPattern (forall l : list _, _ l l).
 
-      .. coqtop:: all
+      .. rocqtop:: all extra-stdlib
 
          SearchPattern (?X1 + _ = _ + ?X1).
 
@@ -349,13 +359,21 @@ described elsewhere
 
    .. example:: :cmd:`SearchRewrite` examples
 
-      .. coqtop:: in
+      The following example requires the Stdlib library.
 
-         Require Import Arith.
+      .. rocqtop:: in reset extra-stdlib
 
-      .. coqtop:: all
+         From Stdlib Require Import Arith.
+
+      .. rocqtop:: all extra-stdlib
 
          SearchRewrite (_ + _ + _).
+
+.. flag:: Search Blacklist Locals
+
+   By default :cmd:`Search` excludes lemmas declared with :attr:`local` from its results
+   (except for those from the current module or its parents).
+   Unsetting this :term:`flag` will include such lemmas in the results.
 
 .. table:: Search Blacklist @string
 
@@ -408,7 +426,7 @@ Requests to the environment
       reference ::= @qualid
       | @string {? % @scope_key }
 
-   Displays the full name of objects from Coq's various qualified namespaces
+   Displays the full name of objects from Rocq's various qualified namespaces
    such as terms, modules and Ltac, thereby showing the module they are defined
    in.  It also displays notation definitions.
 
@@ -465,12 +483,12 @@ Requests to the environment
 
 .. example:: Locate examples
 
-   .. coqtop:: all
+   .. rocqtop:: all
 
       Locate nat.
       Locate Datatypes.O.
       Locate Init.Datatypes.O.
-      Locate Coq.Init.Datatypes.O.
+      Locate Stdlib.Init.Datatypes.O.
       Locate I.Dont.Exist.
 
 .. _printing-flags:
@@ -480,7 +498,7 @@ Printing flags
 
 .. flag:: Fast Name Printing
 
-   When this :term:`flag` is turned on, Coq uses an asymptotically faster algorithm for the
+   When this :term:`flag` is turned on, Rocq uses an asymptotically faster algorithm for the
    generation of unambiguous names of bound variables while printing terms.
    While faster, it is also less clever and results in a typically less elegant
    display, e.g. it will generate more names rather than reusing certain names
@@ -493,12 +511,12 @@ Printing flags
 Loading files
 -----------------
 
-Coq offers the possibility of loading different parts of a whole
+Rocq offers the possibility of loading different parts of a whole
 development stored in separate files. Their contents will be loaded as
 if they were entered from the keyboard. This means that the loaded
-files are text files containing sequences of commands for Coq’s
-toplevel. This kind of file is called a *script* for Coq. The standard
-(and default) extension of Coq’s script files is .v.
+files are text files containing sequences of commands for Rocq's
+toplevel. This kind of file is called a *script* for Rocq. The standard
+(and default) extension of Rocq's script files is .v.
 
 
 .. cmd:: Load {? Verbose } {| @string | @ident }
@@ -510,7 +528,7 @@ toplevel. This kind of file is called a *script* for Coq. The standard
 
    If :n:`@string` is specified, it must specify a complete filename.
    `~` and .. abbreviations are
-   allowed as well as shell variables. If no extension is specified, Coq
+   allowed as well as shell variables. If no extension is specified, Rocq
    will use the default extension ``.v``.
 
    Files loaded this way can't leave proofs open, nor can :cmd:`Load`
@@ -520,7 +538,7 @@ toplevel. This kind of file is called a *script* for Coq. The standard
    :cmd:`Require` loads `.vo` files that were previously
    compiled from `.v` files.
 
-   :n:`Verbose` displays the Coq output for each command and tactic
+   :n:`Verbose` displays the Rocq output for each command and tactic
    in the loaded file, as if the commands and tactics were entered interactively.
 
    .. exn:: Can’t find file @ident on loadpath.
@@ -538,7 +556,7 @@ Compiled files
 ------------------
 
 This section describes the commands used to load compiled files (see
-Chapter :ref:`thecoqcommands` for documentation on how to compile a file). A compiled
+Chapter :ref:`therocqcommands` for documentation on how to compile a file). A compiled
 file is a particular case of a module called a *library file*.
 
 .. cmd:: {? From @dirpath } Require {? {| Import | Export } {? @import_categories } } {+ @filtered_import }
@@ -549,20 +567,20 @@ file is a particular case of a module called a *library file*.
    .. prodn::
       dirpath ::= {* @ident . } @ident
 
-   Loads compiled files into the Coq environment. For the first
+   Loads compiled files into the Rocq environment. For the first
    :n:`@qualid` in each :n:`@filtered_import`, the command looks in the
    :term:`load path` for a compiled file :n:`@ident.vo` whose
    :term:`logical name` has the form :n:`@dirpath.{* @ident__implicit. }@qualid`
    (if :n:`From @dirpath` is given) or :n:`{* @ident__implicit. }@qualid` (if
    the optional `From` clause is absent). :n:`{* @ident__implicit. }` represents
    the parts of the fully qualified name that are implicit.  For example,
-   `From Coq Require Nat` loads `Coq.Init.Nat` and `Init` is implicit.
+   `From Stdlib Require Nat` loads `Stdlib.Init.Nat` and `Init` is implicit.
    :n:`@ident` is the final component of the :n:`@qualid`.
 
    If a file is found, its logical name must be the same as the one
    used to compile the file. Then the file is loaded as well as all
    the files it depends on (recursively). All the files must have
-   been compiled with the same version of Coq.
+   been compiled with the same version of Rocq.
 
    * :n:`Import` - additionally does an :cmd:`Import` on the loaded module,
      making components defined in the module available by their short names
@@ -623,15 +641,15 @@ file is a particular case of a module called a *library file*.
 
       The command tried to load library file :n:`@ident`.vo that
       depends on some specific version of library :n:`@qualid` which is not the
-      one already loaded in the current Coq session. Probably :n:`@ident.v` was
+      one already loaded in the current Rocq session. Probably :n:`@ident.v` was
       not properly recompiled with the last version of the file containing
       module :token:`qualid`.
 
    .. exn:: Bad magic number.
 
       The file :n:`@ident.vo` was found but either it is not a
-      Coq compiled module, or it was compiled with an incompatible
-      version of Coq.
+      Rocq compiled module, or it was compiled with an incompatible
+      version of Rocq.
 
    .. exn:: The file @ident.vo contains library @qualid__1 and not library @qualid__2.
 
@@ -645,21 +663,22 @@ file is a particular case of a module called a *library file*.
 
       Note that the :cmd:`Import` and :cmd:`Export` commands can be used inside modules.
 
-      .. seealso:: Chapter :ref:`thecoqcommands`
+      .. seealso:: Chapter :ref:`therocqcommands`
 
 .. cmd:: Print Libraries
 
    This command displays the list of library files loaded in the
-   current Coq session.
+   current Rocq session.
 
 .. cmd:: Declare ML Module {+ @string }
 
-   Loads an OCaml plugin and its dependencies dynamically.  The :n:`@string`
-   argument must be a valid `findlib <http://projects.camlcity.org/projects/findlib.html>`_
-   plugin name, for example ``coq-core.plugins.ltac``. As of Coq 8.16,
-   the command also supports a legacy
-   syntax compatible with the plugin loading system used in Coq
-   8.0-8.15, see below.
+   Loads OCaml plugins and their dependencies dynamically.  The :n:`@string`
+   arguments must be valid `findlib <http://projects.camlcity.org/projects/findlib.html>`_
+   plugin names, for example ``rocq-runtime.plugins.ltac``.
+
+   Effects (such as adding new commands) from the explicitly requested
+   plugin are activated, but effects from implicitly loaded
+   dependencies are not activated.
 
    The first component of the plugin name is a package name that has to
    be in scope of ``findlib``'s' search path. One can see the paths
@@ -676,19 +695,8 @@ file is a particular case of a module called a *library file*.
    metadata so ``findlib`` can locate your plugin. This usually involves
    generating some kind of ``META`` file and placing it in a place where
    ``findlib`` can see it. Different build systems provide different
-   helpers to do this: see :ref:`here for coq_makefile <coq_makefile>`,
+   helpers to do this: see :ref:`here for rocq makefile <rocq_makefile>`,
    and :ref:`here for Dune <building_dune>`.
-
-   Note that the plugin loading system for Coq changed in 8.16 to use
-   findlib. Previous Coq versions loaded OCaml dynamic objects by
-   first locating the object file from ``-I`` directives, then
-   directly invoking ``Dynlink.loadfile``. For compatibility purposes,
-   8.16 still supports this legacy method, with the syntax being
-   ``Declare ML Module "my_package_plugin:pkg.plugin.my-package".``, where
-   ``my_package_plugin`` is the name of the OCaml object file.
-
-   This is useful if you are still using a third party build system
-   such as Dune or your own.
 
    This command supports the :attr:`local` attribute.  If present,
    the listed files are not exported, even if they're outside a section.
@@ -711,8 +719,8 @@ file is a particular case of a module called a *library file*.
 
       The plugin declaration in some ``.mlg`` file does not match the
       ``findlib`` plugin name. In the example of
-      ``coq-core.plugins.ltac``, one has to write ``DECLARE PLUGIN
-      "coq-core.plugins.ltac"``.
+      ``rocq-runtime.plugins.ltac``, one has to write ``DECLARE PLUGIN
+      "rocq-runtime.plugins.ltac"``.
 
 .. cmd:: Print ML Modules
 
@@ -724,13 +732,13 @@ Load paths
 
 .. versionchanged:: 8.18
 
-   Commands to manage :term:`load paths <load path>` within Coq have been
-   removed. Load paths can be managed using Coq command line options or
+   Commands to manage :term:`load paths <load path>` within Rocq have been
+   removed. Load paths can be managed using Rocq command line options or
    enviroment variables (see :ref:`logical-paths-load-path`).
 
 .. cmd:: Print LoadPath {? @dirpath }
 
-   Displays the current Coq :term:`load path`.  If :n:`@dirpath` is specified,
+   Displays the current Rocq :term:`load path`.  If :n:`@dirpath` is specified,
    displays only the paths that extend that prefix.  In the output,
    the logical path `<>` represents an empty logical path.
 
@@ -752,11 +760,11 @@ follows:
    :name: From … Dependency
 
    Adds an additional dependency of the current `.v`  file on an external file.  This
-   information is included in the ``coqdep`` tool generated list of dependencies.
+   information is included in the ``rocq dep`` tool generated list of dependencies.
    The file name :n:`@string` must exist relative to one of the top directories
    associated with :n:`@dirpath`.  :n:`@string` can include directory separators
    (``/``) to select a file in a subdirectory.
-   Path elements in :n:`@string` must be valid Coq identifiers, e.g. they cannot
+   Path elements in :n:`@string` must be valid Rocq identifiers, e.g. they cannot
    contain characters such as ``-`` or ``,``.  See :ref:`lexical-conventions`.
 
 When :n:`@ident` is provided, that name can be used by OCaml code, typically
@@ -775,8 +783,8 @@ Backtracking
 ------------
 
 The backtracking commands described in this section can only be used
-interactively, they cannot be part of a Coq file loaded via
-``Load`` or compiled by ``coqc``.
+interactively, they cannot be part of a Rocq file loaded via
+``Load`` or compiled by ``rocq compile``.
 
 
 .. cmd:: Reset @ident
@@ -824,14 +832,13 @@ Quitting and debugging
 
 .. cmd:: Quit
 
-   Causes Coq to exit.  Valid only in coqtop.
+   Causes Rocq to exit.  Valid only in `rocq repl-with-drop`.
 
 
 .. cmd:: Drop
 
    This command temporarily enters the OCaml toplevel.
-   It is a debug facility used by Coq’s implementers.  Valid only in the
-   bytecode version of coqtop.
+   It is a debug facility used by Rocq's implementers.  Valid only in `rocq repl-with-drop`.
    The OCaml command:
 
    ::
@@ -839,23 +846,14 @@ Quitting and debugging
       #use "include";;
 
    adds the right loadpaths and loads some toplevel printers for all
-   abstract types of Coq- section_path, identifiers, terms, judgments, ….
+   abstract types of Rocq- section_path, identifiers, terms, judgments, ….
    You can also use the file base_include instead, that loads only the
    pretty-printers for section_paths and identifiers. You can return back
-   to Coq with the command:
+   to Rocq with the command:
 
    ::
 
       go();;
-
-   .. warning::
-
-      #. It only works with the bytecode version of Coq (i.e. `coqtop.byte`,
-         see Section `interactive-use`).
-      #. You must have compiled Coq from the source package and set the
-         environment variable COQTOP to the root of your copy of the sources
-         (see Section `customization-by-environment-variables`).
-
 
 .. cmd:: Time @sentence
 
@@ -869,6 +867,18 @@ Quitting and debugging
    to execute it. This command is currently only supported on Linux systems,
    but does not fail on unsupported sustems, where it instead prints an error
    message in the place of the instruction count.
+
+
+.. cmd:: Profile {? @string } @sentence
+
+   Executes :n:`@sentence` and displays profiling information. If
+   :n:`@string` is given, a full trace is written to
+   ":n:`@string`.json".
+
+   If :n:`@string` is a relative filename, it refers to the directory
+   specified by the :ref:`command line option <command-line-options>`
+   `-output-directory`, if set and otherwise, the current directory.
+   Use :cmd:`Pwd` to display the current directory.
 
 
 .. cmd:: Redirect @string @sentence
@@ -945,7 +955,7 @@ Controlling display
    multiple categories. The special category `all` contains all warnings, and
    the special category `default` contains the warnings enabled by default.
 
-   Coq defines a set of core warning categories, which may be extended by
+   Rocq defines a set of core warning categories, which may be extended by
    plugins, so this list is not exhaustive. The core categories are:
    `automation`,
    `bytecode-compiler`,
@@ -964,6 +974,7 @@ Controlling display
    `parsing`,
    `pedantic`,
    `records`,
+   `rewrite-rules`,
    `ssr`,
    `syntax`,
    `tactics`,
@@ -1104,7 +1115,7 @@ Controlling Typing Flags
 
 .. example::
 
-   .. coqtop:: all reset
+   .. rocqtop:: all reset
 
         Unset Guard Checking.
 
@@ -1128,7 +1139,7 @@ Controlling Typing Flags
    Note that the proper way to define the Ackermann function is to use
    an inner fixpoint:
 
-   .. coqtop:: all reset
+   .. rocqtop:: all reset
 
         Fixpoint ack m :=
           fix ackm n :=
@@ -1162,7 +1173,7 @@ Exposing constants to OCaml libraries
    Makes the constant :n:`@qualid__1` accessible to OCaml libraries under
    the name :n:`@qualid__2`.  The constant can then be dynamically located
    in OCaml code by
-   calling :n:`Coqlib.lib_ref "@qualid__2"`.  The OCaml code doesn't need
+   calling :n:`Rocqlib.lib_ref "@qualid__2"`.  The OCaml code doesn't need
    to know where the constant is defined (what file, module, library, etc.).
 
    As a special case, when the first segment of :n:`@qualid__2` is :g:`kernel`,
@@ -1172,7 +1183,7 @@ Exposing constants to OCaml libraries
    This command supports attributes :attr:`local`, :attr:`export` and :attr:`global`.
    The default is :attr:`global`, even inside sections.
 
-   .. coqdoc::
+   .. rocqdoc::
 
       Register bool as kernel.ind_bool.
 
@@ -1215,8 +1226,8 @@ Registering primitive operations
 .. cmd:: Primitive @ident_decl {? : @term } := #@ident
 
    Makes the primitive type or primitive operator :n:`#@ident` defined in OCaml
-   accessible in Coq commands and tactics.
-   For internal use by implementors of Coq's standard library or standard library
+   accessible in Rocq commands and tactics.
+   For internal use by implementors of Rocq's standard library or standard library
    replacements.  No space is allowed after the `#`.  Invalid values give a syntax
    error.
 

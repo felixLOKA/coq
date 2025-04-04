@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -58,12 +58,6 @@ type ('a, 'b, 'c, 'occvar, 'flags) red_expr_gen0 =
 
 type ('a, 'b, 'c, 'occvar) red_expr_gen =
   ('a, 'b, 'c, 'occvar, 'b glob_red_flag) red_expr_gen0
-
-type ('a,'b,'c,'occvar) may_eval =
-  | ConstrTerm of 'a
-  | ConstrEval of ('a,'b,'c,'occvar) red_expr_gen * 'a
-  | ConstrContext of Names.lident * 'a
-  | ConstrTypeOf of 'a
 
 open Constrexpr
 

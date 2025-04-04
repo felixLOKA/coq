@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -32,7 +32,7 @@ Ltac show_hyps :=
         | [ H : ?T |- _ ] => show_hyp H ; fail
       end.
 
-(** The [do] tactic but using a Coq-side nat. *)
+(** The [do] tactic but using a Rocq-side nat. *)
 
 Ltac do_nat n tac :=
   match n with

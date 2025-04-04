@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -22,7 +22,7 @@ type unification_error =
   | ConversionFailed of env * constr * constr (* Non convertible closed terms *)
   | IncompatibleInstances of env * existential * constr * constr
   | MetaOccurInBody of Evar.t
-  | InstanceNotSameType of Evar.t * env * types * types
+  | InstanceNotSameType of Evar.t * env * types option * types
   | InstanceNotFunctionalType of Evar.t * env * constr * types
   | UnifUnivInconsistency of UGraph.univ_inconsistency
   | CannotSolveConstraint of Evd.evar_constraint * unification_error
@@ -158,12 +158,10 @@ let error_cannot_find_well_typed_abstraction env sigma p l e =
 let error_wrong_abstraction_type env sigma na a p l =
   raise (PretypeError (env, sigma,WrongAbstractionType (na,a,p,l)))
 
-let error_abstraction_over_meta env sigma hdmeta metaarg =
-  let m = Evd.meta_name sigma hdmeta and n = Evd.meta_name sigma metaarg in
+let error_abstraction_over_meta env sigma m n =
   raise (PretypeError (env, sigma,AbstractionOverMeta (m,n)))
 
-let error_non_linear_unification env sigma hdmeta t =
-  let m = Evd.meta_name sigma hdmeta in
+let error_non_linear_unification env sigma m t =
   raise (PretypeError (env, sigma,NonLinearUnification (m,t)))
 
 (*s Ml Case errors *)

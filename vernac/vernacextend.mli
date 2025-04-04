@@ -1,5 +1,5 @@
 (************************************************************************)
-(*         *   The Coq Proof Assistant / The Coq Development Team       *)
+(*         *      The Rocq Prover / The Rocq Development Team           *)
 (*  v      *         Copyright INRIA, CNRS and contributors             *)
 (* <O___,, * (see version control and CREDITS file for authors & dates) *)
 (*   \VV/  **************************************************************)
@@ -95,13 +95,13 @@ type ty_ml = TyML : bool (* deprecated *) * ('r, 's) ty_sig * 'r * 's option -> 
 
     Commands added without providing [plugin] cannot be removed from
     the grammar or modified. Not passing [plugin] is possible for
-    non-plugin coq-core commands and deprecated for all other callers.
+    non-plugin rocq-runtime commands and deprecated for all other callers.
 *)
 val static_vernac_extend :
   plugin:string option ->
   command:string ->
   ?classifier:(string -> vernac_classification) ->
-  ?entry:Vernacexpr.vernac_expr Pcoq.Entry.t ->
+  ?entry:Vernacexpr.vernac_expr Procq.Entry.t ->
   ty_ml list -> unit
 
 (** Used to tell the system that all future vernac extends are from plugins. *)
@@ -123,7 +123,7 @@ val static_linking_done : unit -> unit
 *)
 val declare_dynamic_vernac_extend
   : command:Vernacexpr.extend_name
-  -> ?entry:Vernacexpr.vernac_expr Pcoq.Entry.t
+  -> ?entry:Vernacexpr.vernac_expr Procq.Entry.t
   -> depr:bool
   -> 's (* classifier *)
   -> ('r, 's) ty_sig (* grammar *)
@@ -133,10 +133,10 @@ val declare_dynamic_vernac_extend
 (** {5 VERNAC ARGUMENT EXTEND} *)
 
 type 'a argument_rule =
-| Arg_alias of 'a Pcoq.Entry.t
+| Arg_alias of 'a Procq.Entry.t
   (** This is used because CAMLP5 parser can be dumb about rule factorization,
       which sometimes requires two entries to be the same. *)
-| Arg_rules of 'a Pcoq.Production.t list
+| Arg_rules of 'a Procq.Production.t list
   (** There is a discrepancy here as we use directly extension rules and thus
     entries instead of ty_user_symbol and thus arguments as roots. *)
 
@@ -145,8 +145,8 @@ type 'a vernac_argument = {
   arg_parsing : 'a argument_rule;
 }
 
-val vernac_argument_extend : plugin:string -> name:string -> 'a vernac_argument ->
-  'a Genarg.vernac_genarg_type * 'a Pcoq.Entry.t
+val vernac_argument_extend : plugin:string option -> name:string -> 'a vernac_argument ->
+  'a Genarg.vernac_genarg_type * 'a Procq.Entry.t
 
 (** {5 STM classifiers} *)
 val get_vernac_classifier : Vernacexpr.extend_name -> classifier
