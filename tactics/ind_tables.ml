@@ -57,11 +57,12 @@ type scheme_object_function =
   | MutualSchemeFunction of mutual_scheme_object_function * (Environ.env -> Names.MutInd.t -> bool -> scheme_dependency list) option
   | IndividualSchemeFunction of individual_scheme_object_function * (Environ.env -> inductive -> bool -> scheme_dependency list) option
 
-(* Ne contient que les schemes creer au lancement de coqtop (ou autre)
-   On n'y ajoute pas les schemes des inductifs def par l'utilisateur. *)
+(* Stores only the schemes initialized at the launch of coqtop (or similar tools).
+   User-defined inductive types and their associated schemes are not added to this table. *)
 let scheme_object_table =
-  (Hashtbl.create 17 : ((string list * Sorts.family option * bool), (one_inductive_body option -> string) * scheme_object_function) Hashtbl.t)
-(* (Hashtbl.create 17 : (string, string * scheme_object_function) Hashtbl.t) *)
+  (Hashtbl.create 17 :
+     ((string list * Sorts.family option * bool), (one_inductive_body option -> string) * scheme_object_function)
+  Hashtbl.t)
 
 let key_str key =
   let (str_list, opt_str,b) = key in

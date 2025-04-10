@@ -375,9 +375,11 @@ val dependent_evar_ident : Evar.t -> evar_map -> Id.t
 
 (** {5 Side-effects} *)
 
+(* inductive * (scheme_name * sort * mutual *)
 type side_effect_role =
 | Schema of inductive * (string list * Sorts.family option * bool)
 
+(* Schemes already defined but not yet in the global env *)
 type side_effects = {
   seff_private : Safe_typing.private_constants;
   seff_roles : side_effect_role Cmap.t;

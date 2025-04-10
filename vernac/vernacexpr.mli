@@ -254,16 +254,6 @@ type proof_end =
   (*                         name in `Save ident` when closing goal *)
   | Proved of opacity_flag * lident option
 
-type scheme_type =
-  | SchemeInduction
-  | SchemeMinimality
-  | SchemeElimination
-  | SchemeCase
-
-type equality_scheme_type =
-  | SchemeBooleanEquality
-  | SchemeEquality
-
   (* The data of a Scheme decleration *)
 type scheme = {
   sch_type : string list ;

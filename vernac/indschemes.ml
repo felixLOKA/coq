@@ -289,7 +289,7 @@ let name_and_process_scheme env = function
     (* let tmp = match sch_sort with Some s -> s | None -> InType in *)
     (newref,sch_type, ind, sch_sort)
 
-let do_mutual_induction_scheme ?(force_mutual=false) env l =
+let do_mutual_scheme ?(force_mutual=false) env l =
   match l with
   | ({CAst.v},kind,(mutind,i as ind),sort)::[] ->
     (try
@@ -302,12 +302,67 @@ let do_mutual_induction_scheme ?(force_mutual=false) env l =
     (try 
       define_mutual_scheme (scheme_key (kind,sort,true)) lnames linds
     with Not_found -> CErrors.user_err Pp.(str "Mutually defined schemes should be recursive."))
-  | _ -> (failwith "do_mutual_induction_scheme expects a non empty list of inductive types.")
+  | _ -> (failwith "do_mutual_scheme expects a non empty list of inductive types.")
 
 let do_scheme env l =
   let lnamedepindsort = List.map (name_and_process_scheme env) l in
-  do_mutual_induction_scheme env lnamedepindsort
+  do_mutual_scheme env lnamedepindsort
 
+let _do_mutual_induction_scheme ?(force_mutual=false) env ?(isrec=true) l =
+  let sigma, inst =
+    let _,_,ind,_ = match l with | x::_ -> x | [] -> assert false in
+    let _, ctx = Typeops.type_of_global_in_context env (Names.GlobRef.IndRef ind) in
+    let u, ctx = UnivGen.fresh_instance_from ctx None in
+    let u = EConstr.EInstance.make u in
+    let sigma = Evd.from_ctx (UState.of_context_set ctx) in
+    sigma, u
+  in
+  let sigma, lrecspec =
+    List.fold_left_map (fun sigma (_,dep,ind,sort) ->
+        let sigma, sort = Evd.fresh_sort_in_family ~rigid:UnivRigid sigma sort in
+        (sigma, ((ind,inst),dep,sort)))
+      sigma
+      l
+  in
+  let sigma, listdecl =
+    if isrec then Indrec.build_mutual_induction_scheme env sigma ~force_mutual lrecspec
+    else
+      List.fold_left_map (fun sigma (ind,dep,sort) ->
+          let sigma, c = Indrec.build_case_analysis_scheme env sigma ind dep sort in
+          let c, _ = Indrec.eval_case_analysis c in
+          sigma, c)
+        sigma lrecspec
+  in
+  let poly =
+    (* NB: build_mutual_induction_scheme forces nonempty list of mutual inductives
+       (force_mutual is about the generated schemes) *)
+    let _,_,ind,_ = List.hd l in
+    Global.is_polymorphic (Names.GlobRef.IndRef ind)
+  in
+  let declare decl ({CAst.v=fi; loc},dep,ind,sort) =
+    let decltype = Retyping.get_type_of env sigma decl in
+    let decltype = EConstr.to_constr sigma decltype in
+    let decl = EConstr.to_constr sigma decl in
+    let cst = define ?loc ~poly fi sigma decl (Some decltype) in
+    let kind =
+      let open Elimschemes in
+      if isrec then Some (elim_scheme ~dep ~to_kind:sort)
+      else match sort with
+        | InType -> Some (if dep then case_dep else case_nodep)
+        | InProp -> Some (if dep then casep_dep else casep_nodep)
+        | InSProp | InSet | InQSort ->
+          (* currently we don't have standard scheme kinds for this *)
+          None
+    in
+    match kind with
+    | None -> ()
+    | Some kind ->
+      (* TODO locality *)
+      DeclareScheme.declare_scheme SuperGlobal (Ind_tables.scheme_kind_name kind) (ind,cst)
+  in
+  let () = List.iter2 declare listdecl l in
+  let lrecnames = List.map (fun ({CAst.v},_,_,_) -> v) l in
+  Declare.fixpoint_message None lrecnames
 
 (**********************************************************************)
 (* Combined scheme *)

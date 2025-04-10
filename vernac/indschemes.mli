@@ -37,8 +37,11 @@ val declare_rewriting_schemes : ?loc:Loc.t -> inductive -> unit
     By default [isrec] is [true].
  *)
 
-val do_mutual_induction_scheme : ?force_mutual:bool
+val do_mutual_scheme : ?force_mutual:bool
   -> Environ.env -> resolved_scheme list -> unit
+val _do_mutual_induction_scheme : ?force_mutual:bool
+  -> Environ.env -> ?isrec:bool ->
+  (Names.Id.t CAst.t * Indrec.dep_flag * Names.inductive * Sorts.family) list -> unit
 
 (** Main calls to interpret the Scheme command *)
 
