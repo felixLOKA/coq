@@ -30,15 +30,6 @@ val case_nodep : individual scheme_kind
 val casep_dep : individual scheme_kind
 val casep_nodep : individual scheme_kind
     
-(* val mutual_case_dep : mutual scheme_kind *)
-(* val mutual_casep_dep : mutual scheme_kind *)
-(* val mutual_cases_dep : mutual scheme_kind *)
-(* val mutual_casep_dep_set : mutual scheme_kind *)
-(* val mutual_case_nodep : mutual scheme_kind *)
-(* val mutual_casep_nodep : mutual scheme_kind *)
-(* val mutual_cases_nodep : mutual scheme_kind *)
-(* val mutual_case_nodep_set : mutual scheme_kind *)
-    
 val cases_dep : individual scheme_kind
 val cases_nodep : individual scheme_kind
 val casep_dep_set : individual scheme_kind

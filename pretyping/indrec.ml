@@ -440,7 +440,6 @@ let make_rec_branch_arg env sigma (nparrec,fvect,decF) mind f cstr recargs =
   process_constr env 0 f (List.rev cstr.cs_args, Array.to_list recargs)
 
 (* Main function *)
-(* let sigma, l = mis_make_indrec env sigma [(pind,mib,mip,dep,kind)] mib (snd pind) *)
 let mis_make_indrec env sigma ?(force_mutual=false) listdepkind mib u =
   let env = RelEnv.make env in
   let nparams = mib.mind_nparams in

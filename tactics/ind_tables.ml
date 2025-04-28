@@ -31,6 +31,7 @@ type mutual_scheme_object_function =
 type individual_scheme_object_function =
   Environ.env -> handle -> inductive -> bool -> constr Evd.in_ustate option (* None = silent error *)
 
+(* scheme_name * sort * dep *)
 type 'a scheme_kind = (string list * Sorts.family option * bool)
 
 let pr_scheme_kind (kind : string list * Sorts.family option * bool) = 

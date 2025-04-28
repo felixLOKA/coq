@@ -230,12 +230,10 @@ let build_sym_scheme env _handle ind _ =
   in
   Some (c, UState.of_context_set ctx)
 
-(* Symmetry
-garder le internal pr le suffix, l enlever pour la clefs *)
 let sym_scheme_kind =
   declare_individual_scheme_object (["Symmetry"], None)
     (fun id -> match id with None -> "sym_internal" | Some i -> (Id.to_string i.mind_typename) ^ "_" ^ "sym_internal")
-  build_sym_scheme
+    build_sym_scheme
 
 (**********************************************************************)
 (* Build the involutivity of symmetry for an inductive type           *)
@@ -306,15 +304,12 @@ let build_sym_involutive_scheme env handle ind _ =
                [|mkApp(eqrefl,[|applied_ind_C;cstr (nrealargs+1)|])|])))))
   in Some (c, UState.of_context_set ctx)
 
-(* add suffix *)
-(* let tmp id = Id.to_string ((Id.of_string id) ^ "_sym_involutive") *)
-    
 (* Symmetry Involutive *)
 let sym_involutive_scheme_kind =
   declare_individual_scheme_object (["Symmetry";"Involutive"], None)
-  (fun id -> match id with None -> "sym_involutive" | Some i -> (Id.to_string i.mind_typename) ^ "_" ^ "sym_involutive")
-  ~deps:(fun _ ind _ -> [SchemeIndividualDep (ind, sym_scheme_kind, true)])
-  build_sym_involutive_scheme
+    (fun id -> match id with None -> "sym_involutive" | Some i -> (Id.to_string i.mind_typename) ^ "_" ^ "sym_involutive")
+    ~deps:(fun _ ind _ -> [SchemeIndividualDep (ind, sym_scheme_kind, true)])
+    build_sym_involutive_scheme
 
 (**********************************************************************)
 (* Build the left-to-right rewriting lemma for conclusion associated  *)
@@ -717,12 +712,12 @@ let build_r2l_rew_scheme dep env ind k =
 (* Reverse Dependent Rewrite *)
 let rew_l2r_dep_scheme_kind =
   declare_individual_scheme_object (["Left2Right"; "Dependent"; "Rewrite"], Some InType)
-  (fun id -> match id with None -> "rew_r_dep" | Some i -> (Id.to_string i.mind_typename) ^ "_" ^ "rew_r_dep")
-  ~deps:(fun _ ind _ -> [
-    SchemeIndividualDep (ind, sym_scheme_kind, true);
-    SchemeIndividualDep (ind, sym_involutive_scheme_kind, true);
-  ])
-  (fun env handle ind _ -> build_l2r_rew_scheme true env handle ind InType)
+    (fun id -> match id with None -> "rew_r_dep" | Some i -> (Id.to_string i.mind_typename) ^ "_" ^ "rew_r_dep")
+    ~deps:(fun _ ind _ -> [
+          SchemeIndividualDep (ind, sym_scheme_kind, true);
+          SchemeIndividualDep (ind, sym_involutive_scheme_kind, true);
+        ])
+    (fun env handle ind _ -> build_l2r_rew_scheme true env handle ind InType)
 
 (**********************************************************************)
 (* Dependent rewrite from right-to-left in conclusion                 *)
@@ -734,7 +729,7 @@ let rew_l2r_dep_scheme_kind =
 let rew_r2l_dep_scheme_kind =
   declare_individual_scheme_object (["Right2Left"; "Dependent"; "Rewrite"], Some InType)
     (fun id -> match id with None -> "rew_dep" | Some i -> (Id.to_string i.mind_typename) ^ "_" ^ "rew_dep")
-  (fun env _ ind _ -> build_r2l_rew_scheme true env ind InType)
+    (fun env _ ind _ -> build_r2l_rew_scheme true env ind InType)
 
 (**********************************************************************)
 (* Dependent rewrite from right-to-left in hypotheses                 *)
@@ -745,8 +740,8 @@ let rew_r2l_dep_scheme_kind =
 (* Forward Dependent Rewrite *) 
 let rew_r2l_forward_dep_scheme_kind =
   declare_individual_scheme_object (["Forward"; "Right2Left"; "Dependent"; "Rewrite"], Some InType)
-  (fun id -> match id with None -> "rew_fwd_dep" | Some i -> (Id.to_string i.mind_typename) ^ "_" ^ "rew_fwd_dep")
-  (fun env _ ind _ -> Some (build_r2l_forward_rew_scheme true env ind InType))
+    (fun id -> match id with None -> "rew_fwd_dep" | Some i -> (Id.to_string i.mind_typename) ^ "_" ^ "rew_fwd_dep")
+    (fun env _ ind _ -> Some (build_r2l_forward_rew_scheme true env ind InType))
 
 (**********************************************************************)
 (* Dependent rewrite from left-to-right in hypotheses                 *)
@@ -772,9 +767,9 @@ let rew_l2r_forward_dep_scheme_kind =
 (* Reverse Rewrite *)
 let rew_l2r_scheme_kind =
   declare_individual_scheme_object (["Left2Right"; "Rewrite"], Some InType)
-  (fun id -> match id with None -> "rew_r" | Some i -> (Id.to_string i.mind_typename) ^ "_" ^ "rew_r")
-  (fun env _ ind _ -> fix_r2l_forward_rew_scheme env
-     (build_r2l_forward_rew_scheme false env ind InType))
+    (fun id -> match id with None -> "rew_r" | Some i -> (Id.to_string i.mind_typename) ^ "_" ^ "rew_r")
+    (fun env _ ind _ -> fix_r2l_forward_rew_scheme env
+        (build_r2l_forward_rew_scheme false env ind InType))
 
 (**********************************************************************)
 (* Non-dependent rewrite from either right-to-left in conclusion or   *)
@@ -785,8 +780,8 @@ let rew_l2r_scheme_kind =
 (* Rewrite *)
 let rew_r2l_scheme_kind =
   declare_individual_scheme_object (["Right2Left"; "Rewrite"], Some InType)
-  (fun id -> match id with None -> "rew" | Some i -> (Id.to_string i.mind_typename) ^ "_" ^ "rew")
-  (fun env _ ind _ -> build_r2l_rew_scheme false env ind InType)
+    (fun id -> match id with None -> "rew" | Some i -> (Id.to_string i.mind_typename) ^ "_" ^ "rew")
+    (fun env _ ind _ -> build_r2l_rew_scheme false env ind InType)
 
 (* End of rewriting schemes *)
 
@@ -872,7 +867,7 @@ let build_congr env (eq,refl,ctx) ind _ =
 
 (* Congruence *)
 let congr_scheme_kind = declare_individual_scheme_object (["Congruence"], None)
-  (fun id -> match id with None -> "congr" | Some i -> (Id.to_string i.mind_typename) ^ "_" ^ "congr")
-  (fun env _ ind ->
-     (* May fail if equality is not defined *)
-   build_congr env (get_rocq_eq env UnivGen.empty_sort_context) ind)
+    (fun id -> match id with None -> "congr" | Some i -> (Id.to_string i.mind_typename) ^ "_" ^ "congr")
+    (fun env _ ind ->
+       (* May fail if equality is not defined *)
+       build_congr env (get_rocq_eq env UnivGen.empty_sort_context) ind)
