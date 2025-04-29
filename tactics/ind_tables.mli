@@ -22,14 +22,16 @@ type 'a scheme_kind
 
 type handle
 
+(* Dependency of a scheme on another scheme: (inductive, kind, internal) *)
 type scheme_dependency =
 | SchemeMutualDep of Names.MutInd.t * mutual scheme_kind * bool
 | SchemeIndividualDep of inductive * individual scheme_kind * bool
 
+(* Scheme builders. [bool] = is_dep. [None] = silent failure. *)
 type mutual_scheme_object_function =
-  Environ.env -> handle -> inductive list -> bool -> constr array Evd.in_ustate option (* None = silent error *)
+  Environ.env -> handle -> inductive list -> bool -> constr array Evd.in_ustate option
 type individual_scheme_object_function =
-  Environ.env -> handle -> inductive -> bool -> constr Evd.in_ustate option (* None = silent error *)
+  Environ.env -> handle -> inductive -> bool -> constr Evd.in_ustate option
 
 (** Main functions to register a scheme builder. Note these functions
    are not safe to be used by plugins as their effects won't be undone

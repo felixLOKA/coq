@@ -26,10 +26,11 @@ open Util
 
 type handle = Evd.side_effects
 
+(* Scheme builders. [bool] = is_dep. [None] = silent failure. *)
 type mutual_scheme_object_function =
-  Environ.env -> handle -> inductive list -> bool -> constr array Evd.in_ustate option (* None = silent error *)
+  Environ.env -> handle -> inductive list -> bool -> constr array Evd.in_ustate option
 type individual_scheme_object_function =
-  Environ.env -> handle -> inductive -> bool -> constr Evd.in_ustate option (* None = silent error *)
+  Environ.env -> handle -> inductive -> bool -> constr Evd.in_ustate option
 
 (* scheme_name * sort * dep *)
 type 'a scheme_kind = (string list * Sorts.family option * bool)
@@ -49,10 +50,10 @@ let pr_scheme_kind (kind : string list * Sorts.family option * bool) =
 type individual
 type mutual
 
-
+(* Dependency of a scheme on another scheme: (inductive, kind, internal) *)
 type scheme_dependency =
-| SchemeMutualDep of Names.MutInd.t * mutual scheme_kind * bool (* true = internal *)
-| SchemeIndividualDep of inductive * individual scheme_kind * bool (* true = internal *)
+  | SchemeMutualDep of Names.MutInd.t * mutual scheme_kind * bool
+  | SchemeIndividualDep of inductive * individual scheme_kind * bool
 
 type scheme_object_function =
   | MutualSchemeFunction of mutual_scheme_object_function * (Environ.env -> Names.MutInd.t -> bool -> scheme_dependency list) option
@@ -73,22 +74,6 @@ let key_str key =
     | None -> " (None)"
   in
   str_list ^ str_option
-
-    
-(* let make_suff_fun f ind = *)
-(*   let sort =  *)
-(*      match ind.mind_arity with *)
-(*      | RegularArity a -> a.mind_sort *)
-(*      | TemplateArity b -> b.template_level *)
-(*   in *)
-  
-
-  
-(*   match sort with *)
-  
-(*   (match name with *)
-(*      | None -> (key_str key) *)
-(*      | Some id -> (Id.to_string id) ^ "_" ^ (key_str key)) *)
 
 let declare_scheme_object key suff f =
   let () =
@@ -191,7 +176,7 @@ let define ?loc internal role id c poly uctx =
   let c = UState.nf_universes uctx c in
   let uctx = UState.restrict uctx (Vars.universes_of_constr c) in
   let univs = UState.univ_entry ~poly uctx in
-  (* ici on appelle vernac/declare.ml declare_definition_scheme *)
+  (* here we call vernac/declare.ml::declare_definition_scheme *)
   !declare_definition_scheme ~internal ~univs ~role ~name:id ?loc c
 
   module Locmap : sig

@@ -170,7 +170,6 @@ let declare_one_induction_scheme ?loc ind =
        (InSet, "rec");
        (InSProp, "sind")]
   in
-  (* appelle build_induction_scheme sur les schemes à definir en fonction du type *)
   let elims = List.map (fun (to_kind,dflt_suff) ->
       if from_prop then elim_scheme ~dep:false ~to_kind, Some dflt_suff
       else if depelim then elim_scheme ~dep:true ~to_kind, Some dflt_suff
@@ -269,28 +268,18 @@ let smart_ind qid =
    eliminator and its sort. *)
 let name_and_process_scheme env = function
   | (Some id, {sch_type; sch_qualid; sch_sort}) ->
-    (* let tmp = match sch_sort with Some s -> s | None -> InType in *)
     (id, sch_type, smart_ind sch_qualid, sch_sort)
   | (None, {sch_type; sch_qualid; sch_sort}) ->
-    (* If no name has been provided, we build one from the types of the ind requested *)
     let ind = smart_ind sch_qualid in
     let suffix = Ind_tables.get_suff sch_type sch_sort in
-    (* let ind_path = (try *)
-    (*                   Nametab.locate (Libnames.qualid_of_ident (Nametab.basename_of_global (Names.GlobRef.IndRef ind))) *)
-    (*                 with Not_found -> CErrors.user_err Pp.(str "You can't declare a scheme for this inductive. 1")) *)
-    (* in *)
-    (* let (mind,one_ind) = match ind_path with  *)
-    (*   | IndRef a -> Global.lookup_inductive a *)
-    (*   | _ -> CErrors.user_err Pp.(str "You can't declare a scheme for this inductive. 2") *)
-    (* in *)
     let (mind,one_ind) = Global.lookup_inductive ind in
     let newid = Names.Id.of_string (suffix (Some one_ind)) in
     let newref = CAst.make newid in
-    (* let tmp = match sch_sort with Some s -> s | None -> InType in *)
     (newref,sch_type, ind, sch_sort)
 
 let do_mutual_scheme ?(force_mutual=false) env l =
   match l with
+  (* if calling with one inductiv try define individual scheme *)
   | ({CAst.v},kind,(mutind,i as ind),sort)::[] ->
     (try
       define_individual_scheme (scheme_key (kind,sort,false)) (Some v) ind
@@ -308,6 +297,7 @@ let do_scheme env l =
   let lnamedepindsort = List.map (name_and_process_scheme env) l in
   do_mutual_scheme env lnamedepindsort
 
+(* TODO : redifine do_mutual_induction_scheme using do_mutual_scheme *)
 let _do_mutual_induction_scheme ?(force_mutual=false) env ?(isrec=true) l =
   let sigma, inst =
     let _,_,ind,_ = match l with | x::_ -> x | [] -> assert false in

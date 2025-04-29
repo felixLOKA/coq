@@ -365,7 +365,7 @@ let print_registered_schemes () =
   let pr_schemes_of_ind (ind, schemes) =
     let tmp = Sorts.Map.bindings schemes in
     let tmpp = List.map (fun ((a,c,d),b) ->
-        (* /!\ will print 2 times if individual and mutual (represented by bool d here) are defined for a given scheme *)
+        (* /!\ will print 2 times if both individual and mutual (represented by bool d here) are defined for a given scheme *)
         let s1 = String.concat " " a in
         let s2 = match c with
           | Some s -> " (" ^ (Sorts.family_to_str s) ^ ")"
@@ -2315,9 +2315,6 @@ let vernac_locate ~pstate query =
   | LocateOther (s, qid) -> Prettyp.print_located_other env s qid
   | LocateFile f -> locate_file f
 
-(* let warn_unknown_scheme_kind = CWarnings.create ~name:"unknown-scheme-kind" *)
-(*     Pp.(fun sk -> str "Unknown scheme kind " ++ Libnames.pr_qualid sk ++ str ".") *)
-
 let vernac_register ~atts qid r =
   let gr = Smartlocate.global_with_alias qid in
   match r with
@@ -2355,10 +2352,7 @@ let vernac_register ~atts qid r =
       | ConstRef c -> c
       | _ -> CErrors.user_err ?loc:qid.loc Pp.(str "Register Scheme: expecing a constant.")
     in
-    (* let scheme_kind_s = Libnames.string_of_qualid scheme_kind in *)
-    (* let scheme_kind_s_list = String.split_on_char '_' scheme_kind_s in *)
     let () = if not (Ind_tables.is_declared_scheme_object (scheme_kind, Some InType,false)) then
-        (* warn_unknown_scheme_kind ?loc:scheme_kind.loc scheme_kind *)
         CErrors.user_err Pp.(str ("unknown scheme kind " ^ (String.concat " " scheme_kind)))
     in
     let ind = Smartlocate.global_inductive_with_alias inductive in

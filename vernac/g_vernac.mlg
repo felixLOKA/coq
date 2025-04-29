@@ -536,13 +536,6 @@ GRAMMAR EXTEND Gram
   ident_list:
     [ [ ids = LIST1 IDENT -> {ids} ] ]
   ;
-  (* scheme_type:
-    [ [ IDENT "Induction" -> { SchemeInduction }
-      | IDENT "Minimality" -> { SchemeMinimality }
-      | IDENT "Elimination" -> { SchemeElimination }
-      | IDENT "Case" -> { SchemeCase }
-    ] ]
-  ; *)
   (* Various Binders *)
 (*
   (* ... without coercions *)

@@ -872,12 +872,8 @@ let build_beq_scheme env handle kn =
 
   res, uctx
 
-(* ======================================================================================== *)
-
 open Pp
-
-(* enlever le handle 
-qd appelle try decla, on applique a f a qui on a appliqué au handle *)
+(* Try to declare a scheme. On noncritical error, raise a user-friendly message. *)
 let try_declare_scheme what f env kn =
   try Some (f env kn) (* Some f  *)
   with e when CErrors.noncritical e ->
@@ -922,21 +918,18 @@ let try_declare_scheme what f env kn =
 
 let beq_scheme_msg (mind,i) =
   let mib = Global.lookup_mind mind in
-  (* TODO: mutual inductive case *)
   str "Boolean equality on " ++
     pr_enum (fun ind -> quote (Printer.pr_inductive (Global.env()) ind))
     (List.init (Array.length mib.mind_packets) (fun i -> (mind,i)))
 
-let eq_dec_scheme_msg ind = (* TODO: mutual inductive case *)
+let eq_dec_scheme_msg ind = 
   str "Decidable equality on " ++ quote (Printer.pr_inductive (Global.env()) ind)
 
-let bool2leibniz_scheme_msg ind = (* TODO: mutual inductive case *)
+let bool2leibniz_scheme_msg ind = 
   str "Boolean to Leibniz on " ++ quote (Printer.pr_inductive (Global.env()) ind)
 
-let leibniz2bool_scheme_msg ind = (* TODO: mutual inductive case *)
+let leibniz2bool_scheme_msg ind = 
   str "Leibniz to Boolean on " ++ quote (Printer.pr_inductive (Global.env()) ind)
-
-(* ======================================================================================== *)  
 
 let prepare_f_handle f handle =
   fun env' mutind' -> f env' handle mutind'
@@ -1274,7 +1267,7 @@ let make_bl_scheme env handle indl =
 let make_bl_scheme_deps env ind _ =
   let inds = get_inductive_deps ~noprop:false env ind in
   let map ind = Ind_tables.SchemeMutualDep (ind, !bl_scheme_kind_aux (), true) in
-  Ind_tables.SchemeMutualDep (ind, beq_scheme_kind, true) :: List.map map inds                                                                
+  Ind_tables.SchemeMutualDep (ind, beq_scheme_kind, true) :: List.map map inds
 
 let bl_scheme_kind =
   Ind_tables.declare_mutual_scheme_object (["Boolean";"Leibniz"],Some InType)
@@ -1580,13 +1573,6 @@ let compute_dec_tact handle (ind,u) lnamesparrec nparrec =
 
 let make_eq_decidability env handle indl =
   let (mind,i) = match indl with hd::r -> hd | _ -> assert false in
-  (* let kind  = (["Boolean";"Equality"],Some Sorts.InType,true) in *)
-  (* let _ = *)
-  (*   try *)
-  (*     DeclareScheme.lookup_scheme kind (mind,i) *)
-  (*   with Not_found -> Ind_tables.define_mutual_scheme (Ind_tables.scheme_key kind) [] indl; *)
-  (*     DeclareScheme.lookup_scheme kind (mind,i) *)
-  (* in *)
   let mib = Environ.lookup_mind mind env in
   if not (Int.equal (Array.length mib.mind_packets) 1) then
     raise DecidabilityMutualNotSupported;
@@ -1608,9 +1594,6 @@ let make_eq_decidability env handle indl =
   in
   ([|ans|], ctx)
 
-(* let try_make_eq_decidability env handle indl = *)
-(*   try_declare_scheme  *)
-
 let eq_dec_scheme_kind =
   Ind_tables.declare_mutual_scheme_object (["Equality"], Some InType)
   (fun id -> match id with None -> "eq_dec" | Some i -> (Id.to_string i.mind_typename) ^ "_" ^ "eq_dec")
@@ -1619,7 +1602,7 @@ let eq_dec_scheme_kind =
     try_declare_scheme (eq_dec_scheme_msg (List.hd kn)) (prepare_f_handle make_eq_decidability handle) env kn)
   
 (* The eq_dec_scheme proofs depend on the equality and discr tactics
-  but the inj tactics, that comes with discr, depends on the
-  eq_dec_scheme... *)
+ but the inj tactics, that comes with discr, depends on the
+ eq_dec_scheme... *)
 
 let _ = Equality.set_eq_dec_scheme_kind eq_dec_scheme_kind
