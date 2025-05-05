@@ -42,9 +42,9 @@ let subst_rename_args (subst, (_, (r, names as orig))) =
   if r==r' then orig else (r', names)
 
 let discharge_rename_args = function
-  | ReqGlobal, (c, names) as req when not (isVarRef c && Lib.is_in_section c) ->
+  | ReqGlobal, (c, names) as req when not (isVarRef c && Global.is_in_section c) ->
      (try
-       let var_names = Array.map_to_list (fun c -> Name (destVar c)) (Lib.section_instance c) in
+       let var_names = Array.map_to_list (fun c -> Name (destVar c)) (Global.section_instance c) in
        let names = var_names @ names in
        Some (ReqGlobal, (c, names))
      with Not_found -> Some req)

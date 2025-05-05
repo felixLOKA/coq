@@ -90,9 +90,9 @@ let disch_ref ref =
   match ref with
   | Evaluable.EvalConstRef c -> Some ref
   | Evaluable.EvalProjectionRef p ->
-    let p = Lib.discharge_proj_repr p in
+    let p = Global.discharge_proj_repr p in
     Some (Evaluable.EvalProjectionRef p)
-  | Evaluable.EvalVarRef id -> if Lib.is_in_section (GlobRef.VarRef id) then None else Some ref
+  | Evaluable.EvalVarRef id -> if Global.is_in_section (GlobRef.VarRef id) then None else Some ref
 
 let discharge_strategy (local,obj) =
   if local then None else

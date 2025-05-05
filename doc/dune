@@ -14,8 +14,6 @@
   ;   + config/coq_config.py
   ;   + tools/coqdoc/coqdoc.css
   (package rocq-runtime)
-  (package coq-core)
-  (package rocq-core)
   (source_tree sphinx)
   (source_tree tools/coqrst)
   unreleased.rst
@@ -26,14 +24,11 @@
  (targets
   (dir refman-html))
  (alias refman-html)
- (package coq-doc)
  ; Cannot use this deps alias because of ocaml/dune#3415
  ; (deps (alias refman-deps))
  ; EJGA: note this should've been fixed in dune master as of 05/03/2021
  (deps
   (package rocq-runtime)
-  (package coq-core)
-  (package rocq-core)
   (source_tree sphinx)
   (source_tree tools/coqrst)
   ../config/coq_config.py
@@ -47,14 +42,11 @@
  (targets
   (dir refman-pdf))
  (alias refman-pdf)
- (package coq-doc)
  ; Cannot use this deps alias because of ocaml/dune#3415
  ; (deps (alias refman-deps))
  ; EJGA: note this should've been fixed in dune master as of 05/03/2021
  (deps
   (package rocq-runtime)
-  (package coq-core)
-  (package rocq-core)
   (source_tree sphinx)
   (source_tree tools/coqrst)
   ../config/coq_config.py
@@ -66,13 +58,3 @@
   (progn
    (run env sphinx-build -q %{env:SPHINXWARNOPT=-W} -b latex sphinx %{targets})
    (chdir %{targets} (run make LATEXMKOPTS=-silent)))))
-
-(install
- (dirs
-  (refman-html as html/refman)
-  (refman-pdf as pdf/refman))
- (section doc)
- (package coq-doc))
-
-(documentation
- (package coq-doc))

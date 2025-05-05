@@ -363,12 +363,12 @@ let print_registered_schemes () =
     pr_global (ConstRef c) ++ str " registered as " ++ str kind ++ str " for " ++ pr_global (IndRef ind)
   in
   let pr_schemes_of_ind (ind, schemes) =
-    let tmp = Sorts.Map.bindings schemes in
+    let tmp = UnivGen.Map.bindings schemes in
     let tmpp = List.map (fun ((a,c,d),b) ->
         (* /!\ will print 2 times if both individual and mutual (represented by bool d here) are defined for a given scheme *)
         let s1 = String.concat " " a in
         let s2 = match c with
-          | Some s -> " (" ^ (Sorts.family_to_str s) ^ ")"
+          | Some s -> " (" ^ (UnivGen.family_to_str s) ^ ")"
           | None -> " (None)"
         in
         ((s1 ^ s2),b)) tmp in
@@ -1377,14 +1377,14 @@ let add_subnames_of ?loc len n ns full_n ref =
     let ns = Array.fold_left_i (fun j ns _ -> add1 (ConstructRef ((mind,i),j+1)) ns)
         ns mip.mind_consnames
     in
-    List.fold_left (fun ns f ->
-        let s = Indrec.elimination_suffix f in
+    List.fold_left (fun ns q ->
+        let s = Indrec.elimination_suffix q in
         let n_elim = Id.of_string (Id.to_string mip.mind_typename ^ s) in
         match importable_extended_global_of_path ?loc (Libnames.add_path_suffix path_prefix n_elim) with
         | exception Not_found -> ns
         | None -> ns
         | Some ref -> (len, ref) :: ns)
-      ns Sorts.all_families
+      ns UnivGen.QualityOrSet.all
 
 let interp_names m ns =
   let dp_m = Nametab.path_of_module m in
@@ -2078,7 +2078,7 @@ let get_current_context_of_args ~pstate =
 
 let query_command_selector ?loc = function
   | None -> None
-  | Some (Goal_select.SelectNth n) -> Some n
+  | Some (Goal_select.SelectList [NthSelector n]) -> Some n
   | _ -> user_err ?loc
       (str "Query commands only support the single numbered goal selector.")
 
@@ -2352,12 +2352,13 @@ let vernac_register ~atts qid r =
       | ConstRef c -> c
       | _ -> CErrors.user_err ?loc:qid.loc Pp.(str "Register Scheme: expecing a constant.")
     in
-    let () = if not (Ind_tables.is_declared_scheme_object (scheme_kind, Some InType,false)) then
+    let inType = (UnivGen.QualityOrSet.Qual (Sorts.Quality.QConstant QType)) in
+    let () = if not (Ind_tables.is_declared_scheme_object (scheme_kind, Some inType,false)) then
         CErrors.user_err Pp.(str ("unknown scheme kind " ^ (String.concat " " scheme_kind)))
     in
     let ind = Smartlocate.global_inductive_with_alias inductive in
     Dumpglob.add_glob ?loc:inductive.loc (IndRef ind);
-    DeclareScheme.declare_scheme local (scheme_kind, Some InType,false) (ind,gr)
+    DeclareScheme.declare_scheme local (scheme_kind, Some inType,false) (ind,gr)
 
 let vernac_library_attributes atts =
   if Global.is_curmod_library () && not (Lib.sections_are_opened ()) then
@@ -2404,8 +2405,8 @@ let vernac_subproof gln ~pstate =
   Declare.Proof.map ~f:(fun p ->
     match gln with
     | None -> Proof.focus subproof_cond () 1 p
-    | Some (Goal_select.SelectNth n) -> Proof.focus subproof_cond () n p
-    | Some (Goal_select.SelectId id) -> Proof.focus_id subproof_cond () id p
+    | Some (Goal_select.SelectList [NthSelector n]) -> Proof.focus subproof_cond () n p
+    | Some (Goal_select.SelectList [IdSelector id]) -> Proof.focus_id subproof_cond () id p
     | _ -> user_err
              (str "Brackets do not support multi-goal selectors."))
     pstate

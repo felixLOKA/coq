@@ -199,27 +199,27 @@ type unsafe_needs = {
   magic : bool
 }
 
-type language_descr = {
+type 's language_descr = {
   keywords : Id.Set.t;
 
   (* Concerning the source file *)
   file_suffix : string;
-  file_naming : ModPath.t -> string;
+  file_naming : 's -> ModPath.t -> string;
   (* the second argument is a comment to add to the preamble *)
   preamble :
-    Id.t -> Pp.t option -> ModPath.t list -> unsafe_needs ->
+    's -> Id.t -> Pp.t option -> ModPath.t list -> unsafe_needs ->
     Pp.t;
-  pp_struct : ml_structure -> Pp.t;
+  pp_struct : 's -> ml_structure -> Pp.t;
 
   (* Concerning a possible interface file *)
   sig_suffix : string option;
   (* the second argument is a comment to add to the preamble *)
   sig_preamble :
-    Id.t -> Pp.t option -> ModPath.t list -> unsafe_needs ->
+    's -> Id.t -> Pp.t option -> ModPath.t list -> unsafe_needs ->
     Pp.t;
-  pp_sig : ml_signature -> Pp.t;
+  pp_sig : 's -> ml_signature -> Pp.t;
 
   (* for an isolated declaration print *)
-  pp_decl : ml_decl -> Pp.t;
+  pp_decl : 's -> ml_decl -> Pp.t;
 
 }

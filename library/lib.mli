@@ -180,11 +180,16 @@ val library_part :  GlobRef.t -> DirPath.t
 
 (** {6 Section management for discharge } *)
 val section_segment_of_constant : Constant.t -> Cooking.cooking_info
+[@@deprecated "Use [Global.section_segment_of_constant]"]
 val section_segment_of_inductive: MutInd.t -> Cooking.cooking_info
+[@@deprecated "Use [Global.section_segment_of_inductive]"]
 val section_segment_of_reference : GlobRef.t -> Cooking.cooking_info
+[@@deprecated "Use [Global.section_segment_of_reference]"]
 
 val section_instance : GlobRef.t -> Constr.t array
+[@@deprecated "Use [Global.section_instance]"]
 val is_in_section : GlobRef.t -> bool
+[@@deprecated "Use [Global.is_in_section]"]
 
 (** {6 Discharge: decrease the section level if in the current section } *)
 
@@ -192,6 +197,7 @@ val is_in_section : GlobRef.t -> bool
     was defined in the current section. If that is not the case, it returns [p]
     unchanged. *)
 val discharge_proj_repr : Projection.Repr.t -> Projection.Repr.t
+[@@deprecated "Use [Global.discharge_proj_repr]"]
 
 (** Compatibility layer *)
 

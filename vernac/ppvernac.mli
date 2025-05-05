@@ -29,3 +29,7 @@ val pr_using : Vernacexpr.section_subset_expr -> Pp.t
 
 (** Prints a vernac expression and closes it with a dot. *)
 val pr_vernac : Vernacexpr.vernac_control -> Pp.t
+
+(** Prints attributes, including surrounding "#[" "]", followed by space
+    (empty on empty list) *)
+val pr_vernac_attributes : Attributes.vernac_flag list -> Pp.t

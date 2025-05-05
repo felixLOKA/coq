@@ -87,6 +87,10 @@ val of_exninfo : Exninfo.info -> valexpr
 val to_exninfo : valexpr -> Exninfo.info
 val exninfo : Exninfo.info repr
 
+val of_result : ('a -> valexpr) -> ('a, Exninfo.iexn) result -> valexpr
+val to_result : (valexpr -> 'a) -> valexpr -> ('a, Exninfo.iexn) result
+val result : 'a repr -> ('a, Exninfo.iexn) result repr
+
 val of_ident : Id.t -> valexpr
 val to_ident : valexpr -> Id.t
 val ident : Id.t repr
@@ -94,6 +98,20 @@ val ident : Id.t repr
 val of_closure : closure -> valexpr
 val to_closure : valexpr -> closure
 val closure : closure repr
+
+type ('a, 'b) fun1 = 'a -> 'b Proofview.tactic
+
+val of_fun1 : (valexpr -> 'a) -> ('b -> valexpr) -> ('a, 'b) fun1 -> valexpr
+val to_fun1 : ('a -> valexpr) -> (valexpr -> 'b) -> valexpr -> ('a, 'b) fun1
+val fun1 : 'a repr -> 'b repr -> ('a, 'b) fun1 repr
+
+val thunk : 'a repr -> (unit,'a) fun1 repr
+
+type ('a, 'b, 'c) fun2 = 'a -> 'b -> 'c Proofview.tactic
+
+val of_fun2 : (valexpr -> 'a) -> (valexpr -> 'b) -> ('c -> valexpr) -> ('a, 'b, 'c) fun2 -> valexpr
+val to_fun2 : ('a -> valexpr) -> ('b -> valexpr) -> (valexpr -> 'c) -> valexpr -> ('a, 'b, 'c) fun2
+val fun2 : 'a repr -> 'b repr -> 'c repr -> ('a, 'b, 'c) fun2 repr
 
 val of_block : (int * valexpr array) -> valexpr
 val to_block : valexpr -> (int * valexpr array)
@@ -213,13 +231,6 @@ val float : Float64.t repr
 val of_pstring : Pstring.t -> valexpr
 val to_pstring : valexpr -> Pstring.t
 val pstring : Pstring.t repr
-
-type ('a, 'b) fun1
-
-val app_fun1 : ('a, 'b) fun1 -> 'a repr -> 'b repr -> 'a -> 'b Proofview.tactic
-
-val to_fun1 : 'a repr -> 'b repr -> valexpr -> ('a, 'b) fun1
-val fun1 : 'a repr -> 'b repr -> ('a, 'b) fun1 repr
 
 val valexpr : valexpr repr
 

@@ -50,14 +50,14 @@ type phase = Pre | Impl | Intf
 val set_phase : phase -> unit
 val get_phase : unit -> phase
 
-val opened_libraries : unit -> ModPath.t list
+val opened_libraries : Table.t -> ModPath.t list
 
 type kind = Term | Type | Cons | Mod
 
-val pp_global_with_key : kind -> KerName.t -> GlobRef.t -> string
-val pp_global : kind -> GlobRef.t -> string
-val pp_global_name : kind -> GlobRef.t -> string
-val pp_module : ModPath.t -> string
+val pp_global_with_key : Table.t -> kind -> KerName.t -> GlobRef.t -> string
+val pp_global : Table.t -> kind -> GlobRef.t -> string
+val pp_global_name : Table.t -> kind -> GlobRef.t -> string
+val pp_module : Table.t -> ModPath.t -> string
 
 val top_visible_mp : unit -> ModPath.t
 (* In [push_visible], the [module_path list] corresponds to

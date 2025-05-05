@@ -31,7 +31,7 @@ TEST      success/fail.v
 ...
 BUILDING SUMMARY FILE
 FAILURES
-    success/fail.v...Error! (should be accepted)
+    success/fail.v ... Error! (should be accepted)
 Makefile:189: recipe for target 'all failed
 make: *** [report] Error 1
 
@@ -48,10 +48,10 @@ Syntax error: [vernac:Vernac.vernac_control] expected after 'Fail' (in [vernac:V
 0m0.000000s 0m0.000000s
 0m0.040000s 0m0.000000s
 ==========> FAILURE <==========
-    success/fail.v...Error! (should be accepted)
+    success/fail.v ... Error! (should be accepted)
 
 FAILURES
-    success/fail.v...Error! (should be accepted)
+    success/fail.v ... Error! (should be accepted)
 Makefile:189: recipe for target 'report' failed
 make: *** [report] Error 1
 

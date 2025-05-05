@@ -9,7 +9,7 @@
 
 # nix-shell supports the --arg option (see Nix doc) that allows you for
 # instance to do this:
-# $ nix-shell --arg ocamlPackages "(import <nixpkgs> {}).ocaml-ng.ocamlPackages_4_09" --arg buildIde false
+# $ nix-shell --arg ocamlPackages "(import <nixpkgs> {}).ocaml-ng.ocamlPackages_4_14" --arg buildIde false
 
 # You can also compile Rocq and "install" it by running:
 # $ make clean # (only needed if you have left-over compilation files)

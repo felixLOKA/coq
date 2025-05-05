@@ -10,10 +10,10 @@
 open Libobject
 open Structures
 
-let open_canonical_structure i (o,_) =
+let open_canonical_structure (o,_) =
   let env = Global.env () in
   let sigma = Evd.from_env env in
-  if Int.equal i 1 then Instance.register env sigma ~warn:false o
+  Instance.register env sigma ~warn:false o
 
 let cache_canonical_structure (o,_) =
   let env = Global.env () in
@@ -22,7 +22,7 @@ let cache_canonical_structure (o,_) =
 
 let discharge_canonical_structure (x, local) =
   let gref = Instance.repr x in
-  if local || (Globnames.isVarRef gref && Lib.is_in_section gref) then None
+  if local || (Globnames.isVarRef gref && Global.is_in_section gref) then None
   else Some (x, local)
 
 let canon_cat = create_category "canonicals"

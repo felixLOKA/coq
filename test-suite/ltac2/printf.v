@@ -32,6 +32,13 @@ Fail Ltac2 Eval printf "%a" (fun _ i => Message.of_int i) "foo".
 
 Import Message.
 
+Ltac2 Eval
+  Control.assert_true (
+    String.equal
+      (Message.to_string Message.empty)
+      (Message.to_string (Message.of_string ""))
+  ).
+
 Ltac2 print_if b fmt :=
   if b then Format.kfprintf Message.to_string fmt
   else Format.ikfprintf Message.to_string (Message.of_string "") fmt.

@@ -28,8 +28,8 @@ let compute_secvars gl =
   let hyps = Proofview.Goal.hyps gl in
   secvars_of_hyps hyps
 
-(* tell auto not to reuse already instantiated metas in unification (for
-   compatibility, since otherwise, apply succeeds oftener) *)
+(* Tell auto not to reuse already instantiated metas in unification (for
+   compatibility, since otherwise, apply succeeds more often). *)
 
 open Unification
 
@@ -60,7 +60,7 @@ let auto_unif_flags_of st1 st2 =
 let auto_unif_flags =
   auto_unif_flags_of TransparentState.full TransparentState.empty
 
-(* Try unification with the precompiled clause, then use registered Apply *)
+(* Try unification with the precompiled clause, then use registered Apply. *)
 
 let unify_resolve flags h = Hints.hint_res_pf ~flags h
 let unify_resolve_nodelta h = Hints.hint_res_pf ~flags:auto_unif_flags h

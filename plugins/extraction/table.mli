@@ -16,12 +16,16 @@ open Declarations
 module Refset' : CSig.USetS with type elt = GlobRef.t
 module Refmap' : CSig.UMapS with type key = GlobRef.t
 
-val safe_basename_of_global : GlobRef.t -> Id.t
+type t
+
+val safe_basename_of_global : t -> GlobRef.t -> Id.t
+
+val make_table : unit -> t
 
 (*s Warning and Error messages. *)
 
-val warning_axioms : unit -> unit
-val warning_opaques : bool -> unit
+val warning_axioms : t -> unit
+val warning_opaques : t -> bool -> unit
 val warning_ambiguous_name : ?loc:Loc.t -> qualid * ModPath.t * GlobRef.t -> unit
 val warning_id : string -> unit
 val error_axiom_scheme : ?loc:Loc.t -> GlobRef.t -> int -> 'a
@@ -50,8 +54,8 @@ val modpath_of_r : GlobRef.t -> ModPath.t
 val label_of_r : GlobRef.t -> Label.t
 val base_mp : ModPath.t -> ModPath.t
 val is_modfile : ModPath.t -> bool
-val string_of_modfile : ModPath.t -> string
-val file_of_modfile : ModPath.t -> string
+val string_of_modfile : t -> ModPath.t -> string
+val file_of_modfile : t -> ModPath.t -> string
 val is_toplevel : ModPath.t -> bool
 val at_toplevel : ModPath.t -> bool
 val mp_length : ModPath.t -> int
@@ -71,41 +75,39 @@ val labels_of_ref : GlobRef.t -> ModPath.t * Label.t list
    [mutual_inductive_body] as checksum. In both case, we should ideally
    also check the env *)
 
-val add_typedef : Constant.t -> constant_body -> ml_type -> unit
-val lookup_typedef : Constant.t -> constant_body -> ml_type option
+val add_typedef : t -> Constant.t -> constant_body -> ml_type -> unit
+val lookup_typedef : t -> Constant.t -> constant_body -> ml_type option
 
-val add_cst_type : Constant.t -> constant_body -> ml_schema -> unit
-val lookup_cst_type : Constant.t -> constant_body -> ml_schema option
+val add_cst_type : t -> Constant.t -> constant_body -> ml_schema -> unit
+val lookup_cst_type : t -> Constant.t -> constant_body -> ml_schema option
 
-val add_ind : MutInd.t -> mutual_inductive_body -> ml_ind -> unit
-val lookup_ind : MutInd.t -> mutual_inductive_body -> ml_ind option
+val add_ind : t -> MutInd.t -> mutual_inductive_body -> ml_ind -> unit
+val lookup_ind : t -> MutInd.t -> mutual_inductive_body -> ml_ind option
 
-val add_inductive_kind : MutInd.t -> inductive_kind -> unit
-val is_coinductive : GlobRef.t -> bool
-val is_coinductive_type : ml_type -> bool
+val add_inductive_kind : t -> MutInd.t -> inductive_kind -> unit
+val is_coinductive : t -> GlobRef.t -> bool
+val is_coinductive_type : t -> ml_type -> bool
 (* What are the fields of a record (empty for a non-record) *)
 val get_record_fields :
-  GlobRef.t -> GlobRef.t option list
-val record_fields_of_type : ml_type -> GlobRef.t option list
+  t -> GlobRef.t -> GlobRef.t option list
+val record_fields_of_type : t -> ml_type -> GlobRef.t option list
 
-val add_recursors : Environ.env -> MutInd.t -> unit
-val is_recursor : GlobRef.t -> bool
+val add_recursors : t -> Environ.env -> MutInd.t -> unit
+val is_recursor : t -> GlobRef.t -> bool
 
-val add_projection : int -> Constant.t -> inductive -> unit
-val is_projection : GlobRef.t -> bool
-val projection_arity : GlobRef.t -> int
-val projection_info : GlobRef.t -> inductive * int (* arity *)
+val add_projection : t -> int -> Constant.t -> inductive -> unit
+val is_projection : t -> GlobRef.t -> bool
+val projection_arity : t -> GlobRef.t -> int
+val projection_info : t -> GlobRef.t -> inductive * int (* arity *)
 
-val add_info_axiom : GlobRef.t -> unit
-val remove_info_axiom : GlobRef.t -> unit
-val add_log_axiom : GlobRef.t -> unit
-val add_symbol : GlobRef.t -> unit
-val add_symbol_rule : GlobRef.t -> Label.t -> unit
+val add_info_axiom : t -> GlobRef.t -> unit
+val remove_info_axiom : t -> GlobRef.t -> unit
+val add_log_axiom : t -> GlobRef.t -> unit
+val add_symbol : t -> GlobRef.t -> unit
+val add_symbol_rule : t -> GlobRef.t -> Label.t -> unit
 
-val add_opaque : GlobRef.t -> unit
-val remove_opaque : GlobRef.t -> unit
-
-val reset_tables : unit -> unit
+val add_opaque : t -> GlobRef.t -> unit
+val remove_opaque : t -> GlobRef.t -> unit
 
 (*s Output Directory parameter *)
 

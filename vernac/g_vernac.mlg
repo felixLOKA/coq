@@ -118,8 +118,8 @@ GRAMMAR EXTEND Gram
     ]
   ;
   decorated_vernac:
-    [ [ a = quoted_attributes ; fv = vernac ->
-        { let (f, v) = fv in (List.append a f, v) } ] ]
+    [ [ a = quoted_attributes ; a' = LIST0 legacy_attr; v = vernac_aux ->
+        { (List.append a a', v) } ] ]
   ;
   quoted_attributes:
     [ [ l = LIST0 [ "#[" ; a = attribute_list ; "]" -> { a } ] -> { List.flatten l } ]
@@ -160,9 +160,6 @@ GRAMMAR EXTEND Gram
       | IDENT "Program" ->
         { CAst.make ~loc ("program", VernacFlagEmpty) }
       ] ]
-  ;
-  vernac:
-    [ [ attrs = LIST0 legacy_attr; v = vernac_aux -> { (attrs, v) } ] ]
   ;
   vernac_aux:
     (* Better to parse "." here: in case of failure (e.g. in coerce_to_var), *)
@@ -530,7 +527,7 @@ GRAMMAR EXTEND Gram
       | kind = scheme_kind -> { (None,kind) } ] ]
   ;
   scheme_kind:
-    [ [ sch_type = ident_list; "for"; sch_qualid = smart_global; IDENT "Sort"; sf = sort_family -> { {sch_type; sch_qualid; sch_sort = Some sf } }
+    [ [ sch_type = ident_list; "for"; sch_qualid = smart_global; IDENT "Sort"; sf = sort_quality_or_set -> { {sch_type; sch_qualid; sch_sort = Some sf } }
       | sch_type = ident_list; "for"; sch_qualid = smart_global -> { {sch_type; sch_qualid; sch_sort = None } } ] ]
   ;
   ident_list:
@@ -998,23 +995,12 @@ let test_bracket_ident =
 GRAMMAR EXTEND Gram
   GLOBAL: toplevel_selector goal_selector;
   range_selector:
-    [ [ n = natural ; "-" ; m = natural -> { (n, m) }
-      | n = natural -> { (n, n) } ] ]
-  ;
-  (* We unfold a range selectors list once so that we can make a special case
-   * for a unique SelectNth selector. *)
-  range_selector_or_nth:
-    [ [ n = natural ; "-" ; m = natural;
-        l = OPT [","; l = LIST1 range_selector SEP "," -> { l } ] ->
-        { Goal_select.SelectList ((n, m) :: Option.default [] l) }
-      | n = natural;
-        l = OPT [","; l = LIST1 range_selector SEP "," -> { l } ] ->
-        { let open Goal_select in
-          Option.cata (fun l -> SelectList ((n, n) :: l)) (SelectNth n) l } ] ]
+    [ [ n = natural ; "-" ; m = natural -> { Proofview.RangeSelector (n, m) }
+      | n = natural -> { Proofview.NthSelector n }
+      | test_bracket_ident; "["; id = ident; "]" -> { Proofview.IdSelector id } ] ]
   ;
   goal_selector:
-  [ [ l = range_selector_or_nth -> { l }
-    | test_bracket_ident; "["; id = ident; "]" -> { Goal_select.SelectId id } ] ]
+  [ [ l = LIST1 range_selector SEP "," -> { Goal_select.SelectList l } ] ]
   ;
   toplevel_selector:
     [ [ sel = goal_selector; ":" -> { sel }

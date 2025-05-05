@@ -111,6 +111,45 @@ let open_section () = globalize0 Safe_typing.open_section
 let close_section fs = globalize0_with_summary fs Safe_typing.close_section
 let sections_are_opened () = Safe_typing.sections_are_opened (safe_env())
 
+let sections () = Safe_typing.sections_of_safe_env @@ safe_env ()
+
+let force_sections () = match sections() with
+  | Some s -> s
+  | None ->
+    (* XXX should this be anomaly? *)
+    CErrors.user_err Pp.(str "No open section.")
+
+let section_segment_of_constant con =
+  Section.segment_of_constant con (force_sections ())
+
+let section_segment_of_inductive kn =
+  Section.segment_of_inductive kn (force_sections ())
+
+let section_segment_of_reference = let open GlobRef in function
+| ConstRef c -> section_segment_of_constant c
+| IndRef (kn,_) | ConstructRef ((kn,_),_) ->
+  section_segment_of_inductive kn
+| VarRef _ -> Cooking.empty_cooking_info
+
+let is_in_section ref = match sections () with
+  | None -> false
+  | Some sec ->
+    Section.is_in_section (env ()) ref sec
+
+let section_instance ref =
+  Cooking.instance_of_cooking_info (section_segment_of_reference ref)
+
+let discharge_section_proj_repr p =
+  let ind = Projection.Repr.inductive p in
+  let sec = section_segment_of_reference (GlobRef.IndRef ind) in
+  Cooking.discharge_proj_repr sec p
+
+let discharge_proj_repr p =
+    if is_in_section (Names.GlobRef.IndRef (Names.Projection.Repr.inductive p)) then
+      discharge_section_proj_repr p
+    else
+      p
+
 let start_module id = globalize (Safe_typing.start_module (i2l id))
 let start_modtype id = globalize (Safe_typing.start_modtype (i2l id))
 

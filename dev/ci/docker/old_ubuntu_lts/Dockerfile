@@ -49,12 +49,12 @@ ENV NJOBS="2" \
 RUN mkdir -p ~/.config/dune && printf '(lang dune 2.1)\n(jobs %s)\n' $NJOBS > ~/.config/dune/config
 
 # Base opam is the set of base packages required by Coq
-ENV COMPILER="4.09.0"
+ENV COMPILER="4.14.0"
 
 # Common OPAM packages
 ENV BASE_OPAM="zarith.1.11 ounit2.2.2.6 yojson.1.7.0 camlzip.1.10" \
     CI_OPAM="ocamlgraph.2.0.0 cppo.1.6.9" \
-    BASE_ONLY_OPAM="dune.3.8.3 stdlib-shims.0.1.0 ocamlfind.1.8.1 odoc.2.0.2 num.1.4"
+    BASE_ONLY_OPAM="dune.3.8.3 stdlib-shims.0.1.0 ocamlfind.1.9.1 odoc.2.0.2 num.1.4"
 
 # BASE switch; CI_OPAM contains Coq's CI dependencies.
 ENV COQIDE_OPAM="cairo2.0.6.1 lablgtk3-sourceview3.3.1.2"
@@ -69,8 +69,10 @@ RUN opam init -a --disable-sandboxing --compiler="$COMPILER" default https://opa
     find ~ '(' -name '*.cmt' -o -name '*.cmti' ')' -delete
 
 # base+32bit switch, note the zarith hack
-RUN opam switch create "${COMPILER}+32bit" && eval $(opam env) && \
-        i386 env CC='gcc -m32' opam install zarith.1.11 && \
+RUN opam switch create "${COMPILER}+32bit" \
+    --packages="ocaml-variants.${COMPILER}+options,ocaml-option-32bit" && \
+    eval $(opam env) && \
+    i386 env CC='gcc -m32' opam install zarith.1.11 && \
     opam install $BASE_OPAM && \
     opam clean -a -c && \
     find ~ '(' -name '*.cmt' -o -name '*.cmti' ')' -delete

@@ -13,6 +13,7 @@ open Pp
 open Names
 open Tac2expr
 open Tac2env
+open Pputils
 
 let pr_tacref avoid kn =
   try Libnames.pr_qualid (Tac2env.shortest_qualid_of_ltac avoid (TacConstant kn))
@@ -309,10 +310,13 @@ let pr_glbexpr_gen lvl ~avoid c =
     let avoidbnd = List.fold_left (fun avoid (na,_) -> Termops.add_vname avoid na) avoid bnd in
     let pr_bnd (na, e) =
       let avoid = if isrec then avoidbnd else avoid in
-      hov 2 (pr_name na ++ str " :=" ++ spc () ++ hov 2 (pr_glbexpr E5 avoid e))
+      (* negative offset: the box starts at the | in "let |x := ..."
+         but we want to print with offset 2 from the start of "let" *)
+      hov (-2 - if isrec then 4 else 0)
+        (pr_name na ++ str " :=" ++ spc () ++ pr_glbexpr E5 avoid e)
     in
     let bnd = prlist_with_sep (fun () -> spc() ++ str "with ") pr_bnd bnd in
-    paren (v 0 (hov 2 (v 0 (str "let " ++ pprec ++ bnd) ++ spc() ++ str "in") ++ spc ()) ++ pr_glbexpr E5 avoidbnd e)
+    paren (v 0 (hov 0 (v 0 (str "let " ++ pprec ++ bnd) ++ spc() ++ str "in") ++ spc ()) ++ pr_glbexpr E5 avoidbnd e)
   | GTacCst (Tuple 0, _, _) -> str "()"
   | GTacCst (Tuple _, _, cl) ->
     paren (prlist_with_sep (fun () -> str "," ++ spc ()) (pr_glbexpr E1 avoid) cl)
@@ -455,7 +459,8 @@ let swap_tuple_relid : _ or_tuple or_relid -> _ or_relid or_tuple = function
   | AbsKn (Other x) -> Other (AbsKn x)
 
 let rec pr_rawtype_gen lvl t = match t.CAst.v with
-| CTypVar x -> pr_name x
+| CTypVar Anonymous -> str "_"
+| CTypVar (Name id) -> str "'" ++ Id.print id
 | CTypArrow (t1, t2) ->
   let paren = match lvl with
     | T5_r -> fun x -> x
@@ -639,7 +644,7 @@ let pr_rawexpr_gen lvl ~avoid c =
       | E1 | E2 | E3 | E4 | E5 -> fun x -> x
     in
     paren (hov 0 (pr_rawexpr E0 avoid hd ++ spc() ++ pr_sequence (pr_rawexpr E0 avoid) args))
-  | CTacSyn _ -> CErrors.anomaly ?loc Pp.(str "Unresolved notation.")
+  | CTacSyn (_,kn) -> fmt "<notation %t>" (fun () -> KerName.print kn)
   | CTacLet (isrec, bnd, e) ->
     let paren = match lvl with
       | E0 | E1 | E2 | E3 | E4 -> paren
@@ -649,15 +654,12 @@ let pr_rawexpr_gen lvl ~avoid c =
     let avoidbnd = List.fold_left (fun avoid (pat,_) -> ids_of_pattern avoid pat) avoid bnd in
     let pr_bnd (pat, e) =
       let avoid = if isrec then avoidbnd else avoid in
-      pr_rawpat_gen E0 pat ++ spc () ++ str ":=" ++ spc () ++ hov 2 (pr_rawexpr E5 avoid e) ++ spc ()
+      hov (-2 - if isrec then 4 else 0)
+        (pr_rawpat_gen E0 pat ++ str " :=" ++ spc () ++ hov 2 (pr_rawexpr E5 avoid e))
     in
-    let bnd = prlist_with_sep (fun () -> str "with" ++ spc ()) pr_bnd bnd in
-    paren (hv 0 (hov 2 (str "let" ++ spc () ++ pprec ++ bnd ++ str "in") ++ spc () ++ pr_rawexpr E5 avoidbnd e))
+    let bnd = prlist_with_sep (fun () -> spc() ++ str "with ") pr_bnd bnd in
+    paren (v 0 (hov 0 (v 0 (str "let " ++ pprec ++ bnd) ++ spc() ++ str "in") ++ spc ()) ++ pr_rawexpr E5 avoidbnd e)
   | CTacCnv (e,t) ->
-    let paren = match lvl with
-      | E0 -> paren
-      | E1 | E2 | E3 | E4 | E5 -> fun x -> x
-    in
     paren (pr_rawexpr E5 avoid e ++ spc() ++ str ":" ++ spc() ++ pr_rawtype_gen T5_l t)
   | CTacSeq (e1,e2) ->
     let paren = match lvl with
@@ -717,18 +719,106 @@ let pr_rawexpr_gen lvl ~avoid c =
           paren (pr_name pat.CAst.v ++ spc() ++ str ":" ++ spc() ++ pr_glbtype_gen tynames T5_l ty)
         | None -> pr_name pat.CAst.v
       in
-      bnd ++ spc() ++ str ":=" ++ spc() ++ hov 2 (pr_rawexpr E5 avoid arg) ++ spc()
+      hov (-2) (bnd  ++ str " :=" ++ spc() ++ hov 2 (pr_rawexpr E5 avoid arg))
     in
     let paren = match lvl with
       | E0 | E1 | E2 | E3 | E4 -> paren
       | E5 -> fun x -> x
     in
-    let bnd = prlist_with_sep (fun () -> str "with" ++ spc ()) pr_arg args in
-    paren (hv 0 (hov 2 (str "let" ++ spc() ++ bnd ++ str "in") ++ spc()
-                 ++ pr_glbexpr_gen ~avoid E5 body ++ spc()
-                 ++ str ":" ++ pr_glbtype_gen tynames T5_l ty))
+    let bnd = prlist_with_sep (fun () -> spc() ++ str "with ") pr_arg args in
+    paren (v 0 (hov 0 (v 0 (str "let " ++ bnd) ++ spc() ++ str "in") ++ spc())
+           ++ pr_glbexpr_gen ~avoid E5 body ++ spc()
+           ++ str ":" ++ pr_glbtype_gen tynames T5_l ty)
   in
   hov 0 (pr_rawexpr lvl avoid c)
+
+let pr_mutflag ismut = if ismut then str "mutable " else mt()
+
+let pr_isrec isrec = if isrec then str "rec " else mt()
+
+let pr_one_strval ~isrec (na, e) =
+  let avoid = match na.CAst.v with
+    | Anonymous -> Id.Set.empty
+    | Name id -> if isrec then Id.Set.singleton id else Id.Set.empty
+  in
+  pr_lname na ++ str " :=" ++ spc() ++ pr_rawexpr_gen E5 ~avoid e
+
+(* XXX boxing can probably be improved, current output is not great
+   (try -beautify on Ltac2.Std to see) *)
+let pr_one_strtyp (qid, redef, (params, v)) =
+  let ppparams = match params with
+    | [] -> mt()
+    | [x] -> pr_lident x ++ spc()
+    | _ -> surround (prlist_with_sep pr_comma pr_lident params) ++ spc()
+  in
+  let ppredef = if redef then str " ::=" ++ spc() else str " :=" ++ spc() in
+  let ppv = match v with
+    | CTydDef None -> mt()
+    | CTydDef (Some typ) -> ppredef ++ pr_rawtype_gen T5_r typ
+    | CTydAlg [] -> ppredef ++ str "[ ]"
+    | CTydAlg ctors ->
+      let pr_one_ctor (atts, na, typs) =
+        let pptyps =
+          if CList.is_empty typs then mt()
+          else
+            spc() ++ surround (prlist_with_sep pr_comma (pr_rawtype_gen T5_r) typs)
+        in
+        hov 2 (Ppvernac.pr_vernac_attributes atts ++ Id.print na ++ pptyps)
+      in
+      let ppctors = match ctors with
+        | [] -> str "[ ]"
+        | [c] -> str "[" ++ spc() ++ pr_one_ctor c ++ spc() ++ str "]"
+        | _ ->
+          hv 0
+            (str "[" ++ spc() ++
+             prlist_with_sep spc (fun c -> str "| " ++ pr_one_ctor c) ctors ++
+             spc() ++ str "]")
+      in
+      ppredef ++ ppctors
+    | CTydRec fields ->
+      ppredef ++
+      let pr_one_field (id, ismut, typ) =
+        hov 2 (pr_mutflag ismut ++ Id.print id ++ str " :" ++ spc() ++ pr_rawtype_gen T5_r typ ++ str ";") ++ spc()
+      in
+      hv 2
+        (str "{" ++ spc() ++
+         prlist_with_sep mt pr_one_field fields ++
+         str "}")
+    | CTydOpn -> ppredef ++ str "[ .. ]"
+  in
+  hov 0 (ppparams ++ Libnames.pr_qualid qid ++ ppv)
+
+let pr_strexpr = function
+  | StrVal (ismut, isrec, vals) ->
+    pr_mutflag ismut ++ pr_isrec isrec ++
+    prlist_with_sep (fun () -> spc() ++ str "with ") (pr_one_strval ~isrec) vals
+  | StrTyp (isrec, typs) ->
+    str "Type " ++ pr_isrec isrec ++
+    hv 0 (prlist_with_sep (fun () -> spc() ++ str "with ") pr_one_strtyp typs)
+  | StrPrm (id, typ, v) ->
+    str "@external " ++ pr_lident id ++ spc() ++ str ": " ++ hov 0 (pr_rawtype_gen T5_r typ)
+    ++ spc() ++ hov 2 (str ":= " ++ qstring v.mltac_plugin ++ spc() ++ qstring v.mltac_tactic)
+  | StrMut (qid, asna, e) ->
+    let avoid = match asna with
+      | None -> Id.Set.empty
+      | Some asid -> Id.Set.singleton asid.v
+    in
+    str "Set " ++ Libnames.pr_qualid qid ++
+    pr_opt (fun asid -> str "as " ++ pr_lident asid) asna ++
+    spc() ++ hov 2 (str ":= " ++ pr_rawexpr_gen E5 ~avoid e)
+
+let rec pr_syntax_class = let open CAst in function
+| SexprStr {v=s} -> qstring s
+| SexprInt {v=n} -> Pp.int n
+| SexprRec (_, {v=na}, args) ->
+  let na = match na with
+  | None -> str "_"
+  | Some id -> Id.print id
+  in
+  let ppargs = if CList.is_empty args then mt()
+    else str "(" ++ prlist_with_sep (fun () -> str ", ") pr_syntax_class args ++ str ")"
+  in
+  na ++ ppargs
 
 (** Toplevel printers *)
 

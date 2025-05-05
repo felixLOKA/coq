@@ -8,7 +8,7 @@ want to profile time or memory consumption. AFAIK, this only works for Linux.
 In Rocq source folder:
 
 ```
-opam switch 4.09.0+trunk+fp
+opam switch 4.14.0+trunk+fp
 make world
 perf record -g _build/install/default/bin/coqc file.v
 perf report -g fractal,callee --no-children

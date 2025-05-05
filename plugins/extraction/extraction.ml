@@ -43,7 +43,7 @@ let type_of env sg c =
 
 let sort_of env sg c =
   let polyprop = (lang() == Haskell) in
-  Retyping.get_sort_family_of ~polyprop env sg (Termops.strip_outer_cast sg c)
+  Retyping.get_sort_quality_of ~polyprop env sg (Termops.strip_outer_cast sg c)
 
 (*S Generation of flags and signatures. *)
 
@@ -70,18 +70,18 @@ type flag = info * scheme
 (*s [flag_of_type] transforms a type [t] into a [flag].
   Really important function. *)
 
-let info_of_family = function
-  | InSProp | InProp -> Logic
-  | InSet | InType | InQSort -> Info
+let info_of_quality = let open UnivGen.QualityOrSet in function
+  | Qual (QConstant QSProp | QConstant QProp) -> Logic
+  | Set | Qual (QConstant QType | QVar _) -> Info
 
-let info_of_sort s = info_of_family (Sorts.family s)
+let info_of_sort s = info_of_quality (UnivGen.QualityOrSet.of_sort s)
 
 let rec flag_of_type env sg t : flag =
   let t = whd_all env sg t in
   match EConstr.kind sg t with
     | Prod (x,t,c) -> flag_of_type (EConstr.push_rel (LocalAssum (x,t)) env) sg c
     | Sort s -> (info_of_sort (EConstr.ESorts.kind sg s),TypeScheme)
-    | _ -> (info_of_family (sort_of env sg t),Default)
+    | _ -> (info_of_quality (sort_of env sg t),Default)
 
 (*s Two particular cases of [flag_of_type]. *)
 
@@ -334,44 +334,44 @@ let fake_match_projection env p =
    generate ML type var anymore (in subterms for example). *)
 
 
-let rec extract_type env sg db j c args =
+let rec extract_type table env sg db j c args =
   match EConstr.kind sg (whd_betaiotazeta env sg c) with
     | App (d, args') ->
         (* We just accumulate the arguments. *)
-        extract_type env sg db j d (Array.to_list args' @ args)
+        extract_type table env sg db j d (Array.to_list args' @ args)
     | Lambda (_,_,d) ->
         (match args with
            | [] -> assert false (* A lambda cannot be a type. *)
-           | a :: args -> extract_type env sg db j (EConstr.Vars.subst1 a d) args)
+           | a :: args -> extract_type table env sg db j (EConstr.Vars.subst1 a d) args)
     | Prod (n,t,d) ->
         assert (List.is_empty args);
         let env' = push_rel_assum (n,t) env in
         (match flag_of_type env sg t with
            | (Info, Default) ->
                (* Standard case: two [extract_type] ... *)
-               let mld = extract_type env' sg (0::db) j d [] in
-               (match expand env mld with
+               let mld = extract_type table env' sg (0::db) j d [] in
+               (match expand table env mld with
                   | Tdummy d -> Tdummy d
-                  | _ -> Tarr (extract_type env sg db 0 t [], mld))
+                  | _ -> Tarr (extract_type table env sg db 0 t [], mld))
            | (Info, TypeScheme) when j > 0 ->
                (* A new type var. *)
-               let mld = extract_type env' sg (j::db) (j+1) d [] in
-               (match expand env mld with
+               let mld = extract_type table env' sg (j::db) (j+1) d [] in
+               (match expand table env mld with
                   | Tdummy d -> Tdummy d
                   | _ -> Tarr (Tdummy Ktype, mld))
            | _,lvl ->
-               let mld = extract_type env' sg (0::db) j d [] in
-               (match expand env mld with
+               let mld = extract_type table env' sg (0::db) j d [] in
+               (match expand table env mld with
                   | Tdummy d -> Tdummy d
                   | _ ->
                       let reason = if lvl == TypeScheme then Ktype else Kprop in
                       Tarr (Tdummy reason, mld)))
     | Sort _ -> Tdummy Ktype (* The two logical cases. *)
-    | _ when info_of_family (sort_of env sg (applistc c args)) == Logic -> Tdummy Kprop
+    | _ when info_of_quality (sort_of env sg (applistc c args)) == Logic -> Tdummy Kprop
     | Rel n ->
         (match EConstr.lookup_rel n env with
            | LocalDef (_,t,_) ->
-               extract_type env sg db j (EConstr.Vars.lift n t) args
+               extract_type table env sg db j (EConstr.Vars.lift n t) args
            | _ ->
                (* Asks [db] a translation for [n]. *)
                if n > List.length db then Tunknown
@@ -384,7 +384,7 @@ let rec extract_type env sg db j c args =
         (match flag_of_type env sg typ with
            | (Logic,_) -> assert false (* Cf. logical cases above *)
            | (Info, TypeScheme) ->
-             let mlt = extract_type_app env sg db (r, type_sign env sg typ) args in
+             let mlt = extract_type_app table env sg db (r, type_sign env sg typ) args in
              mlt
            | (Info, Default) ->
                (* Not an ML type, for example [(c:forall X, X->X) Type nat] *)
@@ -393,16 +393,16 @@ let rec extract_type env sg db j c args =
                   | Def lbody ->
                       (* We try to reduce. *)
                       let newc = applistc (get_body lbody) args in
-                      extract_type env sg db j newc []))
+                      extract_type table env sg db j newc []))
     | Ind ((kn,i) as ind,u) ->
         let () = check_sort_poly sg (IndRef ind) u in
-        let s = (extract_ind env kn).ind_packets.(i).ip_sign in
-        extract_type_app env sg db (GlobRef.IndRef (kn,i),s) args
+        let s = (extract_ind table env kn).ind_packets.(i).ip_sign in
+        extract_type_app table env sg db (GlobRef.IndRef (kn,i),s) args
     | Proj (p,r,t) ->
        (* Let's try to reduce, if it hasn't already been done. *)
        if Projection.unfolded p then Tunknown
        else
-         extract_type env sg db j (EConstr.mkProj (Projection.unfold p, r, t)) args
+         extract_type table env sg db j (EConstr.mkProj (Projection.unfold p, r, t)) args
     | Case _ | Fix _ | CoFix _ -> Tunknown
     | Evar _ | Meta _ -> Taxiom (* only possible during Show Extraction *)
     | Var v ->
@@ -410,13 +410,13 @@ let rec extract_type env sg db j c args =
        let open Context.Named.Declaration in
        (match EConstr.lookup_named v env with
         | LocalDef (_,body,_) ->
-           extract_type env sg db j (EConstr.applist (body,args)) []
+           extract_type table env sg db j (EConstr.applist (body,args)) []
         | LocalAssum (_,ty) ->
            let r = GlobRef.VarRef v in
            (match flag_of_type env sg ty with
             | (Logic,_) -> assert false (* Cf. logical cases above *)
             | (Info, TypeScheme) ->
-              extract_type_app env sg db (r, type_sign env sg ty) args
+              extract_type_app table env sg db (r, type_sign env sg ty) args
             | (Info, Default) -> Tunknown))
     | Cast _ | LetIn _ | Construct _ | Int _ | Float _ | String _ | Array _ -> assert false
 
@@ -424,13 +424,13 @@ let rec extract_type env sg db j c args =
   Precondition: [r] is a type scheme represented by the signature [s],
   and is completely applied: [List.length args = List.length s]. *)
 
-and extract_type_app env sg db (r,s) args =
+and extract_type_app table env sg db (r,s) args =
   let ml_args =
     List.fold_right
       (fun (b,c) a -> if b == Keep then
          let p = List.length (fst (whd_decompose_prod env sg (type_of env sg c))) in
          let db = iterate (fun l -> 0 :: l) p db in
-         (extract_type_scheme env sg db c p) :: a
+         (extract_type_scheme table env sg db c p) :: a
        else a)
       (List.combine s args) []
   in Tglob (r, ml_args)
@@ -444,37 +444,37 @@ and extract_type_app env sg db (r,s) args =
 
 (* [db] is a context for translating Rocq [Rel] into ML type [Tvar]. *)
 
-and extract_type_scheme env sg db c p =
-  if Int.equal p 0 then extract_type env sg db 0 c []
+and extract_type_scheme table env sg db c p =
+  if Int.equal p 0 then extract_type table env sg db 0 c []
   else
     let c = whd_betaiotazeta env sg c in
     match EConstr.kind sg c with
       | Lambda (n,t,d) ->
-          extract_type_scheme (push_rel_assum (n,t) env) sg db d (p-1)
+          extract_type_scheme table (push_rel_assum (n,t) env) sg db d (p-1)
       | _ ->
           let rels = fst (whd_decompose_prod env sg (type_of env sg c)) in
           let env = push_rels_assum rels env in
           let eta_args = List.rev_map EConstr.mkRel (List.interval 1 p) in
-          extract_type env sg db 0 (EConstr.Vars.lift p c) eta_args
+          extract_type table env sg db 0 (EConstr.Vars.lift p c) eta_args
 
 
 (*S Extraction of an inductive type. *)
 
 (* First, a version with cache *)
 
-and extract_ind env kn = (* kn is supposed to be in long form *)
+and extract_ind table env kn = (* kn is supposed to be in long form *)
   let mib = Environ.lookup_mind kn env in
-  match lookup_ind kn mib with
+  match lookup_ind table kn mib with
   | Some ml_ind -> ml_ind
   | None ->
      try
-       extract_really_ind env kn mib
+       extract_really_ind table env kn mib
      with SingletonInductiveBecomesProp ind ->
        error_singleton_become_prop ind
 
 (* Then the real function *)
 
-and extract_really_ind env kn mib =
+and extract_really_ind table env kn mib =
     (* First, if this inductive is aliased via a Module,
        we process the original inductive if possible.
        When at toplevel of the monolithic case, we cannot do much
@@ -487,7 +487,7 @@ and extract_really_ind env kn mib =
         NoEquiv
       else
         begin
-          ignore (extract_ind env (MutInd.make1 (MutInd.canonical kn)));
+          ignore (extract_ind table env (MutInd.make1 (MutInd.canonical kn)));
           Equiv (MutInd.canonical kn)
         end
     in
@@ -518,7 +518,7 @@ and extract_really_ind env kn mib =
         mib.mind_packets
     in
 
-    add_ind kn mib
+    add_ind table kn mib
       {ind_kind = Standard;
        ind_nparams = npar;
        ind_packets = Array.map fst packets;
@@ -540,7 +540,7 @@ and extract_really_ind env kn mib =
           let dbmap = parse_ind_args p.ip_sign args (nprods + ndecls) in
           let db = db_from_ind dbmap ndecls in
           p.ip_types.(j) <-
-            extract_type_cons epar sg db dbmap (EConstr.of_constr t) (ndecls+1)
+            extract_type_cons table epar sg db dbmap (EConstr.of_constr t) (ndecls+1)
         done
     done;
     (* Third pass: we determine special cases. *)
@@ -555,7 +555,7 @@ and extract_really_ind env kn mib =
         if p.ip_logical then raise (I Standard);
         if not (Int.equal (Array.length p.ip_types) 1) then raise (I Standard);
         let typ = p.ip_types.(0) in
-        let l = if conservative_types () then [] else List.filter (fun t -> not (isTdummy (expand env t))) typ in
+        let l = if conservative_types () then [] else List.filter (fun t -> not (isTdummy (expand table env t))) typ in
         if List.is_empty l then raise (I Standard);
         if mib.mind_record == Declarations.NotRecord then
           if not (keep_singleton ()) && Int.equal (List.length l) 1 && not (type_mem_kn kn (List.hd l))
@@ -578,15 +578,15 @@ and extract_really_ind env kn mib =
         let nparams = nb_default_params env sg (EConstr.of_constr ty) in
         let rec select_fields i l typs = match l,typs with
           | [],[] -> []
-          | _::l, typ::typs when isTdummy (expand env typ) || Int.Set.mem i implicits ->
+          | _::l, typ::typs when isTdummy (expand table env typ) || Int.Set.mem i implicits ->
               select_fields (i+1) l typs
           | {binder_name=Anonymous}::l, typ::typs ->
               None :: (select_fields (i+1) l typs)
           | {binder_name=Name id}::l, typ::typs ->
               let knp = Constant.make2 mp (Label.of_id id) in
               (* Is it safe to use [id] for projections [foo.id] ? *)
-              if List.for_all ((==) Keep) (type2signature env typ)
-              then (* for OCaml inlining: *) add_projection nparams knp ip;
+              if List.for_all ((==) Keep) (type2signature table env typ)
+              then (* for OCaml inlining: *) add_projection table nparams knp ip;
               Some (GlobRef.ConstRef knp) :: (select_fields (i+1) l typs)
           | _ -> assert false
         in
@@ -601,8 +601,8 @@ and extract_really_ind env kn mib =
              ind_packets = Array.map fst packets;
              ind_equiv = equiv }
     in
-    add_ind kn mib i;
-    add_inductive_kind kn i.ind_kind;
+    add_ind table kn mib i;
+    add_inductive_kind table kn i.ind_kind;
     i
 
 (*s [extract_type_cons] extracts the type of an inductive
@@ -613,25 +613,25 @@ and extract_really_ind env kn mib =
    - [i] is the rank of the current product (initially [params_nb+1])
 *)
 
-and extract_type_cons env sg db dbmap c i =
+and extract_type_cons table env sg db dbmap c i =
   match EConstr.kind sg (whd_all env sg c) with
     | Prod (n,t,d) ->
         let env' = push_rel_assum (n,t) env in
         let db' = (try Int.Map.find i dbmap with Not_found -> 0) :: db in
-        let l = extract_type_cons env' sg db' dbmap d (i+1) in
-        (extract_type env sg db 0 t []) :: l
+        let l = extract_type_cons table env' sg db' dbmap d (i+1) in
+        (extract_type table env sg db 0 t []) :: l
     | _ -> []
 
 (*s Recording the ML type abbreviation of a Rocq type scheme constant. *)
 
-and mlt_env env r = let open GlobRef in match r with
+and mlt_env table env r = let open GlobRef in match r with
   | IndRef _ | ConstructRef _ | VarRef _ -> None
   | ConstRef kn ->
      let cb = Environ.lookup_constant kn env in
      match cb.const_body with
      | Undef _ | OpaqueDef _ | Primitive _ | Symbol _ -> None
      | Def l_body ->
-        match lookup_typedef kn cb with
+        match lookup_typedef table kn cb with
         | Some _ as o -> o
         | None ->
            let sg = Evd.from_env env in
@@ -642,30 +642,30 @@ and mlt_env env r = let open GlobRef in match r with
               let body = get_body l_body in
               let s = type_sign env sg typ in
               let db = db_from_sign s in
-              let t = extract_type_scheme env sg db body (List.length s)
-              in add_typedef kn cb t; Some t
+              let t = extract_type_scheme table env sg db body (List.length s)
+              in add_typedef table kn cb t; Some t
            | _ -> None
 
-and expand env = type_expand (mlt_env env)
-and type2signature env = type_to_signature (mlt_env env)
-let type2sign env = type_to_sign (mlt_env env)
-let type_expunge env = type_expunge (mlt_env env)
-let type_expunge_from_sign env = type_expunge_from_sign (mlt_env env)
+and expand table env = type_expand (mlt_env table env)
+and type2signature table env = type_to_signature (mlt_env table env)
+let type2sign table env = type_to_sign (mlt_env table env)
+let type_expunge table env = type_expunge (mlt_env table env)
+let type_expunge_from_sign table env = type_expunge_from_sign (mlt_env table env)
 
 (*s Extraction of the type of a constant. *)
 
-let record_constant_type env sg kn opt_typ =
+let record_constant_type table env sg kn opt_typ =
   let cb = lookup_constant kn env in
-  match lookup_cst_type kn cb with
+  match lookup_cst_type table kn cb with
   | Some schema -> schema
   | None ->
      let typ = match opt_typ with
        | None -> EConstr.of_constr cb.const_type
        | Some typ -> typ
      in
-     let mlt = extract_type env sg [] 1 typ [] in
+     let mlt = extract_type table env sg [] 1 typ [] in
      let schema = (type_maxvar mlt, mlt) in
-     let () = add_cst_type kn cb schema in
+     let () = add_cst_type table kn cb schema in
      schema
 
 (*S Extraction of a term. *)
@@ -675,10 +675,10 @@ let record_constant_type env sg kn opt_typ =
 (* [mle] is a ML environment [Mlenv.t]. *)
 (* [mlt] is the ML type we want our extraction of [(c args)] to have. *)
 
-let rec extract_term env sg mle mlt c args =
+let rec extract_term table env sg mle mlt c args =
   match EConstr.kind sg c with
     | App (f,a) ->
-       extract_term env sg mle mlt f (Array.to_list a @ args)
+       extract_term table env sg mle mlt f (Array.to_list a @ args)
     | Lambda (n, t, d) ->
       let id = map_annot id_of_name n in
       let idna = map_annot Name.mk_name id in
@@ -687,7 +687,7 @@ let rec extract_term env sg mle mlt c args =
                (* We make as many [LetIn] as possible. *)
                let l' = List.map (EConstr.Vars.lift 1) l in
                let d' = EConstr.mkLetIn (idna,a,t,applistc d l') in
-               extract_term env sg mle mlt d' []
+               extract_term table env sg mle mlt d' []
            | [] ->
                let env' = push_rel_assum (idna, t) env in
                let id, a =
@@ -697,7 +697,7 @@ let rec extract_term env sg mle mlt c args =
                let b = new_meta () in
                (* If [mlt] cannot be unified with an arrow type, then magic! *)
                let magic = needs_magic (mlt, Tarr (a, b)) in
-               let d' = extract_term env' sg (Mlenv.push_type mle a) b d [] in
+               let d' = extract_term table env' sg (Mlenv.push_type mle a) b d [] in
                put_magic_if magic (MLlam (id, d')))
     | LetIn (n, c1, t1, c2) ->
         let id = map_annot id_of_name n in
@@ -708,45 +708,45 @@ let rec extract_term env sg mle mlt c args =
         (try
           check_default env sg t1;
           let a = new_meta () in
-          let c1' = extract_term env sg mle a c1 [] in
+          let c1' = extract_term table env sg mle a c1 [] in
           (* The type of [c1'] is generalized and stored in [mle]. *)
           let mle' =
             if generalizable c1'
             then Mlenv.push_gen mle a
             else Mlenv.push_type mle a
           in
-          MLletin (Id id.binder_name, c1', extract_term env' sg mle' mlt c2 args')
+          MLletin (Id id.binder_name, c1', extract_term table env' sg mle' mlt c2 args')
         with NotDefault d ->
           let mle' = Mlenv.push_std_type mle (Tdummy d) in
-          ast_pop (extract_term env' sg mle' mlt c2 args'))
+          ast_pop (extract_term table env' sg mle' mlt c2 args'))
     | Const (kn,u) ->
         let () = check_sort_poly sg (ConstRef kn) u in
-        extract_cst_app env sg mle mlt kn args
+        extract_cst_app table env sg mle mlt kn args
     | Construct (cp,u) ->
         let () = check_sort_poly sg (ConstructRef cp) u in
-        extract_cons_app env sg mle mlt cp args
+        extract_cons_app table env sg mle mlt cp args
     | Proj (p, _, c) ->
         let p = Projection.repr p in
         let term = fake_match_projection env p in
         let ind = Inductiveops.find_rectype env sg (Retyping.get_type_of env sg c) in
         let indf,_ = Inductiveops.dest_ind_type ind in
         let _,indargs = Inductiveops.dest_ind_family indf in
-        extract_term env sg mle mlt (beta_applist sg (EConstr.of_constr term,indargs@[c])) args
+        extract_term table env sg mle mlt (beta_applist sg (EConstr.of_constr term,indargs@[c])) args
     | Rel n ->
         (* As soon as the expected [mlt] for the head is known, *)
         (* we unify it with an fresh copy of the stored type of [Rel n]. *)
         let extract_rel mlt = put_magic (mlt, Mlenv.get mle n) (MLrel n)
-        in extract_app env sg mle mlt extract_rel args
+        in extract_app table env sg mle mlt extract_rel args
     | Case (ci, u, pms, r, iv, c0, br) ->
         (* If invert_case then this is a match that will get erased later, but right now we don't care. *)
         let (ip, r, iv, c0, br) = EConstr.expand_case env sg (ci, u, pms, r, iv, c0, br) in
         let ip = ci.ci_ind in
-        extract_app env sg mle mlt (extract_case env sg mle (ip,c0,br)) args
+        extract_app table env sg mle mlt (extract_case table env sg mle (ip,c0,br)) args
     | Fix ((_,i),recd) ->
-        extract_app env sg mle mlt (extract_fix env sg mle i recd) args
+        extract_app table env sg mle mlt (extract_fix table env sg mle i recd) args
     | CoFix (i,recd) ->
-        extract_app env sg mle mlt (extract_fix env sg mle i recd) args
-    | Cast (c,_,_) -> extract_term env sg mle mlt c args
+        extract_app table env sg mle mlt (extract_fix table env sg mle i recd) args
+    | Cast (c,_,_) -> extract_term table env sg mle mlt c args
     | Evar _ | Meta _ -> MLaxiom "evar"
     | Var v ->
        (* Only during Show Extraction *)
@@ -755,25 +755,25 @@ let rec extract_term env sg mle mlt c args =
          | LocalAssum (_,ty) -> ty
          | LocalDef (_,_,ty) -> ty
        in
-       let vty = extract_type env sg [] 0 ty [] in
+       let vty = extract_type table env sg [] 0 ty [] in
        let extract_var mlt = put_magic (mlt,vty) (MLglob (GlobRef.VarRef v)) in
-       extract_app env sg mle mlt extract_var args
+       extract_app table env sg mle mlt extract_var args
     | Int i -> assert (args = []); MLuint i
     | Float f -> assert (args = []); MLfloat f
     | String s -> assert (args = []); MLstring s
     | Array (_u,t,def,_ty) ->
       assert (args = []);
       let a = new_meta () in
-      let ml_arr = Array.map (fun c -> extract_term env sg mle a c []) t in
-      let def = extract_term env sg mle a def [] in
+      let ml_arr = Array.map (fun c -> extract_term table env sg mle a c []) t in
+      let def = extract_term table env sg mle a def [] in
       MLparray(ml_arr, def)
     | Ind _ | Prod _ | Sort _ -> assert false
 
 (*s [extract_maybe_term] is [extract_term] for usual terms, else [MLdummy] *)
 
-and extract_maybe_term env sg mle mlt c =
+and extract_maybe_term table env sg mle mlt c =
   try check_default env sg (type_of env sg c);
-    extract_term env sg mle mlt c []
+    extract_term table env sg mle mlt c []
   with NotDefault d ->
     put_magic (mlt, Tdummy d) (MLdummy d)
 
@@ -783,29 +783,29 @@ and extract_maybe_term env sg mle mlt c =
    This gives us the expected type of the head. Then we use the
    [mk_head] to produce the ML head from this type. *)
 
-and extract_app env sg mle mlt mk_head args =
+and extract_app table env sg mle mlt mk_head args =
   let metas = List.map new_meta args in
   let type_head = type_recomp (metas, mlt) in
-  let mlargs = List.map2 (extract_maybe_term env sg mle) metas args in
+  let mlargs = List.map2 (extract_maybe_term table env sg mle) metas args in
   mlapp (mk_head type_head) mlargs
 
 (*s Auxiliary function used to extract arguments of constant or constructor. *)
 
-and make_mlargs env sg e s args typs =
+and make_mlargs table env sg e s args typs =
   let rec f = function
     | [], [], _ -> []
-    | a::la, t::lt, [] -> extract_maybe_term env sg e t a :: (f (la,lt,[]))
-    | a::la, t::lt, Keep::s -> extract_maybe_term env sg e t a :: (f (la,lt,s))
+    | a::la, t::lt, [] -> extract_maybe_term table env sg e t a :: (f (la,lt,[]))
+    | a::la, t::lt, Keep::s -> extract_maybe_term table env sg e t a :: (f (la,lt,s))
     | _::la, _::lt, _::s -> f (la,lt,s)
     | _ -> assert false
   in f (args,typs,s)
 
 (*s Extraction of a constant applied to arguments. *)
 
-and extract_cst_app env sg mle mlt kn args =
+and extract_cst_app table env sg mle mlt kn args =
   (* First, the [ml_schema] of the constant, in expanded version. *)
-  let nb,t = record_constant_type env sg kn None in
-  let schema = nb, expand env t in
+  let nb,t = record_constant_type table env sg kn None in
+  let schema = nb, expand table env t in
   (* Can we instantiate types variables for this constant ? *)
   (* In Ocaml, inside the definition of this constant, the answer is no. *)
   let instantiated =
@@ -824,13 +824,13 @@ and extract_cst_app env sg mle mlt kn args =
   (* The internal head receives a magic if [magic1] *)
   let head = put_magic_if magic1 (MLglob (GlobRef.ConstRef kn)) in
   (* Now, the extraction of the arguments. *)
-  let s_full = type2signature env (snd schema) in
+  let s_full = type2signature table env (snd schema) in
   let s_full = sign_with_implicits (GlobRef.ConstRef kn) s_full 0 in
   let s = sign_no_final_keeps s_full in
   let ls = List.length s in
   let la = List.length args in
   (* The ml arguments, already expunged from known logical ones *)
-  let mla = make_mlargs env sg mle s args metas in
+  let mla = make_mlargs table env sg mle s args metas in
   (* For strict languages, purely logical signatures lead to a dummy lam
      (except when [Kill Ktype] everywhere). So a [MLdummy] is left
      accordingly. *)
@@ -863,18 +863,18 @@ and extract_cst_app env sg mle mlt kn args =
    they are fixed, and thus are not used for the computation.
    \end{itemize} *)
 
-and extract_cons_app env sg mle mlt (((kn,i) as ip,j) as cp) args =
+and extract_cons_app table env sg mle mlt (((kn,i) as ip,j) as cp) args =
   (* First, we build the type of the constructor, stored in small pieces. *)
-  let mi = extract_ind env kn in
+  let mi = extract_ind table env kn in
   let params_nb = mi.ind_nparams in
   let oi = mi.ind_packets.(i) in
   let nb_tvars = List.length oi.ip_vars
-  and types = List.map (expand env) oi.ip_types.(j-1) in
+  and types = List.map (expand table env) oi.ip_types.(j-1) in
   let list_tvar = List.map (fun i -> Tvar i) (List.interval 1 nb_tvars) in
   let type_cons = type_recomp (types, Tglob (GlobRef.IndRef ip, list_tvar)) in
   let type_cons = instantiation (nb_tvars, type_cons) in
   (* Then, the usual variables [s], [ls], [la], ... *)
-  let s = List.map (type2sign env) types in
+  let s = List.map (type2sign table env) types in
   let s = sign_with_implicits (GlobRef.ConstructRef cp) s params_nb in
   let ls = List.length s in
   let la = List.length args in
@@ -904,7 +904,7 @@ and extract_cons_app env sg mle mlt (((kn,i) as ip,j) as cp) args =
     put_magic_if magic2
       (dummy_lams (anonym_or_dummy_lams head' s) (params_nb - la))
   else
-    let mla = make_mlargs env sg mle s args' metas in
+    let mla = make_mlargs table env sg mle s args' metas in
     if Int.equal la (ls + params_nb)
     then put_magic_if (magic2 && not magic1) (head mla)
     else (* [ params_nb <= la <= ls + params_nb ] *)
@@ -915,48 +915,48 @@ and extract_cons_app env sg mle mlt (((kn,i) as ip,j) as cp) args =
 
 (*S Extraction of a case. *)
 
-and extract_case env sg mle ((kn,i) as ip,c,br) mlt =
+and extract_case table env sg mle ((kn,i) as ip,c,br) mlt =
   (* [br]: bodies of each branch (in functional form) *)
   (* [ni]: number of arguments without parameters in each branch *)
   let ni = constructors_nrealargs env ip in
   let br_size = Array.length br in
   assert (Int.equal (Array.length ni) br_size);
   if Int.equal br_size 0 then begin
-    add_recursors env kn; (* May have passed unseen if logical ... *)
+    add_recursors table env kn; (* May have passed unseen if logical ... *)
     MLexn "absurd case"
   end else
     (* [c] has an inductive type, and is not a type scheme type. *)
     let t = type_of env sg c in
     (* The only non-informative case: [c] is of sort [Prop]/[SProp] *)
-    if info_of_family (sort_of env sg t) == Logic then
+    if info_of_quality (sort_of env sg t) == Logic then
       begin
-        add_recursors env kn; (* May have passed unseen if logical ... *)
+        add_recursors table env kn; (* May have passed unseen if logical ... *)
         (* Logical singleton case: *)
         (* [match c with C i j k -> t] becomes [t'] *)
         assert (Int.equal br_size 1);
         let s = iterate (fun l -> Kill Kprop :: l) ni.(0) [] in
         let mlt = iterate (fun t -> Tarr (Tdummy Kprop, t)) ni.(0) mlt in
-        let e = extract_maybe_term env sg mle mlt br.(0) in
+        let e = extract_maybe_term table env sg mle mlt br.(0) in
         snd (case_expunge s e)
       end
     else
-      let mi = extract_ind env kn in
+      let mi = extract_ind table env kn in
       let oi = mi.ind_packets.(i) in
       let metas = Array.init (List.length oi.ip_vars) new_meta in
       (* The extraction of the head. *)
       let type_head = Tglob (GlobRef.IndRef ip, Array.to_list metas) in
-      let a = extract_term env sg mle type_head c [] in
+      let a = extract_term table env sg mle type_head c [] in
       (* The extraction of each branch. *)
       let extract_branch i =
         let r = GlobRef.ConstructRef (ip,i+1) in
         (* The types of the arguments of the corresponding constructor. *)
-        let f t = type_subst_vect metas (expand env t) in
+        let f t = type_subst_vect metas (expand table env t) in
         let l = List.map f oi.ip_types.(i) in
         (* the corresponding signature *)
-        let s = List.map (type2sign env) oi.ip_types.(i) in
+        let s = List.map (type2sign table env) oi.ip_types.(i) in
         let s = sign_with_implicits r s mi.ind_nparams in
         (* Extraction of the branch (in functional form). *)
-        let e = extract_maybe_term env sg mle (type_recomp (l,mlt)) br.(i) in
+        let e = extract_maybe_term table env sg mle (type_recomp (l,mlt)) br.(i) in
         (* We suppress dummy arguments according to signature. *)
         let ids,e = case_expunge s e in
         (List.rev ids, Pusual r, e)
@@ -978,12 +978,12 @@ and extract_case env sg mle ((kn,i) as ip,c,br) mlt =
 
 (*s Extraction of a (co)-fixpoint. *)
 
-and extract_fix env sg mle i (fi,ti,ci as recd) mlt =
+and extract_fix table env sg mle i (fi,ti,ci as recd) mlt =
   let env = push_rec_types recd env in
   let metas = Array.map new_meta fi in
   metas.(i) <- mlt;
   let mle = Array.fold_left Mlenv.push_type mle metas in
-  let ei = Array.map2 (extract_maybe_term env sg mle) metas ci in
+  let ei = Array.map2 (extract_maybe_term table env sg mle) metas ci in
   MLfix (i, Array.map (fun x -> id_of_name x.binder_name) fi, ei)
 
 (*S ML declarations. *)
@@ -1014,14 +1014,14 @@ let rec gentypvar_ok sg c = match EConstr.kind sg c with
 
 (*s From a constant to a ML declaration. *)
 
-let extract_std_constant env sg kn body typ =
+let extract_std_constant table env sg kn body typ =
   reset_meta_count ();
   (* The short type [t] (i.e. possibly with abbreviations). *)
-  let t = snd (record_constant_type env sg kn (Some typ)) in
+  let t = snd (record_constant_type table env sg kn (Some typ)) in
   (* The real type [t']: without head products, expanded, *)
   (* and with [Tvar] translated to [Tvar'] (not instantiable). *)
-  let l,t' = type_decomp (expand env (var2var' t)) in
-  let s = List.map (type2sign env) l in
+  let l,t' = type_decomp (expand table env (var2var' t)) in
+  let s = List.map (type2sign table env) l in
   (* Check for user-declared implicit information *)
   let s = sign_with_implicits (GlobRef.ConstRef kn) s 0 in
   (* Decomposing the top level lambdas of [body].
@@ -1063,25 +1063,25 @@ let extract_std_constant env sg kn body typ =
   (* The according Rocq environment. *)
   let env = push_rels_assum rels env in
   (* The real extraction: *)
-  let e = extract_term env sg mle t' c [] in
+  let e = extract_term table env sg mle t' c [] in
   (* Expunging term and type from dummy lambdas. *)
   let trm = term_expunge s (ids,e) in
-  trm, type_expunge_from_sign env s t
+  trm, type_expunge_from_sign table env s t
 
 (* Extracts the type of an axiom, honors the Extraction Implicit declaration. *)
-let extract_axiom env sg kn typ =
+let extract_axiom table env sg kn typ =
   reset_meta_count ();
   (* The short type [t] (i.e. possibly with abbreviations). *)
-  let t = snd (record_constant_type env sg kn (Some typ)) in
+  let t = snd (record_constant_type table env sg kn (Some typ)) in
   (* The real type [t']: without head products, expanded, *)
   (* and with [Tvar] translated to [Tvar'] (not instantiable). *)
-  let l,_ = type_decomp (expand env (var2var' t)) in
-  let s = List.map (type2sign env) l in
+  let l,_ = type_decomp (expand table env (var2var' t)) in
+  let s = List.map (type2sign table env) l in
   (* Check for user-declared implicit information *)
   let s = sign_with_implicits (GlobRef.ConstRef kn) s 0 in
-  type_expunge_from_sign env s t
+  type_expunge_from_sign table env s t
 
-let extract_fixpoint env sg vkn (fi,ti,ci) =
+let extract_fixpoint table env sg vkn (fi,ti,ci) =
   let n = Array.length vkn in
   let types = Array.make n (Tdummy Kprop)
   and terms = Array.make n (MLdummy Kprop) in
@@ -1094,9 +1094,9 @@ let extract_fixpoint env sg vkn (fi,ti,ci) =
       (List.rev kns)
   in
   for i = 0 to n-1 do
-    if info_of_family (sort_of env sg ti.(i)) != Logic then
+    if info_of_quality (sort_of env sg ti.(i)) != Logic then
       try
-        let e,t = extract_std_constant env sg vkn.(i)
+        let e,t = extract_std_constant table env sg vkn.(i)
                    (EConstr.Vars.substl sub ci.(i)) ti.(i) in
         terms.(i) <- e;
         types.(i) <- t;
@@ -1106,12 +1106,12 @@ let extract_fixpoint env sg vkn (fi,ti,ci) =
   current_fixpoints := [];
   Dfix (Array.map (fun kn -> GlobRef.ConstRef kn) vkn, terms, types)
 
-let extract_constant access env kn cb =
+let extract_constant table access env kn cb =
   let sg = Evd.from_env env in
   let r = GlobRef.ConstRef kn in
   let typ = EConstr.of_constr cb.const_type in
-  let warn_info () = if not (is_custom r) then add_info_axiom r in
-  let warn_log () = if not (constant_has_body cb) then add_log_axiom r
+  let warn_info () = if not (is_custom r) then add_info_axiom table r in
+  let warn_log () = if not (constant_has_body cb) then add_log_axiom table r
   in
   let mk_typ_ax () =
     let n = type_scheme_nb_args env sg typ in
@@ -1121,15 +1121,15 @@ let extract_constant access env kn cb =
   let mk_typ c =
     let s,vl = type_sign_vl env sg typ in
     let db = db_from_sign s in
-    let t = extract_type_scheme env sg db c (List.length s)
+    let t = extract_type_scheme table env sg db c (List.length s)
     in Dtype (r, vl, t)
   in
   let mk_ax () =
-    let t = extract_axiom env sg kn typ in
+    let t = extract_axiom table env sg kn typ in
     Dterm (r, MLaxiom (Constant.to_string kn), t)
   in
   let mk_def c =
-    let e,t = extract_std_constant env sg kn c typ in
+    let e,t = extract_std_constant table env sg kn c typ in
     Dterm (r,e,t)
   in
   try
@@ -1140,7 +1140,7 @@ let extract_constant access env kn cb =
     | (Logic,Default) -> warn_log (); Dterm (r, MLdummy Kprop, Tdummy Kprop)
     | (Info,TypeScheme) ->
         (match cb.const_body with
-          | Symbol _ -> add_symbol r; mk_typ_ax ()
+          | Symbol _ -> add_symbol table r; mk_typ_ax ()
           | Primitive _ | Undef _ -> warn_info (); mk_typ_ax ()
           | Def c ->
              (match Structures.PrimitiveProjections.find_opt kn with
@@ -1149,12 +1149,12 @@ let extract_constant access env kn cb =
                 let body = fake_match_projection env p in
                 mk_typ (EConstr.of_constr body))
           | OpaqueDef c ->
-            add_opaque r;
+            add_opaque table r;
             if access_opaque () then mk_typ (get_opaque access env c)
             else mk_typ_ax ())
     | (Info,Default) ->
         (match cb.const_body with
-          | Symbol _ -> add_symbol r; mk_ax ()
+          | Symbol _ -> add_symbol table r; mk_ax ()
           | Primitive _ | Undef _ -> warn_info (); mk_ax ()
           | Def c ->
              (match Structures.PrimitiveProjections.find_opt kn with
@@ -1163,13 +1163,13 @@ let extract_constant access env kn cb =
                 let body = fake_match_projection env p in
                 mk_def (EConstr.of_constr body))
           | OpaqueDef c ->
-            add_opaque r;
+            add_opaque table r;
             if access_opaque () then mk_def (get_opaque access env c)
             else mk_ax ())
   with SingletonInductiveBecomesProp ind ->
     error_singleton_become_prop ind
 
-let extract_constant_spec env kn cb =
+let extract_constant_spec table env kn cb =
   let sg = Evd.from_env env in
   let r = GlobRef.ConstRef kn in
   let typ = EConstr.of_constr cb.const_type in
@@ -1186,28 +1186,28 @@ let extract_constant_spec env kn cb =
           | Def body ->
               let db = db_from_sign s in
               let body = get_body body in
-              let t = extract_type_scheme env sg db body (List.length s)
+              let t = extract_type_scheme table env sg db body (List.length s)
               in Stype (r, vl, Some t))
     | (Info, Default) ->
-        let t = snd (record_constant_type env sg kn (Some typ)) in
-        Sval (r, type_expunge env t)
+        let t = snd (record_constant_type table env sg kn (Some typ)) in
+        Sval (r, type_expunge table env t)
   with SingletonInductiveBecomesProp ind ->
     error_singleton_become_prop ind
 
-let extract_with_type env sg c =
+let extract_with_type table env sg c =
   try
     let typ = type_of env sg c in
     match flag_of_type env sg typ with
     | (Info, TypeScheme) ->
         let s,vl = type_sign_vl env sg typ in
         let db = db_from_sign s in
-        let t = extract_type_scheme env sg db c (List.length s) in
+        let t = extract_type_scheme table env sg db c (List.length s) in
         Some (vl, t)
     | _ -> None
   with SingletonInductiveBecomesProp ind ->
     error_singleton_become_prop ind
 
-let extract_constr env sg c =
+let extract_constr table env sg c =
   reset_meta_count ();
   try
     let typ = type_of env sg c in
@@ -1215,21 +1215,21 @@ let extract_constr env sg c =
     | (_,TypeScheme) -> MLdummy Ktype, Tdummy Ktype
     | (Logic,_) -> MLdummy Kprop, Tdummy Kprop
     | (Info,Default) ->
-       let mlt = extract_type env sg [] 1 typ [] in
-       extract_term env sg Mlenv.empty mlt c [], mlt
+       let mlt = extract_type table env sg [] 1 typ [] in
+       extract_term table env sg Mlenv.empty mlt c [], mlt
   with SingletonInductiveBecomesProp ind ->
     error_singleton_become_prop ind
 
-let extract_inductive env kn =
-  let ind = extract_ind env kn in
-  add_recursors env kn;
+let extract_inductive table env kn =
+  let ind = extract_ind table env kn in
+  add_recursors table env kn;
   let f i j l =
     let implicits = implicits_of_global (GlobRef.ConstructRef ((kn,i),j+1)) in
     let rec filter i = function
       | [] -> []
       | t::l ->
           let l' = filter (succ i) l in
-          if isTdummy (expand env t) || Int.Set.mem i implicits then l'
+          if isTdummy (expand table env t) || Int.Set.mem i implicits then l'
           else t::l'
     in filter (1+ind.ind_nparams) l
   in

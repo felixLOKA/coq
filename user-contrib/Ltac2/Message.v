@@ -12,6 +12,8 @@ Require Import Ltac2.Init.
 
 Ltac2 @ external print : message -> unit := "rocq-runtime.plugins.ltac2" "print".
 
+Ltac2 @ external empty : message := "rocq-runtime.plugins.ltac2" "message_empty".
+
 Ltac2 @ external of_string : string -> message := "rocq-runtime.plugins.ltac2" "message_of_string".
 
 Ltac2 @ external to_string : message -> string := "rocq-runtime.plugins.ltac2" "message_to_string".

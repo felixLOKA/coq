@@ -17,7 +17,7 @@ Build Requirements
 
 To compile Rocq yourself, you need:
 
-- [OCaml](https://ocaml.org/) (version >= 4.09.0)
+- [OCaml](https://ocaml.org/) (version >= 4.14.0)
   (This version of Rocq has been tested up to OCaml 4.14.1, for the 4.x series)
 
   Support for OCaml 5.x remains experimental.
@@ -26,7 +26,7 @@ To compile Rocq yourself, you need:
 
 - The [ZArith library](https://github.com/ocaml/Zarith) >= 1.11
 
-- The [findlib](http://projects.camlcity.org/projects/findlib.html) library (version >= 1.8.1)
+- The [findlib](http://projects.camlcity.org/projects/findlib.html) library (version >= 1.9.1)
 
 - a C compiler
 

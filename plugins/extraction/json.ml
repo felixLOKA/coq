@@ -15,11 +15,11 @@ let json_int i =
 let json_bool b =
   if b then str "true" else str "false"
 
-let json_global typ ref =
+let json_global table typ ref =
   if is_custom ref then
     json_str (find_custom ref)
   else
-    json_str (Common.pp_global typ ref)
+    json_str (Common.pp_global table typ ref)
 
 let json_id id =
   json_str (Id.to_string id)
@@ -46,7 +46,7 @@ let json_listarr a =
   str ("]")
 
 
-let preamble mod_name comment used_modules usf =
+let preamble table mod_name comment used_modules usf =
   (match comment with
     | None -> mt ()
     | Some s -> str "/* " ++ hov 0 s ++ str " */" ++ fnl ()) ++
@@ -56,13 +56,13 @@ let preamble mod_name comment used_modules usf =
     ("need_magic", json_bool (usf.magic));
     ("need_dummy", json_bool (usf.mldummy));
     ("used_modules", json_list
-      (List.map (fun mf -> json_str (file_of_modfile mf)) used_modules))
+      (List.map (fun mf -> json_str (file_of_modfile table mf)) used_modules))
   ]
 
 
 (*s Pretty-printing of types. *)
 
-let rec json_type vl = function
+let rec json_type table vl = function
   | Tmeta _ | Tvar' _ -> assert false
   | Tvar i -> (try
       let varid = List.nth vl (pred i) in json_dict [
@@ -75,13 +75,13 @@ let rec json_type vl = function
       ])
   | Tglob (r, l) -> json_dict [
       ("what", json_str "type:glob");
-      ("name", json_global Type r);
-      ("args", json_list (List.map (json_type vl) l))
+      ("name", json_global table Type r);
+      ("args", json_list (List.map (json_type table vl) l))
     ]
   | Tarr (t1,t2) -> json_dict [
       ("what", json_str "type:arrow");
-      ("left", json_type vl t1);
-      ("right", json_type vl t2)
+      ("left", json_type table vl t1);
+      ("right", json_type table vl t2)
     ]
   | Tdummy _ -> json_dict [("what", json_str "type:dummy")]
   | Tunknown -> json_dict [("what", json_str "type:unknown")]
@@ -90,15 +90,15 @@ let rec json_type vl = function
 
 (*s Pretty-printing of expressions. *)
 
-let rec json_expr env = function
+let rec json_expr table env = function
   | MLrel n -> json_dict [
       ("what", json_str "expr:rel");
       ("name", json_id (get_db_name n env))
     ]
   | MLapp (f, args) -> json_dict [
       ("what", json_str "expr:apply");
-      ("func", json_expr env f);
-      ("args", json_list (List.map (json_expr env) args))
+      ("func", json_expr table env f);
+      ("args", json_list (List.map (json_expr table env) args))
     ]
   | MLlam _ as a ->
     let fl, a' = collect_lams a in
@@ -106,33 +106,33 @@ let rec json_expr env = function
     json_dict [
       ("what", json_str "expr:lambda");
       ("argnames", json_list (List.map json_id (List.rev fl)));
-      ("body", json_expr env' a')
+      ("body", json_expr table env' a')
     ]
   | MLletin (id, a1, a2) ->
     let i, env' = push_vars [id_of_mlid id] env in
     json_dict [
       ("what", json_str "expr:let");
       ("name", json_id (List.hd i));
-      ("nameval", json_expr env a1);
-      ("body", json_expr env' a2)
+      ("nameval", json_expr table env a1);
+      ("body", json_expr table env' a2)
     ]
   | MLglob r -> json_dict [
       ("what", json_str "expr:global");
-      ("name", json_global Term r)
+      ("name", json_global table Term r)
     ]
   | MLcons (_, r, a) -> json_dict [
       ("what", json_str "expr:constructor");
-      ("name", json_global Cons r);
-      ("args", json_list (List.map (json_expr env) a))
+      ("name", json_global table Cons r);
+      ("args", json_list (List.map (json_expr table env) a))
     ]
   | MLtuple l -> json_dict [
       ("what", json_str "expr:tuple");
-      ("items", json_list (List.map (json_expr env) l))
+      ("items", json_list (List.map (json_expr table env) l))
     ]
   | MLcase (typ, t, pv) -> json_dict [
       ("what", json_str "expr:case");
-      ("expr", json_expr env t);
-      ("cases", json_listarr (Array.map (fun x -> json_one_pat env x) pv))
+      ("expr", json_expr table env t);
+      ("cases", json_listarr (Array.map (fun x -> json_one_pat table env x) pv))
     ]
   | MLfix (i, ids, defs) ->
     let ids', env' = push_vars (List.rev (Array.to_list ids)) env in
@@ -143,7 +143,7 @@ let rec json_expr env = function
         json_dict [
           ("what", json_str "fix:item");
           ("name", json_id fi);
-          ("body", json_function env' ti)
+          ("body", json_function table env' ti)
         ]) (Array.map2 (fun a b -> a,b) ids' defs)));
       ("for", json_int i);
     ]
@@ -154,7 +154,7 @@ let rec json_expr env = function
   | MLdummy _ -> json_dict [("what", json_str "expr:dummy")]
   | MLmagic a -> json_dict [
       ("what", json_str "expr:coerce");
-      ("value", json_expr env a)
+      ("value", json_expr table env a)
     ]
   | MLaxiom _ -> json_dict [("what", json_str "expr:axiom")]
   | MLuint i -> json_dict [
@@ -171,23 +171,23 @@ let rec json_expr env = function
     ]
   | MLparray(t,def) -> json_dict [
       ("what", json_str "expr:array");
-      ("elems", json_listarr (Array.map (json_expr env) t));
-      ("default", json_expr env def)
+      ("elems", json_listarr (Array.map (json_expr table env) t));
+      ("default", json_expr table env def)
     ]
 
-and json_one_pat env (ids,p,t) =
+and json_one_pat table env (ids,p,t) =
   let ids', env' = push_vars (List.rev_map id_of_mlid ids) env in json_dict [
     ("what", json_str "case");
-    ("pat", json_gen_pat (List.rev ids') env' p);
-    ("body", json_expr env' t)
+    ("pat", json_gen_pat table (List.rev ids') env' p);
+    ("body", json_expr table env' t)
   ]
 
-and json_gen_pat ids env = function
-  | Pcons (r, l) -> json_cons_pat r (List.map (json_gen_pat ids env) l)
-  | Pusual r -> json_cons_pat r (List.map json_id ids)
+and json_gen_pat table ids env = function
+  | Pcons (r, l) -> json_cons_pat table r (List.map (json_gen_pat table ids env) l)
+  | Pusual r -> json_cons_pat table r (List.map json_id ids)
   | Ptuple l -> json_dict [
       ("what", json_str "pat:tuple");
-      ("items", json_list (List.map (json_gen_pat ids env) l))
+      ("items", json_list (List.map (json_gen_pat table ids env) l))
     ]
   | Pwild -> json_dict [("what", json_str "pat:wild")]
   | Prel n -> json_dict [
@@ -195,82 +195,82 @@ and json_gen_pat ids env = function
       ("name", json_id (get_db_name n env))
     ]
 
-and json_cons_pat r ppl = json_dict [
+and json_cons_pat table r ppl = json_dict [
     ("what", json_str "pat:constructor");
-    ("name", json_global Cons r);
+    ("name", json_global table Cons r);
     ("argnames", json_list ppl)
   ]
 
-and json_function env t =
+and json_function table env t =
   let bl, t' = collect_lams t in
   let bl, env' = push_vars (List.map id_of_mlid bl) env in
   json_dict [
     ("what", json_str "expr:lambda");
     ("argnames", json_list (List.map json_id (List.rev bl)));
-    ("body", json_expr env' t')
+    ("body", json_expr table env' t')
   ]
 
 
 (*s Pretty-printing of inductive types declaration. *)
 
-let json_ind ip pl cv = json_dict [
+let json_ind table ip pl cv = json_dict [
     ("what", json_str "decl:ind");
-    ("name", json_global Type (GlobRef.IndRef ip));
+    ("name", json_global table Type (GlobRef.IndRef ip));
     ("argnames", json_list (List.map json_id pl));
     ("constructors", json_listarr (Array.mapi (fun idx c -> json_dict [
-        ("name", json_global Cons (GlobRef.ConstructRef (ip, idx+1)));
-        ("argtypes", json_list (List.map (json_type pl) c))
+        ("name", json_global table Cons (GlobRef.ConstructRef (ip, idx+1)));
+        ("argtypes", json_list (List.map (json_type table pl) c))
       ]) cv))
   ]
 
 
 (*s Pretty-printing of a declaration. *)
 
-let pp_decl = function
+let pp_decl table = function
   | Dind (kn, defs) -> prvecti_with_sep pr_comma
     (fun i p -> if p.ip_logical then str ""
-     else json_ind (kn, i) p.ip_vars p.ip_types) defs.ind_packets
+     else json_ind table (kn, i) p.ip_vars p.ip_types) defs.ind_packets
   | Dtype (r, l, t) -> json_dict [
       ("what", json_str "decl:type");
-      ("name", json_global Type r);
+      ("name", json_global table Type r);
       ("argnames", json_list (List.map json_id l));
-      ("value", json_type l t)
+      ("value", json_type table l t)
     ]
   | Dfix (rv, defs, typs) -> json_dict [
       ("what", json_str "decl:fixgroup");
       ("fixlist", json_listarr (Array.mapi (fun i r ->
         json_dict [
           ("what", json_str "fixgroup:item");
-          ("name", json_global Term rv.(i));
-          ("type", json_type [] typs.(i));
-          ("value", json_function (empty_env ()) defs.(i))
+          ("name", json_global table Term rv.(i));
+          ("type", json_type table [] typs.(i));
+          ("value", json_function table (empty_env ()) defs.(i))
         ]) rv))
     ]
   | Dterm (r, a, t) -> json_dict [
       ("what", json_str "decl:term");
-      ("name", json_global Term r);
-      ("type", json_type [] t);
-      ("value", json_function (empty_env ()) a)
+      ("name", json_global table Term r);
+      ("type", json_type table [] t);
+      ("value", json_function table (empty_env ()) a)
     ]
 
-let rec pp_structure_elem = function
-  | (l,SEdecl d) -> [ pp_decl d ]
-  | (l,SEmodule m) -> pp_module_expr m.ml_mod_expr
+let rec pp_structure_elem table = function
+  | (l,SEdecl d) -> [ pp_decl table d ]
+  | (l,SEmodule m) -> pp_module_expr table m.ml_mod_expr
   | (l,SEmodtype m) -> []
       (* for the moment we simply discard module type *)
 
-and pp_module_expr = function
-  | MEstruct (mp,sel) -> List.concat (List.map pp_structure_elem sel)
+and pp_module_expr table = function
+  | MEstruct (mp,sel) -> List.concat (List.map (pp_structure_elem table) sel)
   | MEfunctor _ -> []
       (* for the moment we simply discard unapplied functors *)
   | MEident _ | MEapply _ -> assert false
       (* should be expansed in extract_env *)
 
-let pp_struct mls =
+let pp_struct table mls =
   let pp_sel (mp,sel) =
     push_visible mp [];
     let p = prlist_with_sep pr_comma identity
-      (List.concat (List.map pp_structure_elem sel)) in
+      (List.concat (List.map (pp_structure_elem table) sel)) in
     pop_visible (); p
   in
   str "," ++ fnl () ++
@@ -287,7 +287,7 @@ let json_descr = {
   preamble = preamble;
   pp_struct = pp_struct;
   sig_suffix = None;
-  sig_preamble = (fun _ _ _ _ -> mt ());
-  pp_sig = (fun _ -> mt ());
+  sig_preamble = (fun _ _ _ _ _ -> mt ());
+  pp_sig = (fun _ _ -> mt ());
   pp_decl = pp_decl;
 }

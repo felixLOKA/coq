@@ -439,7 +439,7 @@ type evar_flags =
 
 (* inductive * (scheme_name * sort * mutual *)
 type side_effect_role =
-| Schema of inductive * (string list * Sorts.family option * bool)
+| Schema of inductive * (string list * UnivGen.QualityOrSet.t option * bool)
 
 (* Schemes already defined but not yet in the global env *)
 type side_effects = {
@@ -950,6 +950,7 @@ let evar_source evi = evi.evar_source
 
 let evar_names evd = EvNames.state evd.evar_names
 let evar_ident evk evd = EvNames.ident evk evd.evar_names
+let evar_has_ident evk evd = match evar_ident evk evd with Some _ -> true | None -> false
 let evar_key id evd = EvNames.key id evd.evar_names
 
 let get_aliased_evars evd = evd.evar_flags.aliased_evars
@@ -1109,8 +1110,9 @@ let make_nonalgebraic_variable evd u =
 (* Operations on constants              *)
 (****************************************)
 
-let fresh_sort_in_family ?loc ?(rigid=univ_flexible) evd s =
-  with_sort_context_set ?loc rigid evd (UnivGen.fresh_sort_in_family s)
+let fresh_sort_quality ?loc ?(rigid=univ_flexible) evd s =
+  with_sort_context_set ?loc rigid evd
+    (UnivGen.fresh_sort_quality s)
 
 let fresh_constant_instance ?loc ?(rigid=univ_flexible) env evd c =
   with_sort_context_set ?loc rigid evd (UnivGen.fresh_constant_instance env c)
@@ -1242,13 +1244,11 @@ exception UniversesDiffer = UState.UniversesDiffer
 (**********************************************************)
 (* Side effects *)
 
-let concat_side_effects eff eff' = {
-  seff_private = Safe_typing.concat_private eff.seff_private eff'.seff_private;
-  seff_roles = Cmap.fold Cmap.add eff.seff_roles eff'.seff_roles;
-}
-
 let emit_side_effects eff evd =
-  let effects = concat_side_effects eff evd.effects in
+  let effects = {
+  seff_private = Safe_typing.concat_private eff.seff_private evd.effects.seff_private;
+  seff_roles = Cmap.fold Cmap.add eff.seff_roles evd.effects.seff_roles;
+  } in
   { evd with effects; universes = UState.emit_side_effects eff.seff_private evd.universes }
 
 let drop_side_effects evd =

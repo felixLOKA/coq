@@ -67,10 +67,10 @@ let run_tests ml_fn out_ch tests =
       tot succ (tot - succ);
   if succ = tot then
     cprintf
-      "==========> SUCCESS <==========\n    %s...Ok" ml_fn
+      "==========> SUCCESS <==========\n    %s ... Ok" ml_fn
   else begin
     cprintf
-      "==========> FAILURE <==========\n    %s...Error!" ml_fn;
+      "==========> FAILURE <==========\n    %s ... Error!" ml_fn;
     ceprintf "FAILED    %s.log" ml_fn
   end;
   close_out out_ch

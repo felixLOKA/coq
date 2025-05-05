@@ -423,8 +423,8 @@ let pr_onescheme (idop, {sch_type; sch_qualid; sch_sort}) =
     | Some id -> pr_lident id ++ str " :="
     | None -> str "" in
   let str_scheme = keyword (String.concat "_" sch_type) ++ keyword "for" in
-  let sort_opt = match sch_sort with Some s -> keyword "Sort" ++ spc() ++ Sorts.pr_sort_family s
-                                   | None -> keyword "" in
+  let sch = match sch_sort with Some a -> a | None -> UnivGen.QualityOrSet.Qual (Sorts.Quality.QConstant QType) in
+  let sort_opt = UnivGen.QualityOrSet.pr Sorts.QVar.raw_pr sch in
   hov 0 str_identifier ++ spc () ++ hov 0 (str_scheme ++ spc() ++ pr_smart_global sch_qualid)
     ++ spc () ++ hov 0 (sort_opt)
 

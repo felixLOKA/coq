@@ -102,7 +102,7 @@ let subst_keys (subst,(k,k')) =
   (subst_key subst k, subst_key subst k')
 
 let discharge_key = function
-  | KGlob (GlobRef.VarRef _ as g) when Lib.is_in_section g -> None
+  | KGlob (GlobRef.VarRef _ as g) when Global.is_in_section g -> None
   | x -> Some x
 
 let discharge_keys (k,k') =

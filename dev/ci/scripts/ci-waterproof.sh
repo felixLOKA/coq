@@ -10,6 +10,6 @@ git_download waterproof
 if [ "$DOWNLOAD_ONLY" ]; then exit 0; fi
 
 ( cd "${CI_BUILD_DIR}/waterproof"
-  dune build -p coq-waterproof
-  dune install -p coq-waterproof --prefix=$CI_INSTALL_DIR
+  dune build --root . --only-packages=coq-waterproof
+  dune install --root . coq-waterproof --prefix=$CI_INSTALL_DIR
 )

@@ -103,7 +103,7 @@ let inTacDef : Id.t -> tacdef -> obj =
   declare_named_object {(default_object "TAC2-DEFINITION") with
      cache_function  = cache_tacdef;
      load_function   = load_tacdef;
-     open_function   = simple_open open_tacdef;
+     open_function   = filtered_open open_tacdef;
      subst_function = subst_tacdef;
      classify_function = classify_tacdef}
 
@@ -213,7 +213,7 @@ let inTypDef : Id.t -> typdef -> obj =
   declare_named_object {(default_object "TAC2-TYPE-DEFINITION") with
      cache_function  = cache_typdef;
      load_function   = load_typdef;
-     open_function   = simple_open open_typdef;
+     open_function   = filtered_open open_typdef;
      subst_function = subst_typdef;
      classify_function = classify_typdef}
 
@@ -284,18 +284,11 @@ let inTypExt : typext -> obj =
   declare_named_object_gen {(default_object "TAC2-TYPE-EXTENSION") with
      cache_function  = cache_typext;
      load_function   = load_typext;
-     open_function   = simple_open open_typext;
+     open_function   = filtered_open open_typext;
      subst_function = subst_typext;
      classify_function = classify_typext}
 
 (** Toplevel entries *)
-
-let fresh_var avoid x =
-  let bad id =
-    Id.Set.mem id avoid ||
-    (try ignore (Tac2env.locate_ltac (qualid_of_ident id)); true with Not_found -> false)
-  in
-  Namegen.next_ident_away_from (Id.of_string x) bad
 
 let extract_pattern_type ({loc;v=p} as pat) = match p with
 | CPatCnv (pat, ty) -> pat, Some ty
@@ -303,7 +296,6 @@ let extract_pattern_type ({loc;v=p} as pat) = match p with
 
 (** Mangle recursive tactics *)
 let inline_rec_tactic tactics =
-  let avoid = List.fold_left (fun accu ({v=id}, _) -> Id.Set.add id accu) Id.Set.empty tactics in
   let map (id, e) = match e.v with
   | CTacFun (pat, _) -> (id, List.map extract_pattern_type pat, e)
   | _ ->
@@ -311,25 +303,15 @@ let inline_rec_tactic tactics =
   in
   let tactics = List.map map tactics in
   let map (id, pat, e) =
-    let fold_var (avoid, ans) (pat, _) =
-      let id = fresh_var avoid "x" in
-      let loc = pat.loc in
-      (Id.Set.add id avoid, CAst.make ?loc id :: ans)
-    in
-    (* Fresh variables to abstract over the function patterns *)
-    let _, vars = List.fold_left fold_var (avoid, []) pat in
     let map_body ({loc;v=id}, _, e) = CAst.(make ?loc @@ CPatVar (Name id)), e in
     let bnd = List.map map_body tactics in
-    let pat_of_id {loc;v=id} = CAst.make ?loc @@ CPatVar (Name id) in
     let var_of_id {loc;v=id} =
       let qid = qualid_of_ident ?loc id in
       CAst.make ?loc @@ CTacRef (RelId qid)
     in
     let loc0 = e.loc in
-    let vpat = List.map pat_of_id vars in
-    let varg = List.map var_of_id vars in
-    let e = CAst.make ?loc:loc0 @@ CTacLet (true, bnd, CAst.make ?loc:loc0 @@ CTacApp (var_of_id id, varg)) in
-    (id, CAst.make ?loc:loc0 @@ CTacFun (vpat, e))
+    let e = CAst.make ?loc:loc0 @@ CTacLet (true, bnd, var_of_id id) in
+    (id, e)
   in
   List.map map tactics
 
@@ -337,10 +319,22 @@ let check_lowercase {loc;v=id} =
   if Tac2env.is_constructor (Libnames.qualid_of_ident id) then
     user_err ?loc (str "The identifier " ++ Id.print id ++ str " must be lowercase")
 
+let pp_not_value_reason = function
+  | MutString -> str "(it contains a string literal, and strings are mutable)"
+  | Application -> str "(it contains an application)"
+  | MutDef kn -> str "(it contains mutable definition " ++ pr_tacref Id.Set.empty kn
+  | MutCtor kn -> str "(it contains a constructor of type " ++ pr_typref kn ++ str " which has mutable fields)"
+  | MutProj kn -> str "(it contains a mutable projection from type " ++ pr_typref kn ++ str ")"
+  | MaybeValButNotSupported -> mt()
+
 let check_value ?loc e =
-  if not (is_value e) then
+  match check_value e with
+  | None -> ()
+  | Some reason ->
+    let ppreason = pp_not_value_reason reason in
     user_err ?loc
-      (str "Tactic definition must be a syntactical value." ++ spc() ++
+      (str "Tactic definition must be a syntactical value" ++
+       (if ismt ppreason then mt() else spc() ++ ppreason) ++ str "." ++ spc() ++
        str "Consider using a thunk.")
 
 let check_ltac_exists {loc;v=id} =
@@ -583,15 +577,15 @@ type 'a token =
 | TacTerm of string
 | TacNonTerm of Name.t * 'a
 
-type scope_rule =
-| ScopeRule : (raw_tacexpr, _, 'a) Procq.Symbol.t * ('a -> raw_tacexpr) -> scope_rule
+type syntax_class_rule =
+| SyntaxRule : (raw_tacexpr, _, 'a) Procq.Symbol.t * ('a -> raw_tacexpr) -> syntax_class_rule
 
-type scope_interpretation = sexpr list -> scope_rule
+type syntax_class_interpretation = sexpr list -> syntax_class_rule
 
-let scope_table : scope_interpretation Id.Map.t ref = ref Id.Map.empty
+let syntax_class_table : syntax_class_interpretation Id.Map.t ref = ref Id.Map.empty
 
-let register_scope id s =
-  scope_table := Id.Map.add id s !scope_table
+let register_syntax_class id s =
+  syntax_class_table := Id.Map.add id s !syntax_class_table
 
 module ParseToken =
 struct
@@ -601,15 +595,15 @@ let loc_of_token = function
 | SexprInt {loc} -> loc
 | SexprRec (loc, _, _) -> Some loc
 
-let parse_scope = function
+let parse_syntax_class = function
 | SexprRec (_, {loc;v=Some id}, toks) ->
-  if Id.Map.mem id !scope_table then
-    Id.Map.find id !scope_table toks
+  if Id.Map.mem id !syntax_class_table then
+    Id.Map.find id !syntax_class_table toks
   else
-    CErrors.user_err ?loc (str "Unknown scope" ++ spc () ++ Names.Id.print id)
+    CErrors.user_err ?loc (str "Unknown syntactic class" ++ spc () ++ Names.Id.print id)
 | SexprStr {v=str} ->
   let v_unit = CAst.make @@ CTacCst (AbsKn (Tuple 0)) in
-  ScopeRule (Procq.Symbol.token (Tok.PIDENT (Some str)), (fun _ -> v_unit))
+  SyntaxRule (Procq.Symbol.token (Tok.PIDENT (Some str)), (fun _ -> v_unit))
 | tok ->
   let loc = loc_of_token tok in
   CErrors.user_err ?loc (str "Invalid parsing token")
@@ -623,27 +617,27 @@ let parse_token = function
     let () = check_lowercase (CAst.make ?loc:na.CAst.loc id) in
     Name id
   in
-  let scope = parse_scope tok in
-  TacNonTerm (na, scope)
+  let syntax_class = parse_syntax_class tok in
+  TacNonTerm (na, syntax_class)
 | tok ->
   let loc = loc_of_token tok in
   CErrors.user_err ?loc (str "Invalid parsing token")
 
-let rec print_scope = function
+let rec print_syntax_class = function
 | SexprStr s -> str s.CAst.v
 | SexprInt i -> int i.CAst.v
 | SexprRec (_, {v=na}, []) -> Option.cata Id.print (str "_") na
 | SexprRec (_, {v=na}, e) ->
-  Option.cata Id.print (str "_") na ++ str "(" ++ pr_sequence print_scope e ++ str ")"
+  Option.cata Id.print (str "_") na ++ str "(" ++ pr_sequence print_syntax_class e ++ str ")"
 
 let print_token = function
 | SexprStr {v=s} -> quote (str s)
-| SexprRec (_, {v=na}, [tok]) -> print_scope tok
+| SexprRec (_, {v=na}, [tok]) -> print_syntax_class tok
 | _ -> assert false
 
 end
 
-let parse_scope = ParseToken.parse_scope
+let parse_syntax_class = ParseToken.parse_syntax_class
 
 type synext = {
   synext_kn : KerName.t;
@@ -658,11 +652,11 @@ type krule =
   (raw_tacexpr, _, 'act, Loc.t -> raw_tacexpr) Procq.Rule.t *
   ((Loc.t -> (Name.t * raw_tacexpr) list -> raw_tacexpr) -> 'act) -> krule
 
-let rec get_rule (tok : scope_rule token list) : krule = match tok with
+let rec get_rule (tok : syntax_class_rule token list) : krule = match tok with
 | [] -> KRule (Procq.Rule.stop, fun k loc -> k loc [])
-| TacNonTerm (na, ScopeRule (scope, inj)) :: tok ->
+| TacNonTerm (na, SyntaxRule (syntax_class, inj)) :: tok ->
   let KRule (rule, act) = get_rule tok in
-  let rule = Procq.Rule.next rule scope in
+  let rule = Procq.Rule.next rule syntax_class in
   let act k e = act (fun loc acc -> k loc ((na, inj e) :: acc)) in
   KRule (rule, act)
 | TacTerm t :: tok ->
@@ -676,14 +670,6 @@ let deprecated_ltac2_notation =
     ~object_name:"Ltac2 notation"
     ~warning_name_if_no_since:"deprecated-ltac2-notation"
     (fun (toks : sexpr list) -> pr_sequence ParseToken.print_token toks)
-
-(* This is a hack to preserve the level 4 entry which is initially empty. The
-   grammar engine has the great idea to silently delete empty levels on rule
-   removal, so we have to work around this using the Procq API.
-   FIXME: we should really keep those levels around instead. *)
-let get_reinit = function
-| 4 -> Some (Gramlib.Gramext.LeftA, Gramlib.Gramext.After "5")
-| _ -> None
 
 let perform_notation syn st =
   let tok = List.rev_map ParseToken.parse_token syn.synext_tok in
@@ -702,20 +688,13 @@ let perform_notation syn st =
   let rule = Procq.Production.make rule (act mk) in
   let pos = Some (string_of_int syn.synext_lev) in
   let rule = Procq.Reuse (pos, [rule]) in
-  match get_reinit syn.synext_lev with
-  | None ->
-    ([Procq.ExtendRule (Pltac.ltac2_expr, rule)], st)
-  | Some reinit ->
-    ([Procq.ExtendRuleReinit (Pltac.ltac2_expr, reinit, rule)], st)
+  [Procq.ExtendRule (Pltac.ltac2_expr, rule)], st
 
 let ltac2_notation =
   Procq.create_grammar_command "ltac2-notation" { gext_fun = perform_notation; gext_eq = (==) (* FIXME *) }
 
 let cache_synext syn =
   Procq.extend_grammar_command ltac2_notation syn
-
-let open_synext i syn =
-  if Int.equal i 1 then Procq.extend_grammar_command ltac2_notation syn
 
 let subst_synext (subst, syn) =
   let kn = Mod_subst.subst_kn subst syn.synext_kn in
@@ -731,15 +710,12 @@ let inTac2Notation : synext -> obj =
   declare_object {(default_object "TAC2-NOTATION") with
      object_stage = Summary.Stage.Synterp;
      cache_function  = cache_synext;
-     open_function   = simple_open ~cat:ltac2_notation_cat open_synext;
+     open_function   = simple_open ~cat:ltac2_notation_cat cache_synext;
      subst_function = subst_synext;
      classify_function = classify_synext}
 
 let cache_synext_interp (local,kn,tac) =
   Tac2env.define_notation kn tac
-
-let open_synext_interp i o =
-  if Int.equal i 1 then cache_synext_interp o
 
 let subst_notation_data subst = function
   | Tac2env.UntypedNota body as n ->
@@ -764,7 +740,7 @@ let classify_synext_interp (local,_,_) =
 let inTac2NotationInterp : (bool*KerName.t*Tac2env.notation_data) -> obj =
   declare_object {(default_object "TAC2-NOTATION-INTERP") with
      cache_function  = cache_synext_interp;
-     open_function   = simple_open ~cat:ltac2_notation_cat open_synext_interp;
+     open_function   = simple_open ~cat:ltac2_notation_cat cache_synext_interp;
      subst_function = subst_synext_interp;
      classify_function = classify_synext_interp}
 
@@ -795,20 +771,20 @@ let inTac2Abbreviation : Id.t -> abbreviation -> obj =
   declare_named_object {(default_object "TAC2-ABBREVIATION") with
      cache_function  = cache_abbreviation;
      load_function   = load_abbreviation;
-     open_function   = simple_open ~cat:ltac2_notation_cat open_abbreviation;
+     open_function   = filtered_open ~cat:ltac2_notation_cat open_abbreviation;
      subst_function = subst_abbreviation;
      classify_function = classify_abbreviation}
 
-let rec string_of_scope = function
+let rec string_of_syntax_class = function
 | SexprStr s -> Printf.sprintf "str(%s)" s.CAst.v
 | SexprInt i -> Printf.sprintf "int(%i)" i.CAst.v
 | SexprRec (_, {v=na}, []) -> Option.cata Id.to_string "_" na
 | SexprRec (_, {v=na}, e) ->
-  Printf.sprintf "%s(%s)" (Option.cata Id.to_string "_" na) (String.concat " " (List.map string_of_scope e))
+  Printf.sprintf "%s(%s)" (Option.cata Id.to_string "_" na) (String.concat " " (List.map string_of_syntax_class e))
 
 let string_of_token = function
 | SexprStr {v=s} -> Printf.sprintf "str(%s)" s
-| SexprRec (_, {v=na}, [tok]) -> string_of_scope tok
+| SexprRec (_, {v=na}, [tok]) -> string_of_syntax_class tok
 | _ -> assert false
 
 let make_fresh_key tokens =
@@ -823,6 +799,11 @@ let make_fresh_key tokens =
 type notation_interpretation_data =
 | Abbreviation of Id.t * Deprecation.t option * raw_tacexpr
 | Synext of bool * KerName.t * Id.Set.t * raw_tacexpr
+
+let pr_register_notation tkn lev body =
+  prlist_with_sep spc Tac2print.pr_syntax_class tkn ++
+  pr_opt (fun n -> str ": " ++ int n) lev ++ spc() ++
+  hov 2 (str ":= " ++ Tac2print.pr_rawexpr_gen E5 ~avoid:Id.Set.empty body)
 
 let register_notation atts tkn lev body =
   let deprecation, local = Attributes.(parse Notations.(deprecation ++ locality)) atts in
@@ -901,7 +882,7 @@ let inTac2Redefinition : redefinition -> obj =
   declare_object
     {(default_object "TAC2-REDEFINITION") with
      cache_function  = perform_redefinition;
-     open_function   = simple_open (fun _ -> perform_redefinition);
+     open_function   = simple_open perform_redefinition;
      subst_function = subst_redefinition;
      classify_function = classify_redefinition;
     }

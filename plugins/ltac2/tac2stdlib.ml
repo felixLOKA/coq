@@ -23,9 +23,8 @@ module Value = Tac2ffi
 let make_to_repr f = Tac2ffi.make_repr (fun _ -> assert false) f
 
 let return x = Proofview.tclUNIT x
-let thaw r f = Tac2ffi.app_fun1 f unit r ()
-let uthaw r f = Tac2ffi.app_fun1 (to_fun1 unit r f) unit r ()
-let thunk r = fun1 unit r
+let thaw f = f ()
+let uthaw r f = Tac2ffi.to_fun1 Tac2ffi.of_unit (repr_to r) f ()
 
 let to_name c = match Value.to_option Value.to_ident c with
 | None -> Anonymous
@@ -107,7 +106,7 @@ and to_intro_pattern_action = function
   let map ipat = to_intro_pattern ipat in
   IntroInjection (Value.to_list map inj)
 | ValBlk (2, [| c; ipat |]) ->
-  let c = Value.to_fun1 Value.unit Value.constr c in
+  let c = Value.to_fun1 Value.of_unit Value.to_constr c in
   IntroApplyOn (c, to_intro_pattern ipat)
 | ValBlk (3, [| b |]) -> IntroRewrite (Value.to_bool b)
 | _ -> assert false
@@ -175,7 +174,7 @@ let induction_clause = make_to_repr to_induction_clause
 
 let to_assertion v = match Value.to_block v with
 | (0, [| ipat; t; tac |]) ->
-  let to_tac t = Value.to_fun1 Value.unit Value.unit t in
+  let to_tac t = Value.to_fun1 Value.of_unit Value.to_unit t in
   let ipat = Value.to_option to_intro_pattern ipat in
   let t = Value.to_constr t in
   let tac = Value.to_option to_tac tac in
@@ -283,7 +282,7 @@ let () =
     Tac2tactics.assert_
 
 let tac_enough c tac ipat =
-  let tac = Option.map (fun o -> Option.map (fun f -> thaw unit f) o) tac in
+  let tac = Option.map (fun o -> Option.map (fun f -> thaw f) o) tac in
   Tac2tactics.forward false tac ipat c
 let () =
   define "tac_enough"
@@ -298,7 +297,7 @@ let () =
 
 let tac_set ev p cl =
   Proofview.tclEVARMAP >>= fun sigma ->
-  thaw (pair name constr) p >>= fun (na, c) ->
+  thaw p >>= fun (na, c) ->
   Tac2tactics.letin_pat_tac ev None na (Some sigma, c) cl
 let () =
   define "tac_set"
@@ -310,7 +309,7 @@ let tac_remember ev na c eqpat cl =
   match eqpat with
   | IntroNaming eqpat ->
     Proofview.tclEVARMAP >>= fun sigma ->
-    thaw constr c >>= fun c ->
+    thaw c >>= fun c ->
     Tac2tactics.letin_pat_tac ev (Some (true, eqpat)) na (Some sigma, c) cl
   | _ ->
     Tacticals.tclZEROMSG (Pp.str "Invalid pattern for remember")

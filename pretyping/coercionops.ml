@@ -504,7 +504,7 @@ module CoercionPrinting =
 
     let discharge = let open GlobRef in function
       | ConstRef _ | ConstructRef _ | IndRef _ as x -> x
-      | VarRef _ as x -> assert (not (Lib.is_in_section x)); x
+      | VarRef _ as x -> assert (not (Global.is_in_section x)); x
 
     let printer x = Nametab.pr_global_env Id.Set.empty x
     let key = ["Printing";"Coercion"]

@@ -10,6 +10,6 @@
 
 open Names
 
-val declare_scheme : Libobject.locality -> (string list * Sorts.family option * bool) -> (inductive * Constant.t) -> unit
-val lookup_scheme : (string list * Sorts.family option * bool) -> inductive -> Constant.t
-val all_schemes : unit -> Constant.t Sorts.Map.t Indmap.t
+val declare_scheme : Libobject.locality -> (string list * UnivGen.QualityOrSet.t option * bool) -> (inductive * Constant.t) -> unit
+val lookup_scheme : (string list * UnivGen.QualityOrSet.t option * bool) -> inductive -> Constant.t
+val all_schemes : unit -> Constant.t UnivGen.Map.t Indmap.t

@@ -258,7 +258,7 @@ type proof_end =
 type scheme = {
   sch_type : string list ;
   sch_qualid : Libnames.qualid Constrexpr.or_by_notation ;
-  sch_sort : Sorts.family option ;
+  sch_sort : UnivGen.QualityOrSet.t option ;
 }
 
 type section_subset_expr =

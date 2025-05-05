@@ -41,6 +41,11 @@ val pr_partial_pat : PartialPat.t -> Pp.t
 
 val pr_rawexpr_gen : exp_level -> avoid:Id.Set.t -> raw_tacexpr -> Pp.t
 
+val pr_syntax_class : sexpr -> Pp.t
+
+(** Print main commands, without the "Ltac2" prefix *)
+val pr_strexpr : strexpr -> Pp.t
+
 (** Utility function *)
 val partial_pat_of_glb_pat : glb_pat -> PartialPat.t
 

@@ -12,12 +12,11 @@ open Pp
 open Util
 open Names
 open Tac2types
-open Tac2extffi
 open Genredexpr
 open Proofview.Notations
 
 let return = Proofview.tclUNIT
-let thaw r f = Tac2ffi.app_fun1 f Tac2ffi.unit r ()
+let thaw (f:unit -> _ Proofview.tactic) = f ()
 
 let tactic_infer_flags with_evar = Pretyping.{
   use_coercions = true;
@@ -36,12 +35,12 @@ let tactic_infer_flags with_evar = Pretyping.{
 let delayed_of_tactic tac env sigma =
   let _, pv = Proofview.init sigma [] in
   let name, poly = Id.of_string "ltac2_delayed", false in
-  let c, pv, _, _ = Proofview.apply ~name ~poly env tac pv in
+  let c, pv, _, _, _ = Proofview.apply ~name ~poly env tac pv in
   let _, sigma = Proofview.proofview pv in
   (sigma, c)
 
 let delayed_of_thunk r tac env sigma =
-  delayed_of_tactic (thaw r tac) env sigma
+  delayed_of_tactic (thaw tac) env sigma
 
 let mk_bindings = function
 | ImplicitBindings l -> Tactypes.ImplicitBindings l
@@ -103,7 +102,7 @@ let intros_patterns ev ipat =
 
 let apply adv ev cb cl =
   let map c =
-    let c = thaw constr_with_bindings c >>= fun p -> return (mk_with_bindings p) in
+    let c = thaw c >>= fun p -> return (mk_with_bindings p) in
     None, CAst.make c
   in
   let cb = List.map map cb in
@@ -167,11 +166,10 @@ let specialize c pat =
   Tactics.specialize c pat
 
 let change pat c cl =
-  let open Tac2ffi in
   Proofview.Goal.enter begin fun gl ->
   let c subst env sigma =
     let subst = Array.map_of_list snd (Id.Map.bindings subst) in
-    Tacred.Changed (delayed_of_tactic (Tac2ffi.app_fun1 c (array constr) constr subst) env sigma)
+    Tacred.Changed (delayed_of_tactic (c subst) env sigma)
   in
   let cl = mk_clause cl in
   Tactics.change ~check:true pat c cl
@@ -184,7 +182,7 @@ let rewrite ev rw cl by =
   in
   let rw = List.map map_rw rw in
   let cl = mk_clause cl in
-  let by = Option.map (fun tac -> Tacticals.tclCOMPLETE (thaw Tac2ffi.unit tac), Equality.Naive) by in
+  let by = Option.map (fun tac -> Tacticals.tclCOMPLETE (thaw tac), Equality.Naive) by in
   Equality.general_multi_rewrite ev rw cl by
 
 let setoid_rewrite orient c occs id =
@@ -206,7 +204,7 @@ let assert_ = function
   Tactics.forward true None (Some ipat) c
 | AssertType (ipat, c, tac) ->
   let ipat = Option.map mk_intro_pattern ipat in
-  let tac = Option.map (fun tac -> thaw Tac2ffi.unit tac) tac in
+  let tac = Option.map (fun tac -> thaw tac) tac in
   Tactics.forward true (Some tac) ipat c
 
 let letin_pat_tac ev ipat na c cl =
@@ -382,7 +380,7 @@ let autorewrite ~all by ids cl =
   match by with
   | None -> Autorewrite.auto_multi_rewrite ?conds ids cl
   | Some by ->
-    let by = thaw Tac2ffi.unit by in
+    let by = thaw by in
     Autorewrite.auto_multi_rewrite_with ?conds by ids cl
 
 (** Auto *)

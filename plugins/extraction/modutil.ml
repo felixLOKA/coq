@@ -274,39 +274,39 @@ let dfix_to_mlfix rv av i =
    order to preserve the global interface, later [depcheck_se] will get
    rid of them if possible *)
 
-let rec optim_se top to_appear s = function
+let rec optim_se table top to_appear s = function
   | [] -> []
   | (l,SEdecl (Dterm (r,a,t))) :: lse ->
       let a = normalize (ast_glob_subst !s a) in
-      let i = inline r a in
+      let i = inline table r a in
       if i then s := Refmap'.add r a !s;
       let d = match dump_unused_vars (optimize_fix a) with
         | MLfix (0, _, [|c|]) ->
           Dfix ([|r|], [|ast_subst (MLglob r) c|], [|t|])
         | a -> Dterm (r, a, t)
       in
-      (l,SEdecl d) :: (optim_se top to_appear s lse)
+      (l,SEdecl d) :: (optim_se table top to_appear s lse)
   | (l,SEdecl (Dfix (rv,av,tv))) :: lse ->
       let av = Array.map (fun a -> normalize (ast_glob_subst !s a)) av in
       (* This fake body ensures that no fixpoint will be auto-inlined. *)
       let fake_body = MLfix (0,[||],[||]) in
       for i = 0 to Array.length rv - 1 do
-        if inline rv.(i) fake_body
+        if inline table rv.(i) fake_body
         then s := Refmap'.add rv.(i) (dfix_to_mlfix rv av i) !s
       done;
       let av' = Array.map dump_unused_vars av in
-      (l,SEdecl (Dfix (rv, av', tv))) :: (optim_se top to_appear s lse)
+      (l,SEdecl (Dfix (rv, av', tv))) :: (optim_se table top to_appear s lse)
   | (l,SEmodule m) :: lse ->
-      let m = { m with ml_mod_expr = optim_me to_appear s m.ml_mod_expr}
-      in (l,SEmodule m) :: (optim_se top to_appear s lse)
-  | se :: lse -> se :: (optim_se top to_appear s lse)
+      let m = { m with ml_mod_expr = optim_me table to_appear s m.ml_mod_expr}
+      in (l,SEmodule m) :: (optim_se table top to_appear s lse)
+  | se :: lse -> se :: (optim_se table top to_appear s lse)
 
-and optim_me to_appear s = function
-  | MEstruct (msid, lse) -> MEstruct (msid, optim_se false to_appear s lse)
+and optim_me table to_appear s = function
+  | MEstruct (msid, lse) -> MEstruct (msid, optim_se table false to_appear s lse)
   | MEident mp as me -> me
   | MEapply (me, me') ->
-      MEapply (optim_me to_appear s me, optim_me to_appear s me')
-  | MEfunctor (mbid,mt,me) -> MEfunctor (mbid,mt, optim_me to_appear s me)
+      MEapply (optim_me table to_appear s me, optim_me table to_appear s me')
+  | MEfunctor (mbid,mt,me) -> MEfunctor (mbid,mt, optim_me table to_appear s me)
 
 (* After these optimisations, some dependencies may not be needed anymore.
    For non-library extraction, we recompute a minimal set of dependencies
@@ -360,15 +360,15 @@ let compute_deps_spec = function
   | Sval (r,t) ->
       type_iter_references add_needed t
 
-let rec depcheck_se = function
+let rec depcheck_se table = function
   | [] -> []
   | ((l,SEdecl d) as t) :: se ->
-    let se' = depcheck_se se in
+    let se' = depcheck_se table se in
     let refs = declared_refs d in
     let refs' = List.filter is_needed refs in
     if List.is_empty refs' then
-      (List.iter remove_info_axiom refs;
-       List.iter remove_opaque refs;
+      (List.iter (fun r -> remove_info_axiom table r) refs;
+       List.iter (fun r -> remove_opaque table r) refs;
        se')
     else begin
       List.iter found_needed refs';
@@ -380,15 +380,15 @@ let rec depcheck_se = function
         | _ -> (compute_deps_decl d; t::se')
     end
   | t :: se ->
-    let se' = depcheck_se se in
+    let se' = depcheck_se table se in
     se_iter compute_deps_decl compute_deps_spec add_needed_mp t;
     t :: se'
 
-let rec depcheck_struct = function
+let rec depcheck_struct table = function
   | [] -> []
   | (mp,lse)::struc ->
-      let struc' = depcheck_struct struc in
-      let lse' = depcheck_se lse in
+      let struc' = depcheck_struct table struc in
+      let lse' = depcheck_se table lse in
       if List.is_empty lse' then struc' else (mp,lse')::struc'
 
 exception RemainingImplicit of kill_reason
@@ -401,10 +401,10 @@ let check_for_remaining_implicits struc =
   try ignore (struct_ast_search check struc)
   with RemainingImplicit k -> err_or_warn_remaining_implicit k
 
-let optimize_struct to_appear struc =
+let optimize_struct table to_appear struc =
   let subst = ref (Refmap'.empty : ml_ast Refmap'.t) in
   let opt_struc =
-    List.map (fun (mp,lse) -> (mp, optim_se true (fst to_appear) subst lse))
+    List.map (fun (mp,lse) -> (mp, optim_se table true (fst to_appear) subst lse))
       struc
   in
   let mini_struc =
@@ -415,7 +415,7 @@ let optimize_struct to_appear struc =
         reset_needed ();
         List.iter add_needed (fst to_appear);
         List.iter add_needed_mp (snd to_appear);
-        depcheck_struct opt_struc
+        depcheck_struct table opt_struc
       end
   in
   let () = check_for_remaining_implicits mini_struc in

@@ -68,7 +68,7 @@ let objInductive : (Id.t * inductive_obj) Libobject.Dyn.tag =
   declare_named_object_full {(default_object "INDUCTIVE") with
     cache_function = cache_inductive;
     load_function = load_inductive;
-    open_function = simple_open open_inductive;
+    open_function = filtered_open open_inductive;
     classify_function = (fun a -> Substitute);
     subst_function = ident_subst_function;
     discharge_function = discharge_inductive;
@@ -82,7 +82,7 @@ let load_prim _ p = cache_prim p
 
 let subst_prim (subst,(p,c)) = Mod_subst.subst_proj_repr subst p, Mod_subst.subst_constant subst c
 
-let discharge_prim (p,c) = Some (Lib.discharge_proj_repr p, c)
+let discharge_prim (p,c) = Some (Global.discharge_proj_repr p, c)
 
 let inPrim : (Projection.Repr.t * Constant.t) -> Libobject.obj =
   let open Libobject in
