@@ -296,6 +296,31 @@ let make_table_widget ?sort cd cb =
 (*   let refresh clr = data#misc#modify_bg [`NORMAL, `NAME clr] in *)
 (*   let _ = background_color#connect#changed ~callback:refresh in *)
 (*   let _ = data#misc#connect#realize ~callback:(fun () -> refresh background_color#get) in *)
+  let button_cb () =
+    let path, col = data#get_cursor () in
+    match path, col with
+    | Some path, Some col ->
+      let iter = store#get_iter path in
+      let map (_, c) = match c with
+      | `IntC c -> string_of_int (store#get ~row:iter ~column:c)
+      | `StringC c -> store#get ~row:iter ~column:c
+      in
+      let data = String.concat " " (List.map map columns) in
+      GMain.clipboard#set_text data
+    | _ -> ()
+  in
+  let callback ev =
+    let button = GdkEvent.Button.button ev in
+    if Int.equal button 3 then
+      let menu = GMenu.menu () in
+      let item = GMenu.menu_item ~label:"Copy" () in
+      let (_ : GtkSignal.id) = item#connect#activate ~callback:button_cb in
+      let () = menu#add item in
+      let _ = menu#popup ~button ~time:(GdkEvent.Button.time ev) in
+      false
+    else false
+  in
+  let (_ : GtkSignal.id) = data#event#connect#button_press ~callback in
   let mk_rend c = GTree.cell_renderer_text [], ["text",c] in
   let cols =
     List.map2 (fun (_,c) (_,n,v) ->

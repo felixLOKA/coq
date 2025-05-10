@@ -36,7 +36,7 @@ type question_mark = {
 val default_question_mark : question_mark
 
 type t =
-  | ImplicitArg of GlobRef.t * (int * Id.t option)
+  | ImplicitArg of GlobRef.t * (int * Id.t)
      * bool (** Force inference *)
   | BinderType of Name.t
   | EvarType of Id.t option * Evar.t (* type of an optionally named evar *)
@@ -52,7 +52,7 @@ type t =
   | SubEvar of subevar_kind option * Evar.t
 
 type glob_evar_kind =
-  | GImplicitArg of GlobRef.t * (int * Id.t option) * bool (** Force inference *)
+  | GImplicitArg of GlobRef.t * (int * Id.t) * bool (** Force inference *)
   | GBinderType of Name.t
   | GNamedHole of bool (* fresh? *) * Id.t (* coming from some ?[id] syntax *)
   | GQuestionMark of question_mark

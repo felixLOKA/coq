@@ -1889,8 +1889,8 @@ let rec knr : 'a. _ -> _ -> pat_state: 'a depth -> _ -> _ -> 'a =
   | FLetIn (_,v,_,bd,e) when red_set info.i_flags fZETA ->
       knit info tab ~pat_state (on_fst (subs_cons v) e) bd stk
   | FInt _ | FFloat _ | FString _ | FArray _ ->
-    (match [@ocaml.warning "-4"] strip_update_shift_absorb_app m stk with
-     | (_, Zprimitive(op,(_,u as c),rargs,nargs)::s) ->
+    (match [@ocaml.warning "-4"] strip_update_shift_app m stk with
+     | (_, _, _, Zprimitive(op,(_,u as c),rargs,nargs)::s) ->
        let (rargs, nargs) = skip_native_args (m::rargs) nargs in
        begin match nargs with
          | [] ->
@@ -1910,7 +1910,7 @@ let rec knr : 'a. _ -> _ -> pat_state: 'a depth -> _ -> _ -> 'a =
            assert (kd = CPrimitives.Kwhnf);
            kni info tab ~pat_state a (Zprimitive(op,c,rargs,nargs)::s)
              end
-     | mstk -> knr_ret info tab ~pat_state mstk)
+     | (depth, _, _, stk) -> knr_ret info tab ~pat_state (m,zshift depth stk))
   | FCaseInvert (ci, u, pms, _p,iv,_c,v,env) when red_set info.i_flags fMATCH ->
     let pms = mk_clos_vect env pms in
     let u = usubst_instance env u in

@@ -12,7 +12,6 @@ open Util
 open Genarg
 open Geninterp
 open Ltac2_plugin
-open Tac2val
 open Tac2ffi
 open Tac2expr
 open Proofview.Notations
@@ -65,9 +64,9 @@ and to_intro_pattern_action : Tactypes.delayed_open_constr Tactypes.intro_patter
       Goal.enter_one ~__LOC__ @@ fun gl ->
       let sigma, c = c (Goal.env gl) (Goal.sigma gl) in
       Proofview.Unsafe.tclEVARS sigma >>= fun () ->
-      tclUNIT (of_constr c)
+      tclUNIT c
     in
-    let c = to_fun1 unit constr (mk_closure_val arity_one (fun _ -> c)) in
+    let c () = c in
     IntroApplyOn (c, to_intro_pattern ipat)
   | IntroRewrite b -> IntroRewrite b
 

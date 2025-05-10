@@ -180,7 +180,7 @@ let locate_global_sort_inductive_or_constant env sigma qid =
     | Globnames.Abbrev kn ->
     match Abbreviation.search_abbreviation kn with
     | [], Notation_term.NSort r ->
-       let sigma,c = Evd.fresh_sort_in_family sigma (Glob_ops.glob_sort_family r) in
+       let sigma,c = Glob_ops.fresh_glob_sort_in_quality sigma r in
        let c = EConstr.ESorts.kind sigma c in
        sigma, Constr.mkSort c
     | _ -> raise Not_found in
@@ -357,7 +357,7 @@ let elaborate_to_post_via env sigma ty_name ty_ind l =
   (* Finally elaborate [to_post] *)
   let to_post =
     let rec map_prod impls tindc = match impls with
-      | Some _ :: impls -> ToPostHole :: map_prod impls tindc
+      | (Some _ as i) :: impls -> ToPostHole (Impargs.name_of_implicit i) :: map_prod impls tindc
       | _ ->
          match tindc with
          | [] -> []

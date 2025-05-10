@@ -14,6 +14,7 @@ open Names
 open Genarg
 open Tac2val
 open Tac2ffi
+open Tac2extffi
 open Tac2env
 open Tac2expr
 open Tac2entries.Pltac
@@ -67,9 +68,6 @@ let preterm_flags =
   }
 
 (** Standard values *)
-
-let val_format = Tac2print.val_format
-let format = repr_ext val_format
 
 let core_prefix path n = KerName.make path (Label.of_id (Id.of_string_soft n))
 
@@ -172,7 +170,7 @@ let err_division_by_zero =
 
 (** Helper functions *)
 
-let thaw f = Tac2val.apply f [v_unit]
+let thaw f : _ Proofview.tactic = f ()
 
 let fatal_flag : unit Exninfo.t = Exninfo.make "fatal_flag"
 
@@ -244,6 +242,8 @@ let define ?plugin s = define (pname ?plugin s)
 
 let () = define "print" (pp @-> ret unit) Feedback.msg_notice
 
+let () = define "message_empty" (ret pp) (Pp.mt ())
+
 let () = define "message_of_int" (int @-> ret pp) Pp.int
 
 let () = define "message_of_string" (string @-> ret pp) Pp.str
@@ -280,40 +280,48 @@ let () = define "format_stop" (ret format) []
 
 let () =
   define "format_string" (format @-> ret format) @@ fun s ->
-  Tac2print.FmtString :: s
+  FmtString :: s
 
 let () =
   define "format_int" (format @-> ret format) @@ fun s ->
-  Tac2print.FmtInt :: s
+  FmtInt :: s
 
 let () =
   define "format_constr" (format @-> ret format) @@ fun s ->
-  Tac2print.FmtConstr :: s
+  FmtConstr :: s
 
 let () =
   define "format_ident" (format @-> ret format) @@ fun s ->
-  Tac2print.FmtIdent :: s
+  FmtIdent :: s
 
 let () =
   define "format_literal" (string @-> format @-> ret format) @@ fun lit s ->
-  Tac2print.FmtLiteral lit :: s
+  FmtLiteral lit :: s
 
 let () =
   define "format_alpha" (format @-> ret format) @@ fun s ->
-  Tac2print.FmtAlpha :: s
+  FmtAlpha :: s
+
+let () =
+  define "format_alpha0" (format @-> ret format) @@ fun s ->
+  FmtAlpha0 :: s
+
+let () =
+  define "format_message" (format @-> ret format) @@ fun s ->
+  FmtMessage :: s
 
 let arity_of_format fmt =
-  let open Tac2print in
+  let open Tac2types in
   let fold accu = function
     | FmtLiteral _ -> accu
-    | FmtString | FmtInt | FmtConstr | FmtIdent -> 1 + accu
-    | FmtAlpha -> 2 + accu
+    | FmtString | FmtInt | FmtConstr | FmtIdent | FmtMessage -> 1 + accu
+    | FmtAlpha | FmtAlpha0 -> 2 + accu
   in
   List.fold_left fold 0 fmt
 
 let () =
   define "format_kfprintf" (closure @-> format @-> tac valexpr) @@ fun k fmt ->
-  let open Tac2print in
+  let open Tac2types in
   let pop1 l = match l with [] -> assert false | x :: l -> (x, l) in
   let pop2 l = match l with [] | [_] -> assert false | x :: y :: l -> (x, y, l) in
   let arity = arity_of_format fmt in
@@ -342,9 +350,17 @@ let () =
       let (i, args) = pop1 args in
       let pp = Id.print (to_ident i) in
       eval (Pp.app accu pp) args fmt
+    | FmtMessage ->
+      let (m, args) = pop1 args in
+      let m = to_pp m in
+      eval (Pp.app accu m) args fmt
     | FmtAlpha ->
       let (f, x, args) = pop2 args in
       Tac2val.apply_val f [of_unit (); x] >>= fun pp ->
+      eval (Pp.app accu (to_pp pp)) args fmt
+    | FmtAlpha0 ->
+      let (f, x, args) = pop2 args in
+      Tac2val.apply_val f [x] >>= fun pp ->
       eval (Pp.app accu (to_pp pp)) args fmt
   in
   let eval v = eval (Pp.mt ()) v fmt in
@@ -740,12 +756,16 @@ let () =
   with e when CErrors.noncritical e ->
     throw err_notfound
 
+let () =
+  define "case_to_inductive" (case @-> ret inductive) @@ fun case ->
+  case.ci_ind
+
 let () = define "constr_cast_default" (ret valexpr) (of_cast DEFAULTcast)
 let () = define "constr_cast_vm" (ret valexpr) (of_cast VMcast)
 let () = define "constr_cast_native" (ret valexpr) (of_cast NATIVEcast)
 
 let () =
-  define "constr_in_context" (ident @-> constr @-> closure @-> tac constr) @@ fun id t c ->
+  define "constr_in_context" (ident @-> constr @-> thunk unit @-> tac constr) @@ fun id t c ->
   Proofview.Goal.goals >>= function
   | [gl] ->
     gl >>= fun gl ->
@@ -1005,31 +1025,26 @@ let () =
 
 (** (unit -> 'a) -> (exn -> 'a) -> 'a *)
 let () =
-  define "plus" (closure @-> closure @-> tac valexpr) @@ fun x k ->
-  Proofview.tclOR (thaw x) (fun e -> Tac2val.apply k [Tac2ffi.of_exn e])
+  define "plus" (thunk valexpr @-> fun1 exn valexpr @-> tac valexpr) @@ fun x k ->
+  Proofview.tclOR (thaw x) k
 
 let () =
-  define "plus_bt" (closure @-> closure @-> tac valexpr) @@ fun run handle ->
-    Proofview.tclOR (thaw run)
-      (fun e -> Tac2val.apply handle [Tac2ffi.of_exn e; of_exninfo (snd e)])
+  define "plus_bt" (thunk valexpr @-> fun2 exn exninfo valexpr @-> tac valexpr) @@ fun run handle ->
+    Proofview.tclOR (thaw run) (fun e -> handle e (snd e))
 
 (** (unit -> 'a) -> 'a *)
 let () =
-  define "once" (closure @-> tac valexpr) @@ fun f ->
+  define "once" (thunk valexpr @-> tac valexpr) @@ fun f ->
   Proofview.tclONCE (thaw f)
 
 (** (unit -> 'a) -> ('a * ('exn -> 'a)) result *)
 let () =
-  define "case" (closure @-> tac valexpr) @@ fun f ->
+  define "case" (thunk valexpr @-> tac (result (pair valexpr (fun1 exn valexpr)))) @@ fun f ->
   Proofview.tclCASE (thaw f) >>= begin function
   | Proofview.Next (x, k) ->
-    let k = Tac2val.mk_closure arity_one begin fun e ->
-      let (e, info) = Tac2ffi.to_exn e in
-      set_bt info >>= fun info ->
-      k (e, info)
-    end in
-    return (v_blk 0 [| Tac2ffi.of_tuple [| x; Tac2ffi.of_closure k |] |])
-  | Proofview.Fail e -> return (v_blk 1 [| Tac2ffi.of_exn e |])
+    let k (e,info) = set_bt info >>= fun info -> k (e,info) in
+    return (Ok (x, k))
+  | Proofview.Fail e -> return (Error e)
   end
 
 let () =
@@ -1038,27 +1053,27 @@ let () =
 
 (** (unit -> unit) list -> unit *)
 let () =
-  define "dispatch" (list closure @-> tac unit) @@ fun l ->
-  let l = List.map (fun f -> Proofview.tclIGNORE (thaw f)) l in
+  define "dispatch" (list (thunk unit) @-> tac unit) @@ fun l ->
+  let l = List.map (fun f -> thaw f) l in
   Proofview.tclDISPATCH l
 
 (** (unit -> unit) list -> (unit -> unit) -> (unit -> unit) list -> unit *)
 let () =
-  define "extend" (list closure @-> closure @-> list closure @-> tac unit) @@ fun lft tac rgt ->
-  let lft = List.map (fun f -> Proofview.tclIGNORE (thaw f)) lft in
-  let tac = Proofview.tclIGNORE (thaw tac) in
-  let rgt = List.map (fun f -> Proofview.tclIGNORE (thaw f)) rgt in
+  define "extend" (list (thunk unit) @-> thunk unit @-> list (thunk unit) @-> tac unit) @@ fun lft tac rgt ->
+  let lft = List.map (fun f -> thaw f) lft in
+  let tac = thaw tac in
+  let rgt = List.map (fun f -> thaw f) rgt in
   Proofview.tclEXTEND lft tac rgt
 
 (** (unit -> unit) -> unit *)
 let () =
-  define "enter" (closure @-> tac unit) @@ fun f ->
+  define "enter" (thunk unit @-> tac unit) @@ fun f ->
   let f = Proofview.tclIGNORE (thaw f) in
   Proofview.tclINDEPENDENT f
 
 (** int -> int -> (unit -> 'a) -> 'a *)
 let () =
-  define "focus" (int @-> int @-> closure @-> tac valexpr) @@ fun i j tac ->
+  define "focus" (int @-> int @-> thunk valexpr @-> tac valexpr) @@ fun i j tac ->
   Proofview.tclFOCUS i j (thaw tac)
 
 (** int -> unit **)
@@ -1086,7 +1101,7 @@ let () =
   else throw err_notfound
 
 let () =
-  define "unshelve" (closure @-> tac valexpr) @@ fun t ->
+  define "unshelve" (thunk valexpr @-> tac valexpr) @@ fun t ->
   Proofview.with_shelf (thaw t) >>= fun (gls,v) ->
   let gls = List.map Proofview.with_empty_state gls in
   Proofview.Unsafe.tclGETGOALS >>= fun ogls ->
@@ -1144,33 +1159,33 @@ let () =
 
 (** (unit -> constr) -> unit *)
 let () =
-  define "refine" (closure @-> tac unit) @@ fun c ->
-  let c = thaw c >>= fun c -> Proofview.tclUNIT ((), Tac2ffi.to_constr c, None) in
+  define "refine" (thunk constr @-> tac unit) @@ fun c ->
+  let c = thaw c >>= fun c -> Proofview.tclUNIT ((), c, None) in
   Proofview.Goal.enter @@ fun gl ->
   Refine.generic_refine ~typecheck:true c gl
 
 let () =
-  define "with_holes" (closure @-> closure @-> tac valexpr) @@ fun x f ->
-  Tacticals.tclRUNWITHHOLES false (thaw x) (fun ans -> Tac2val.apply f [ans])
+  define "with_holes" (thunk valexpr @-> fun1 valexpr valexpr @-> tac valexpr) @@ fun x f ->
+  Tacticals.tclRUNWITHHOLES false (thaw x) f
 
 let () =
-  define "progress" (closure @-> tac valexpr) @@ fun f ->
+  define "progress" (thunk valexpr @-> tac valexpr) @@ fun f ->
   Proofview.tclPROGRESS (thaw f)
 
 let () =
-  define "abstract" (option ident @-> closure @-> tac unit) @@ fun id f ->
-  Abstract.tclABSTRACT id (Proofview.tclIGNORE (thaw f))
+  define "abstract" (option ident @-> thunk unit @-> tac unit) @@ fun id f ->
+  Abstract.tclABSTRACT id (thaw f)
 
 let () =
-  define "time" (option string @-> closure @-> tac valexpr) @@ fun s f ->
+  define "time" (option string @-> thunk valexpr @-> tac valexpr) @@ fun s f ->
   Proofview.tclTIME s (thaw f)
 
 let () =
-  define "timeout" (int @-> closure @-> tac valexpr) @@ fun i f ->
+  define "timeout" (int @-> thunk valexpr @-> tac valexpr) @@ fun i f ->
     Proofview.tclTIMEOUT i (thaw f)
 
 let () =
-  define "timeoutf" (float @-> closure @-> tac valexpr) @@ fun f64 f ->
+  define "timeoutf" (float @-> thunk valexpr @-> tac valexpr) @@ fun f64 f ->
     Proofview.tclTIMEOUTF (Float64.to_float f64) (thaw f)
 
 let () =
@@ -1299,6 +1314,16 @@ let () =
   else throw err_notfound
 
 let () =
+  define "ind_get_nparams"
+    (ind_data @-> ret int) @@ fun (_, mib) ->
+  mib.Declarations.mind_nparams
+
+let () =
+  define "ind_get_nparams_rec"
+    (ind_data @-> ret int) @@ fun (_, mib) ->
+  mib.Declarations.mind_nparams_rec
+
+let () =
   define "constructor_inductive"
     (constructor @-> ret inductive)
   @@ fun (ind, _) -> ind
@@ -1309,6 +1334,18 @@ let () =
   @@ fun (_, i) ->
   (* WARNING: ML constructors are 1-indexed but Ltac2 constructors are 0-indexed *)
   i-1
+
+let () =
+  define "constructor_nargs"
+    (ind_data @-> ret (array int)) @@ fun ((_,i),mib) ->
+  let open Declarations in
+  mib.mind_packets.(i).mind_consnrealargs
+
+let () =
+  define "constructor_ndecls"
+    (ind_data @-> ret (array int)) @@ fun ((_,i),mib) ->
+  let open Declarations in
+  mib.mind_packets.(i).mind_consnrealdecls
 
 let () =
   define "ind_get_projections" (ind_data @-> ret (option (array projection)))
@@ -1945,218 +1982,201 @@ let () =
   let pr_top () = assert false in
   Genprint.register_print0 wit_ltac2_tac pr_raw pr_glb pr_top
 
-(** Built-in notation scopes *)
+(** Built-in notation entries *)
 
-let add_scope s f =
-  Tac2entries.register_scope (Id.of_string s) f
+let add_syntax_class s f =
+  Tac2entries.register_syntax_class (Id.of_string s) f
 
-let rec pr_scope = let open CAst in function
-| SexprStr {v=s} -> qstring s
-| SexprInt {v=n} -> Pp.int n
-| SexprRec (_, {v=na}, args) ->
-  let na = match na with
-  | None -> str "_"
-  | Some id -> Id.print id
-  in
-  na ++ str "(" ++ prlist_with_sep (fun () -> str ", ") pr_scope args ++ str ")"
-
-let scope_fail s args =
-  let args = str "(" ++ prlist_with_sep (fun () -> str ", ") pr_scope args ++ str ")" in
-  CErrors.user_err (str "Invalid arguments " ++ args ++ str " in scope " ++ str s)
+let syntax_class_fail s args =
+  let args = str "(" ++ prlist_with_sep (fun () -> str ", ") Tac2print.pr_syntax_class args ++ str ")" in
+  CErrors.user_err (str "Invalid arguments " ++ args ++ str " in syntactic class " ++ str s)
 
 let q_unit = CAst.make @@ CTacCst (AbsKn (Tuple 0))
 
-let add_generic_scope s entry arg =
-  let parse = function
-  | [] ->
-    let scope = Procq.Symbol.nterm entry in
-    let act x = CAst.make @@ CTacExt (arg, x) in
-    Tac2entries.ScopeRule (scope, act)
-  | arg -> scope_fail s arg
-  in
-  add_scope s parse
+let add_expr_syntax_class name entry f =
+  add_syntax_class name begin function
+  | [] -> Tac2entries.SyntaxRule (Procq.Symbol.nterm entry, f)
+  | arg -> syntax_class_fail name arg
+  end
+
+let add_generic_syntax_class s entry arg =
+  add_expr_syntax_class s entry (fun x -> CAst.make @@ CTacExt (arg, x))
 
 open CAst
 
-let () = add_scope "keyword" begin function
+let () = add_syntax_class "keyword" begin function
 | [SexprStr {loc;v=s}] ->
-  let scope = Procq.Symbol.token (Tok.PKEYWORD s) in
-  Tac2entries.ScopeRule (scope, (fun _ -> q_unit))
-| arg -> scope_fail "keyword" arg
+  let syntax_class = Procq.Symbol.token (Tok.PKEYWORD s) in
+  Tac2entries.SyntaxRule (syntax_class, (fun _ -> q_unit))
+| arg -> syntax_class_fail "keyword" arg
 end
 
-let () = add_scope "terminal" begin function
+let () = add_syntax_class "terminal" begin function
 | [SexprStr {loc;v=s}] ->
-  let scope = Procq.Symbol.token (Procq.terminal s) in
-  Tac2entries.ScopeRule (scope, (fun _ -> q_unit))
-| arg -> scope_fail "terminal" arg
+  let syntax_class = Procq.Symbol.token (Procq.terminal s) in
+  Tac2entries.SyntaxRule (syntax_class, (fun _ -> q_unit))
+| arg -> syntax_class_fail "terminal" arg
 end
 
-let () = add_scope "list0" begin function
+let () = add_syntax_class "list0" begin function
 | [tok] ->
-  let Tac2entries.ScopeRule (scope, act) = Tac2entries.parse_scope tok in
-  let scope = Procq.Symbol.list0 scope in
+  let Tac2entries.SyntaxRule (syntax_class, act) = Tac2entries.parse_syntax_class tok in
+  let syntax_class = Procq.Symbol.list0 syntax_class in
   let act l = Tac2quote.of_list act l in
-  Tac2entries.ScopeRule (scope, act)
+  Tac2entries.SyntaxRule (syntax_class, act)
 | [tok; SexprStr {v=str}] ->
-  let Tac2entries.ScopeRule (scope, act) = Tac2entries.parse_scope tok in
+  let Tac2entries.SyntaxRule (syntax_class, act) = Tac2entries.parse_syntax_class tok in
   let sep = Procq.Symbol.tokens [Procq.TPattern (Procq.terminal str)] in
-  let scope = Procq.Symbol.list0sep scope sep false in
+  let syntax_class = Procq.Symbol.list0sep syntax_class sep false in
   let act l = Tac2quote.of_list act l in
-  Tac2entries.ScopeRule (scope, act)
-| arg -> scope_fail "list0" arg
+  Tac2entries.SyntaxRule (syntax_class, act)
+| arg -> syntax_class_fail "list0" arg
 end
 
-let () = add_scope "list1" begin function
+let () = add_syntax_class "list1" begin function
 | [tok] ->
-  let Tac2entries.ScopeRule (scope, act) = Tac2entries.parse_scope tok in
-  let scope = Procq.Symbol.list1 scope in
+  let Tac2entries.SyntaxRule (syntax_class, act) = Tac2entries.parse_syntax_class tok in
+  let syntax_class = Procq.Symbol.list1 syntax_class in
   let act l = Tac2quote.of_list act l in
-  Tac2entries.ScopeRule (scope, act)
+  Tac2entries.SyntaxRule (syntax_class, act)
 | [tok; SexprStr {v=str}] ->
-  let Tac2entries.ScopeRule (scope, act) = Tac2entries.parse_scope tok in
+  let Tac2entries.SyntaxRule (syntax_class, act) = Tac2entries.parse_syntax_class tok in
   let sep = Procq.Symbol.tokens [Procq.TPattern (Procq.terminal str)] in
-  let scope = Procq.Symbol.list1sep scope sep false in
+  let syntax_class = Procq.Symbol.list1sep syntax_class sep false in
   let act l = Tac2quote.of_list act l in
-  Tac2entries.ScopeRule (scope, act)
-| arg -> scope_fail "list1" arg
+  Tac2entries.SyntaxRule (syntax_class, act)
+| arg -> syntax_class_fail "list1" arg
 end
 
-let () = add_scope "opt" begin function
+let () = add_syntax_class "opt" begin function
 | [tok] ->
-  let Tac2entries.ScopeRule (scope, act) = Tac2entries.parse_scope tok in
-  let scope = Procq.Symbol.opt scope in
+  let Tac2entries.SyntaxRule (syntax_class, act) = Tac2entries.parse_syntax_class tok in
+  let syntax_class = Procq.Symbol.opt syntax_class in
   let act opt = match opt with
   | None ->
     CAst.make @@ CTacCst (AbsKn (Other Core.c_none))
   | Some x ->
     CAst.make @@ CTacApp (CAst.make @@ CTacCst (AbsKn (Other Core.c_some)), [act x])
   in
-  Tac2entries.ScopeRule (scope, act)
-| arg -> scope_fail "opt" arg
+  Tac2entries.SyntaxRule (syntax_class, act)
+| arg -> syntax_class_fail "opt" arg
 end
 
-let () = add_scope "self" begin function
+let () = add_syntax_class "self" begin function
 | [] ->
-  let scope = Procq.Symbol.self in
+  let syntax_class = Procq.Symbol.self in
   let act tac = tac in
-  Tac2entries.ScopeRule (scope, act)
-| arg -> scope_fail "self" arg
+  Tac2entries.SyntaxRule (syntax_class, act)
+| arg -> syntax_class_fail "self" arg
 end
 
-let () = add_scope "next" begin function
+let () = add_syntax_class "next" begin function
 | [] ->
-  let scope = Procq.Symbol.next in
+  let syntax_class = Procq.Symbol.next in
   let act tac = tac in
-  Tac2entries.ScopeRule (scope, act)
-| arg -> scope_fail "next" arg
+  Tac2entries.SyntaxRule (syntax_class, act)
+| arg -> syntax_class_fail "next" arg
 end
 
-let () = add_scope "tactic" begin function
+let () = add_syntax_class "tactic" begin function
 | [] ->
   (* Default to level 5 parsing *)
-  let scope = Procq.Symbol.nterml ltac2_expr "5" in
+  let syntax_class = Procq.Symbol.nterml ltac2_expr "5" in
   let act tac = tac in
-  Tac2entries.ScopeRule (scope, act)
+  Tac2entries.SyntaxRule (syntax_class, act)
 | [SexprInt {loc;v=n}] as arg ->
-  let () = if n < 0 || n > 6 then scope_fail "tactic" arg in
-  let scope = Procq.Symbol.nterml ltac2_expr (string_of_int n) in
+  let () = if n < 0 || n > 6 then syntax_class_fail "tactic" arg in
+  let syntax_class = Procq.Symbol.nterml ltac2_expr (string_of_int n) in
   let act tac = tac in
-  Tac2entries.ScopeRule (scope, act)
-| arg -> scope_fail "tactic" arg
+  Tac2entries.SyntaxRule (syntax_class, act)
+| arg -> syntax_class_fail "tactic" arg
 end
 
-let () = add_scope "thunk" begin function
+let () = add_syntax_class "thunk" begin function
 | [tok] ->
-  let Tac2entries.ScopeRule (scope, act) = Tac2entries.parse_scope tok in
+  let Tac2entries.SyntaxRule (syntax_class, act) = Tac2entries.parse_syntax_class tok in
   let act e = Tac2quote.thunk (act e) in
-  Tac2entries.ScopeRule (scope, act)
-| arg -> scope_fail "thunk" arg
+  Tac2entries.SyntaxRule (syntax_class, act)
+| arg -> syntax_class_fail "thunk" arg
 end
 
-let () = add_scope "constr" begin function arg ->
+let () = add_syntax_class "constr" begin function arg ->
   let delimiters = List.map (function
       | SexprRec (_, { v = Some s }, []) -> s
-      | _ -> scope_fail "constr" arg)
+      | _ -> syntax_class_fail "constr" arg)
       arg
   in
   let act e = Tac2quote.of_constr ~delimiters e in
-  Tac2entries.ScopeRule (Procq.Symbol.nterm Procq.Constr.constr, act)
+  Tac2entries.SyntaxRule (Procq.Symbol.nterm Procq.Constr.constr, act)
 end
 
-  let () = add_scope "lconstr" begin function arg ->
+  let () = add_syntax_class "lconstr" begin function arg ->
     let delimiters = List.map (function
         | SexprRec (_, { v = Some s }, []) -> s
-        | _ -> scope_fail "lconstr" arg)
+        | _ -> syntax_class_fail "lconstr" arg)
         arg
     in
     let act e = Tac2quote.of_constr ~delimiters e in
-    Tac2entries.ScopeRule (Procq.Symbol.nterm Procq.Constr.lconstr, act)
+    Tac2entries.SyntaxRule (Procq.Symbol.nterm Procq.Constr.lconstr, act)
   end
 
-let () = add_scope "open_constr" begin function arg ->
+let () = add_syntax_class "open_constr" begin function arg ->
   let delimiters = List.map (function
       | SexprRec (_, { v = Some s }, []) -> s
-      | _ -> scope_fail "open_constr" arg)
+      | _ -> syntax_class_fail "open_constr" arg)
       arg
   in
   let act e = Tac2quote.of_open_constr ~delimiters e in
-  Tac2entries.ScopeRule (Procq.Symbol.nterm Procq.Constr.constr, act)
+  Tac2entries.SyntaxRule (Procq.Symbol.nterm Procq.Constr.constr, act)
 end
 
-let () = add_scope "open_lconstr" begin function arg ->
+let () = add_syntax_class "open_lconstr" begin function arg ->
   let delimiters = List.map (function
       | SexprRec (_, { v = Some s }, []) -> s
-      | _ -> scope_fail "open_lconstr" arg)
+      | _ -> syntax_class_fail "open_lconstr" arg)
       arg
   in
   let act e = Tac2quote.of_open_constr ~delimiters e in
-  Tac2entries.ScopeRule (Procq.Symbol.nterm Procq.Constr.lconstr, act)
+  Tac2entries.SyntaxRule (Procq.Symbol.nterm Procq.Constr.lconstr, act)
 end
 
 
-let () = add_scope "preterm" begin function arg ->
+let () = add_syntax_class "preterm" begin function arg ->
   let delimiters = List.map (function
       | SexprRec (_, { v = Some s }, []) -> s
-      | _ -> scope_fail "preterm" arg)
+      | _ -> syntax_class_fail "preterm" arg)
       arg
   in
   let act e = Tac2quote.of_preterm ~delimiters e in
-  Tac2entries.ScopeRule (Procq.Symbol.nterm Procq.Constr.constr, act)
+  Tac2entries.SyntaxRule (Procq.Symbol.nterm Procq.Constr.constr, act)
 end
 
-let add_expr_scope name entry f =
-  add_scope name begin function
-  | [] -> Tac2entries.ScopeRule (Procq.Symbol.nterm entry, f)
-  | arg -> scope_fail name arg
-  end
+let () = add_expr_syntax_class "ident" q_ident (fun id -> Tac2quote.of_anti Tac2quote.of_ident id)
+let () = add_expr_syntax_class "bindings" q_bindings Tac2quote.of_bindings
+let () = add_expr_syntax_class "with_bindings" q_with_bindings Tac2quote.of_bindings
+let () = add_expr_syntax_class "intropattern" q_intropattern Tac2quote.of_intro_pattern
+let () = add_expr_syntax_class "intropatterns" q_intropatterns Tac2quote.of_intro_patterns
+let () = add_expr_syntax_class "destruction_arg" q_destruction_arg Tac2quote.of_destruction_arg
+let () = add_expr_syntax_class "induction_clause" q_induction_clause Tac2quote.of_induction_clause
+let () = add_expr_syntax_class "conversion" q_conversion Tac2quote.of_conversion
+let () = add_expr_syntax_class "orient" q_orient Tac2quote.of_orient
+let () = add_expr_syntax_class "rewriting" q_rewriting Tac2quote.of_rewriting
+let () = add_expr_syntax_class "clause" q_clause Tac2quote.of_clause
+let () = add_expr_syntax_class "hintdb" q_hintdb Tac2quote.of_hintdb
+let () = add_expr_syntax_class "occurrences" q_occurrences Tac2quote.of_occurrences
+let () = add_expr_syntax_class "dispatch" q_dispatch Tac2quote.of_dispatch
+let () = add_expr_syntax_class "strategy" q_strategy_flag Tac2quote.of_strategy_flag
+let () = add_expr_syntax_class "reference" q_reference Tac2quote.of_reference
+let () = add_expr_syntax_class "move_location" q_move_location Tac2quote.of_move_location
+let () = add_expr_syntax_class "pose" q_pose Tac2quote.of_pose
+let () = add_expr_syntax_class "assert" q_assert Tac2quote.of_assertion
+let () = add_expr_syntax_class "constr_matching" q_constr_matching Tac2quote.of_constr_matching
+let () = add_expr_syntax_class "goal_matching" q_goal_matching Tac2quote.of_goal_matching
+let () = add_expr_syntax_class "format" Procq.Prim.lstring Tac2quote.of_format
 
-let () = add_expr_scope "ident" q_ident (fun id -> Tac2quote.of_anti Tac2quote.of_ident id)
-let () = add_expr_scope "bindings" q_bindings Tac2quote.of_bindings
-let () = add_expr_scope "with_bindings" q_with_bindings Tac2quote.of_bindings
-let () = add_expr_scope "intropattern" q_intropattern Tac2quote.of_intro_pattern
-let () = add_expr_scope "intropatterns" q_intropatterns Tac2quote.of_intro_patterns
-let () = add_expr_scope "destruction_arg" q_destruction_arg Tac2quote.of_destruction_arg
-let () = add_expr_scope "induction_clause" q_induction_clause Tac2quote.of_induction_clause
-let () = add_expr_scope "conversion" q_conversion Tac2quote.of_conversion
-let () = add_expr_scope "orient" q_orient Tac2quote.of_orient
-let () = add_expr_scope "rewriting" q_rewriting Tac2quote.of_rewriting
-let () = add_expr_scope "clause" q_clause Tac2quote.of_clause
-let () = add_expr_scope "hintdb" q_hintdb Tac2quote.of_hintdb
-let () = add_expr_scope "occurrences" q_occurrences Tac2quote.of_occurrences
-let () = add_expr_scope "dispatch" q_dispatch Tac2quote.of_dispatch
-let () = add_expr_scope "strategy" q_strategy_flag Tac2quote.of_strategy_flag
-let () = add_expr_scope "reference" q_reference Tac2quote.of_reference
-let () = add_expr_scope "move_location" q_move_location Tac2quote.of_move_location
-let () = add_expr_scope "pose" q_pose Tac2quote.of_pose
-let () = add_expr_scope "assert" q_assert Tac2quote.of_assertion
-let () = add_expr_scope "constr_matching" q_constr_matching Tac2quote.of_constr_matching
-let () = add_expr_scope "goal_matching" q_goal_matching Tac2quote.of_goal_matching
-let () = add_expr_scope "format" Procq.Prim.lstring Tac2quote.of_format
+let () = add_generic_syntax_class "pattern" Procq.Constr.constr Tac2quote.wit_pattern
 
-let () = add_generic_scope "pattern" Procq.Constr.constr Tac2quote.wit_pattern
-
-(** seq scope, a bit hairy *)
+(** seq syntax_class, a bit hairy *)
 
 open Procq
 
@@ -2176,25 +2196,25 @@ let rec make_seq_rule = function
 | [] ->
   Seqrule (Procq.Rule.stop, CvNil)
 | tok :: rem ->
-  let Tac2entries.ScopeRule (scope, f) = Tac2entries.parse_scope tok in
-  let scope =
-    match Procq.generalize_symbol scope with
+  let Tac2entries.SyntaxRule (syntax_class, f) = Tac2entries.parse_syntax_class tok in
+  let syntax_class =
+    match Procq.generalize_symbol syntax_class with
     | None ->
       CErrors.user_err (str "Recursive symbols (self / next) are not allowed in local rules")
-    | Some scope -> scope
+    | Some syntax_class -> syntax_class
   in
   let Seqrule (r, c) = make_seq_rule rem in
-  let r = Procq.Rule.next_norec r scope in
+  let r = Procq.Rule.next_norec r syntax_class in
   let f = match tok with
   | SexprStr _ -> None (* Leave out mere strings *)
   | _ -> Some f
   in
   Seqrule (r, CvCns (c, f))
 
-let () = add_scope "seq" begin fun toks ->
-  let scope =
+let () = add_syntax_class "seq" begin fun toks ->
+  let syntax_class =
     let Seqrule (r, c) = make_seq_rule (List.rev toks) in
     Procq.(Symbol.rules [Rules.make r (apply c [])])
   in
-  Tac2entries.ScopeRule (scope, (fun e -> e))
+  Tac2entries.SyntaxRule (syntax_class, (fun e -> e))
 end

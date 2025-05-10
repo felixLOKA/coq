@@ -366,10 +366,10 @@ let modfstlev_rename =
 
 (*s Creating renaming for a [module_path] : first, the real function ... *)
 
-let rec mp_renaming_fun mp = match mp with
+let rec mp_renaming_fun table mp = match mp with
   | _ when not (modular ()) && at_toplevel mp -> [""]
   | MPdot (mp,l) ->
-      let lmp = mp_renaming mp in
+      let lmp = mp_renaming table mp in
       let mp = match lmp with
       | [""] -> modfstlev_rename l
       | _ -> modular_rename Mod (Label.to_id l)
@@ -384,25 +384,25 @@ let rec mp_renaming_fun mp = match mp with
       assert (get_phase () == Pre);
       let current_mpfile = (List.last (get_visible ())).mp in
       if not (ModPath.equal mp current_mpfile) then mpfiles_add mp;
-      [string_of_modfile mp]
+      [string_of_modfile table mp]
 
 (* ... and its version using a cache *)
 
 and mp_renaming =
   let add,get,_ = mktable_modpath true in
-  fun x ->
+  fun table x ->
     try if is_mp_bound (base_mp x) then raise Not_found; get x
-    with Not_found -> let y = mp_renaming_fun x in add x y; y
+    with Not_found -> let y = mp_renaming_fun table x in add x y; y
 
 (*s Renamings creation for a [global_reference]: we build its fully-qualified
     name in a [string list] form (head is the short name). *)
 
-let ref_renaming_fun (k,r) =
+let ref_renaming_fun table (k,r) =
   let mp = modpath_of_r r in
-  let l = mp_renaming mp in
+  let l = mp_renaming table mp in
   let l = if lang () != Ocaml && not (modular ()) then [""] else l in
   let s =
-    let idg = safe_basename_of_global r in
+    let idg = safe_basename_of_global table r in
     match l with
     | [""] -> (* this happens only at toplevel of the monolithic case *)
       let globs = get_global_ids () in
@@ -417,9 +417,9 @@ let ref_renaming_fun (k,r) =
 
 let ref_renaming =
   let add,get,_ = mktable_ref true in
-  fun ((k,r) as x) ->
+  fun table ((k,r) as x) ->
     try if is_mp_bound (base_mp (modpath_of_r r)) then raise Not_found; get r
-    with Not_found -> let y = ref_renaming_fun x in add r y; y
+    with Not_found -> let y = ref_renaming_fun table x in add r y; y
 
 (* [visible_clash mp0 (k,s)] checks if [mp0-s] of kind [k]
    can be printed as [s] in the current context of visible
@@ -437,17 +437,17 @@ let mpfiles_clash mp0 ks =
   clash (fun mp k -> KMap.mem k (get_mpfiles_content mp)) mp0 ks
     (List.rev (mpfiles_list ()))
 
-let rec params_lookup mp0 ks = function
+let rec params_lookup table mp0 ks = function
   | [] -> false
   | param :: _ when ModPath.equal mp0 param -> true
   | param :: params ->
       let () = match ks with
-      | (Mod, mp) when String.equal (List.hd (mp_renaming param)) mp -> params_ren_add param
+      | (Mod, mp) when String.equal (List.hd (mp_renaming table param)) mp -> params_ren_add param
       | _ -> ()
       in
-      params_lookup mp0 ks params
+      params_lookup table mp0 ks params
 
-let visible_clash mp0 ks =
+let visible_clash table mp0 ks =
   let rec clash = function
     | [] -> false
     | v :: _ when ModPath.equal v.mp mp0 -> false
@@ -456,31 +456,31 @@ let visible_clash mp0 ks =
         if b && not (is_mp_bound mp0) then true
         else begin
           if b then params_ren_add mp0;
-          if params_lookup mp0 ks v.params then false
+          if params_lookup table mp0 ks v.params then false
           else clash vis
         end
   in clash (get_visible ())
 
 (* Same, but with verbose output (and mp0 shouldn't be a MPbound) *)
 
-let visible_clash_dbg mp0 ks =
+let visible_clash_dbg table mp0 ks =
   let rec clash = function
     | [] -> None
     | v :: _ when ModPath.equal v.mp mp0 -> None
     | v :: vis ->
         try Some (v.mp,KMap.find ks v.content)
         with Not_found ->
-          if params_lookup mp0 ks v.params then None
+          if params_lookup table mp0 ks v.params then None
           else clash vis
   in clash (get_visible ())
 
 (* After the 1st pass, we can decide which modules will be opened initially *)
 
-let opened_libraries () =
+let opened_libraries table =
   if not (modular ()) then []
   else
     let used_files = mpfiles_list () in
-    let used_ks = List.map (fun mp -> Mod,string_of_modfile mp) used_files in
+    let used_ks = List.map (fun mp -> Mod,string_of_modfile table mp) used_files in
     (* By default, we open all used files. Ambiguities will be resolved later
        by using qualified names. Nonetheless, we don't open any file A that
        contains an immediate submodule A.B hiding another file B : otherwise,
@@ -530,36 +530,36 @@ let fstlev_ks k = function
 (* [pp_ocaml_local] : [mp] has something in common with [top_visible ()]
    but isn't equal to it *)
 
-let pp_ocaml_local k prefix mp rls olab =
+let pp_ocaml_local table k prefix mp rls olab =
   (* what is the largest prefix of [mp] that belongs to [visible]? *)
   assert (k != Mod || not (ModPath.equal mp prefix)); (* mp as whole module isn't in itself *)
   let rls' = List.skipn (mp_length prefix) rls in
   let k's = fstlev_ks k rls' in
   (* Reference r / module path mp is of the form [<prefix>.s.<...>]. *)
-  if not (visible_clash prefix k's) then dottify rls'
+  if not (visible_clash table prefix k's) then dottify rls'
   else pp_duplicate (fst k's) prefix mp rls' olab
 
 (* [pp_ocaml_bound] : [mp] starts with a [MPbound], and we are not inside
    (i.e. we are not printing the type of the module parameter) *)
 
-let pp_ocaml_bound base rls =
+let pp_ocaml_bound table base rls =
   (* clash with a MPbound will be detected and fixed by renaming this MPbound *)
-  if get_phase () == Pre then ignore (visible_clash base (Mod,List.hd rls));
+  if get_phase () == Pre then ignore (visible_clash table base (Mod,List.hd rls));
   dottify rls
 
 (* [pp_ocaml_extern] : [mp] isn't local, it is defined in another [MPfile]. *)
 
-let pp_ocaml_extern k base rls = match rls with
+let pp_ocaml_extern table k base rls = match rls with
   | [] -> assert false
   | base_s :: rls' ->
       if (not (modular ())) (* Pseudo qualification with "" *)
         || (List.is_empty rls')  (* Case of a file A.v used as a module later *)
         || (not (mpfiles_mem base)) (* Module not opened *)
         || (mpfiles_clash base (fstlev_ks k rls')) (* Conflict in opened files *)
-        || (visible_clash base (fstlev_ks k rls')) (* Local conflict *)
+        || (visible_clash table base (fstlev_ks k rls')) (* Local conflict *)
       then
         (* We need to fully qualify. Last clash situation is unsupported *)
-        match visible_clash_dbg base (Mod,base_s) with
+        match visible_clash_dbg table base (Mod,base_s) with
           | None -> dottify rls
           | Some (mp,l) -> error_module_clash base (MPdot (mp,l))
       else
@@ -568,13 +568,13 @@ let pp_ocaml_extern k base rls = match rls with
 
 (* [pp_ocaml_gen] : choosing between [pp_ocaml_local] or [pp_ocaml_extern] *)
 
-let pp_ocaml_gen k mp rls olab =
+let pp_ocaml_gen table k mp rls olab =
   match common_prefix_from_list mp (get_visible_mps ()) with
-    | Some prefix -> pp_ocaml_local k prefix mp rls olab
+    | Some prefix -> pp_ocaml_local table k prefix mp rls olab
     | None ->
         let base = base_mp mp in
-        if is_mp_bound base then pp_ocaml_bound base rls
-        else pp_ocaml_extern k base rls
+        if is_mp_bound base then pp_ocaml_bound table base rls
+        else pp_ocaml_extern table k base rls
 
 (* For Haskell, things are simpler: we have removed (almost) all structures *)
 
@@ -587,8 +587,8 @@ let pp_haskell_gen k mp rls = match rls with
 
 (* Main name printing function for a reference *)
 
-let pp_global_with_key k key r =
-  let ls = ref_renaming (k,r) in
+let pp_global_with_key table k key r =
+  let ls = ref_renaming table (k,r) in
   assert (List.length ls > 1);
   let s = List.hd ls in
   let mp,l = KerName.repr key in
@@ -602,29 +602,29 @@ let pp_global_with_key k key r =
       | Scheme -> unquote s (* no modular Scheme extraction... *)
       | JSON -> dottify (List.map unquote rls)
       | Haskell -> if modular () then pp_haskell_gen k mp rls else s
-      | Ocaml -> pp_ocaml_gen k mp rls (Some l)
+      | Ocaml -> pp_ocaml_gen table k mp rls (Some l)
 
-let pp_global k r =
-  pp_global_with_key k (repr_of_r r) r
+let pp_global table k r =
+  pp_global_with_key table k (repr_of_r r) r
 
 (* Main name printing function for declaring a reference *)
 
-let pp_global_name k r =
-  let ls = ref_renaming (k,r) in
+let pp_global_name table k r =
+  let ls = ref_renaming table (k,r) in
   assert (List.length ls > 1);
   List.hd ls
 
 (* The next function is used only in Ocaml extraction...*)
 
-let pp_module mp =
-  let ls = mp_renaming mp in
+let pp_module table mp =
+  let ls = mp_renaming table mp in
   match mp with
     | MPdot (mp0,l) when ModPath.equal mp0 (top_visible_mp ()) ->
         (* simplest situation: definition of mp (or use in the same context) *)
         (* we update the visible environment *)
         let s = List.hd ls in
         add_visible (Mod,s) l; s
-    | _ -> pp_ocaml_gen Mod mp (List.rev ls) None
+    | _ -> pp_ocaml_gen table Mod mp (List.rev ls) None
 
 (** Special hack for constants of type Ascii.ascii : if an
     [Extract Inductive ascii => char] has been declared, then

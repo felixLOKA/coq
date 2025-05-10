@@ -10,9 +10,19 @@
 
 (** {6 The sorts of CCI. } *)
 
-type family = InSProp | InProp | InSet | InType | InQSort
+module QGlobal :
+sig
 
-val all_families : family list
+  type t
+
+  val make : Names.DirPath.t -> Names.Id.t -> t
+  val repr : t -> Names.DirPath.t * Names.Id.t
+  val equal : t -> t -> bool
+  val hash : t -> int
+  val compare : t -> t -> int
+  val to_string : t -> string
+
+end
 
 module QVar :
 sig
@@ -22,6 +32,7 @@ sig
 
   val make_var : int -> t
   val make_unif : string -> int -> t
+  val make_global : QGlobal.t -> t
 
   val equal : t -> t -> bool
   val compare : t -> t -> int
@@ -37,6 +48,7 @@ sig
   type repr =
     | Var of int
     | Unif of string * int
+    | Global of QGlobal.t
 
   val repr : t -> repr
   val of_repr : repr -> t
@@ -53,15 +65,24 @@ module Quality : sig
   module Constants : sig
     val equal : constant -> constant -> bool
     val compare : constant -> constant -> int
+    val eliminates_to : constant -> constant -> bool
     val pr : constant -> Pp.t
   end
 
   val qprop : t
   val qsprop : t
   val qtype : t
+  val is_qprop : t -> bool
+  val is_qsprop : t -> bool
+  val is_qtype : t -> bool
 
   val var : int -> t
   (** [var i] is [QVar (QVar.make_var i)] *)
+
+  val global : QGlobal.t -> t
+  (** [global i] is [QVar (QVar.make_global i)] *)
+
+  val is_var : t -> bool
 
   val var_index : t -> int option
 
@@ -69,9 +90,15 @@ module Quality : sig
 
   val compare : t -> t -> int
 
+  val eliminates_to : t -> t -> bool
+
   val pr : (QVar.t -> Pp.t) -> t -> Pp.t
 
   val raw_pr : t -> Pp.t
+
+  val all_constants : t list
+  val all : t list
+  (* Returns a dummy variable *)
 
   val hash : t -> int
 
@@ -146,22 +173,19 @@ val make : Quality.t -> Univ.Universe.t -> t
 
 val equal : t -> t -> bool
 val compare : t -> t -> int
+val eliminates_to : t -> t -> bool
 val hash : t -> int
 
 val is_sprop : t -> bool
 val is_set : t -> bool
 val is_prop : t -> bool
 val is_small : t -> bool
-val family : t -> family
 val quality : t -> Quality.t
 
 val hcons : t Hashcons.f
 
-val family_compare : family -> family -> int
-val family_equal : family -> family -> bool
-val family_leq : family -> family -> bool
-
 val sort_of_univ : Univ.Universe.t -> t
+val univ_of_sort : t -> Univ.Universe.t
 
 val levels : t -> Univ.Level.Set.t
 
@@ -181,22 +205,12 @@ val relevance_equal : relevance -> relevance -> bool
 val relevance_subst_fn : (QVar.t -> Quality.t) -> relevance -> relevance
 
 val relevance_of_sort : t -> relevance
-val relevance_of_sort_family : family -> relevance
 
 val debug_print : t -> Pp.t
-
-val pr_sort_family : family -> Pp.t
+val pr : (QVar.t -> Pp.t) -> (Univ.Universe.t -> Pp.t) -> t -> Pp.t
+val raw_pr : t -> Pp.t
 
 type pattern =
   | PSProp | PSSProp | PSSet | PSType of int option | PSQSort of int option * int option
 
 val pattern_match : pattern -> t -> ('t, Quality.t, Univ.Level.t) Partial_subst.t -> ('t, Quality.t, Univ.Level.t) Partial_subst.t option
-
-(** Map with key of type : string list * family option * bool 
-                           scheme name *  Type family  * mutual *)
-val compareT : (string list * family option * bool) -> (string list * family option * bool) -> int
-  
-module Set : CSet.ExtS with type elt = (string list * family option * bool)
-module Map : CMap.ExtS with type key = (string list * family option * bool) and module Set := Set
-
-val family_to_str : family -> string 

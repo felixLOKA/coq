@@ -21,6 +21,7 @@ open Environ
 open Reduction
 open Type_errors
 open Context.Rel.Declaration
+open Sorts
 
 (* raises an anomaly if not an inductive type *)
 let lookup_mind_specif env (kn,tyi) =
@@ -385,60 +386,79 @@ let abstract_constructor_type_relatively_to_inductive_types_context ntyps mind t
 
 (************************************************************************)
 
-(* Type of case predicates *)
+(** Elimination functions *)
 
-(* Get type of inductive, with parameters instantiated *)
+let eliminates_to = Quality.eliminates_to
 
-let quality_leq q q' =
-  let open Sorts.Quality in
-  match q, q' with
-  | QVar q, QVar q' -> Sorts.QVar.equal q q'
-  | QConstant q, QConstant q' ->
-    begin match q, q' with
-    | QSProp, _
-    | _, QType
-    | QProp, QProp
-      -> true
-    | (QProp|QType), _ -> false
-    end
-  | QVar _, QConstant QType -> true
-  | (QVar _|QConstant _), _ -> false
+type squash = SquashToSet | SquashToQuality of Quality.t
 
-type squash = SquashToSet | SquashToQuality of Sorts.Quality.t
+type 'a allow_elimination_actions =
+  { not_squashed : 'a
+  ; squashed_to_set_below : 'a
+  ; squashed_to_set_above : 'a
+  ; squashed_to_quality : Quality.t -> 'a }
 
-let is_squashed ((_,mip),u) =
+let is_squashed_gen indsort_to_quality squashed_to_quality ((_,mip),u) =
   let s = mip.mind_sort in
   match mip.mind_squashed with
   | None -> None
   | Some squash ->
-    let indq = Sorts.quality (UVars.subst_instance_sort u s) in
-    match squash with
-    | AlwaysSquashed -> begin match s with
-        | Sorts.Set -> Some SquashToSet
-        | _ -> Some (SquashToQuality indq)
-      end
-    | SometimesSquashed squash ->
-      (* impredicative set squashes are always AlwaysSquashed,
-         so here if inds=Set it is a sort poly squash (see "foo6" in test sort_poly.v) *)
-      if Sorts.Quality.Set.for_all (fun q ->
-          let q = UVars.subst_instance_quality u q in
-          quality_leq q indq)
-          squash
-      then None
-      else Some (SquashToQuality indq)
+     let indq = indsort_to_quality u s in
+     match squash with
+     | AlwaysSquashed -> begin match s with
+                         | Set -> Some SquashToSet
+                         | _ -> Some (SquashToQuality indq)
+                         end
+     | SometimesSquashed squash ->
+        (* impredicative set squashes are always quashed,
+           so here if inds=Set it is a sort poly squash (see "foo6" in test sort_poly.v) *)
+        if Quality.Set.for_all
+             (fun q -> eliminates_to indq (squashed_to_quality u q))
+             squash
+        then None
+        else Some (SquashToQuality indq)
 
-let is_allowed_elimination specifu s =
-  let open Sorts in
-  match is_squashed specifu with
-  | None -> true
+let allowed_elimination_gen indsort_to_quality squashed_to_quality actions specifu s =
+  match is_squashed_gen indsort_to_quality squashed_to_quality specifu with
+  | None -> actions.not_squashed
   | Some SquashToSet ->
     begin match s with
-      | SProp|Prop|Set -> true
-      | QSort _ | Type _ ->
-        (* XXX in [Type u] case, should we check [u == set] in the ugraph? *)
-        false
+      | SProp|Prop|Set -> actions.squashed_to_set_below
+      | QSort _ | Type _ -> actions.squashed_to_set_above
     end
-  | Some (SquashToQuality indq) -> quality_leq (Sorts.quality s) indq
+  | Some (SquashToQuality indq) -> actions.squashed_to_quality indq
+
+let loc_indsort_to_quality u s = Sorts.quality (UVars.subst_instance_sort u s)
+let loc_squashed_to_quality = UVars.subst_instance_quality
+
+let is_squashed =
+  is_squashed_gen
+    loc_indsort_to_quality
+    loc_squashed_to_quality
+
+let is_allowed_elimination_actions s =
+  { not_squashed = true
+  ; squashed_to_set_below = true
+  (* XXX in [Type u] case, should we check [u == set] in the ugraph? *)
+  ; squashed_to_set_above = false
+  ; squashed_to_quality
+    = fun indq -> eliminates_to indq (Sorts.quality s)}
+
+let is_allowed_elimination specifu s =
+  allowed_elimination_gen
+    loc_indsort_to_quality
+    loc_squashed_to_quality
+    (is_allowed_elimination_actions s)
+    specifu s
+
+(* We always allow fixpoints on values in Prop (for the accessibility predicate for instance). *)
+let is_allowed_fixpoint sind star =
+  Sorts.equal sind Sorts.prop ||
+    eliminates_to
+      (Sorts.quality sind)
+      (Sorts.quality star)
+
+(************************************************************************)
 
 let is_private (mib,_) = mib.mind_private = Some true
 let is_primitive_record (mib,_) =
@@ -653,10 +673,10 @@ let inter_wf_paths = Rtree.inter Declareops.eq_recarg inter_recarg Norec
 
 let incl_wf_paths = Rtree.incl Declareops.eq_recarg inter_recarg Norec
 
-let spec_of_tree t =
+let spec_of_tree internal t =
   if is_norec_path t
   then Not_subterm
-  else Subterm (Int.Set.empty, Strict, t)
+  else Subterm (internal, Strict, t)
 
 let merge_internal_subterms l1 l2 =
   Int.Set.union l1 l2
@@ -800,10 +820,10 @@ let branches_specif renv c_spec ci =
       (fun i nca -> (* i+1-th cstructor has arity nca *)
          let lvra = lazy
            (match Lazy.force c_spec with
-                Subterm (_,_,t) when match_inductive ci.ci_ind (dest_recarg t) ->
+                Subterm (internal,_,t) when match_inductive ci.ci_ind (dest_recarg t) ->
                   let vra = Array.of_list (Lazy.force subterms).(i) in
                   assert (Int.equal nca (Array.length vra));
-                  Array.map spec_of_tree vra
+                  Array.map (spec_of_tree internal) vra
               | Dead_code -> Array.make nca Dead_code
               | Internally_bound_subterm _ as x -> Array.make nca x
               | Subterm _ | Not_subterm -> Array.make nca Not_subterm) in
@@ -1078,12 +1098,12 @@ let rec subterm_specif ?evars renv stack t =
     | Proj (p, _, c) ->
       let subt = subterm_specif ?evars renv stack c in
       (match subt with
-       | Subterm (_, _s, wf) ->
+       | Subterm (internal, _s, wf) ->
          (* We take the subterm specs of the constructor of the record *)
          let wf_args = (dest_subterms wf).(0) in
          (* We extract the tree of the projected argument *)
          let n = Projection.arg p in
-         spec_of_tree (List.nth wf_args n)
+         spec_of_tree internal (List.nth wf_args n)
        | Dead_code -> Dead_code
        | Not_subterm -> Not_subterm
        | Internally_bound_subterm n -> Internally_bound_subterm n)
@@ -1124,9 +1144,9 @@ and primitive_specif ?evars renv op args =
     let arg = List.nth args 1 in (* the result is a strict subterm of the second argument *)
     let subt = subterm_specif ?evars renv [] arg in
     begin match subt with
-    | Subterm (_, _s, wf) ->
+    | Subterm (internal, _s, wf) ->
       let wf_args = (dest_subterms wf).(0) in
-      spec_of_tree (List.nth wf_args 0) (* first and only parameter of `array` *)
+      spec_of_tree internal (List.nth wf_args 0) (* first and only parameter of `array` *)
     | Dead_code -> Dead_code
     | Not_subterm -> Not_subterm
     | Internally_bound_subterm n -> Internally_bound_subterm n
@@ -1613,16 +1633,24 @@ let inductive_of_mutfix ?evars env ((nvect,bodynum),(names,types,bodies as recde
             else anomaly ~label:"check_one_fix" (Pp.str "Bad occurrence of recursive call.")
         | _ -> raise_err env i NotEnoughAbstractionInFixBody
     in
-    let ((ind, u), _) as res = check_occur fixenv 1 def in
+    let ((ind, inst), _) as res = check_occur fixenv 1 def in
     let _, mip = lookup_mind_specif env ind in
     (* recursive sprop means non record with projections -> squashed *)
     let () =
       if Environ.is_type_in_type env (GlobRef.IndRef ind) then ()
-      else match relevance_of_ind_body mip u with
-        | Sorts.Irrelevant | Sorts.RelevanceVar _ as rind ->
-          if not (Sorts.relevance_equal names.(i).Context.binder_relevance rind)
-          then raise_err env i FixpointOnIrrelevantInductive
-        | Sorts.Relevant -> ()
+      else
+        let sind = UVars.subst_instance_sort inst mip.mind_sort in
+        let u = Sorts.univ_of_sort sind in
+        (* This is an approximation: a [Relevant] variable might be of sort [Prop]
+           or [Type]. But we only care about the quality, and we always allow
+           fixpoints on [Prop] so we always return the [Type] variant. *)
+        let bsort = match names.(i).Context.binder_relevance with
+          | Irrelevant -> Sorts.sprop
+          | Relevant when Universe.is_type0 u -> Sorts.set
+          | Relevant -> Sorts.make Sorts.Quality.qtype u
+          | RelevanceVar q -> Sorts.qsort q u in
+        if not (is_allowed_fixpoint sind bsort) then
+          raise_err env i @@ FixpointOnNonEliminable (sind, bsort)
     in
     res
   in

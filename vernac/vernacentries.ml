@@ -363,12 +363,12 @@ let print_registered_schemes () =
     pr_global (ConstRef c) ++ str " registered as " ++ str kind ++ str " for " ++ pr_global (IndRef ind)
   in
   let pr_schemes_of_ind (ind, schemes) =
-    let tmp = Sorts.Map.bindings schemes in
+    let tmp = UnivGen.Map.bindings schemes in
     let tmpp = List.map (fun ((a,c,d),b) ->
         (* /!\ will print 2 times if both individual and mutual (represented by bool d here) are defined for a given scheme *)
         let s1 = String.concat " " a in
         let s2 = match c with
-          | Some s -> " (" ^ (Sorts.family_to_str s) ^ ")"
+          | Some s -> " (" ^ (UnivGen.family_to_str s) ^ ")"
           | None -> " (None)"
         in
         ((s1 ^ s2),b)) tmp in
@@ -710,6 +710,11 @@ let print_universes { sort; subgraph; with_sources; file; } =
     pr_universes srcs prl univ ++ pr_remaining
   | Some s -> dump_universes_gen (fun u -> Pp.string_of_ppcmds (prl u)) univ s
   end
+
+let print_sorts () =
+  let qualities = Sorts.QVar.Set.elements (Global.qualities ()) in
+  let prq = UnivNames.pr_quality_with_global_universes in
+  Pp.prlist_with_sep Pp.spc prq qualities
 
 (*********************)
 (* "Locate" commands *)
@@ -1336,6 +1341,13 @@ let vernac_universe ~poly l =
                   str "use Monomorphic Universe instead.");
   DeclareUniv.do_universe ~poly l
 
+let vernac_sort ~poly l =
+  if poly && not (Lib.sections_are_opened ()) then
+    user_err
+                 (str"Polymorphic sorts can only be declared inside sections, " ++
+                  str "use #[universes(polymorphic=no)] Sort in order to declare a global sort.");
+  DeclareUniv.do_sort ~poly l
+
 let vernac_constraint ~poly l =
   if poly && not (Lib.sections_are_opened ()) then
     user_err
@@ -1377,14 +1389,14 @@ let add_subnames_of ?loc len n ns full_n ref =
     let ns = Array.fold_left_i (fun j ns _ -> add1 (ConstructRef ((mind,i),j+1)) ns)
         ns mip.mind_consnames
     in
-    List.fold_left (fun ns f ->
-        let s = Indrec.elimination_suffix f in
+    List.fold_left (fun ns q ->
+        let s = Indrec.elimination_suffix q in
         let n_elim = Id.of_string (Id.to_string mip.mind_typename ^ s) in
         match importable_extended_global_of_path ?loc (Libnames.add_path_suffix path_prefix n_elim) with
         | exception Not_found -> ns
         | None -> ns
         | Some ref -> (len, ref) :: ns)
-      ns Sorts.all_families
+      ns UnivGen.QualityOrSet.all
 
 let interp_names m ns =
   let dp_m = Nametab.path_of_module m in
@@ -1955,20 +1967,24 @@ let () =
       optwrite = (fun b -> Constrextern.print_universes:=b) }
 
 let () =
-  declare_bool_option
+  (* no summary: handled as part of the debug state *)
+  declare_option ~no_summary:true ~kind:BoolKind
     { optstage = Summary.Stage.Interp;
-      optdepr  = None;
+      optdepr  = Some (Deprecation.make ~since:"9.1" ~note:"Set Debug \"vmbytecode\" instead." ());
       optkey   = ["Dump";"Bytecode"];
-      optread  = (fun () -> !Vmbytegen.dump_bytecode);
-      optwrite = (:=) Vmbytegen.dump_bytecode }
+      optread  = (fun () -> CDebug.get_flag Vmbytegen.dump_bytecode_flag);
+      optwrite = (fun b -> CDebug.set_flag Vmbytegen.dump_bytecode_flag b);
+    }
 
 let () =
-  declare_bool_option
+  (* no summary: handled as part of the debug state *)
+  declare_option ~no_summary:true ~kind:BoolKind
     { optstage = Summary.Stage.Interp;
-      optdepr  = None;
+      optdepr  = Some (Deprecation.make ~since:"9.1" ~note:"Set Debug \"vmlambda\" instead." ());
       optkey   = ["Dump";"Lambda"];
-      optread  = (fun () -> !Vmlambda.dump_lambda);
-      optwrite = (:=) Vmlambda.dump_lambda }
+      optread  = (fun () -> CDebug.get_flag Vmlambda.dump_lambda_flag);
+      optwrite = (fun b ->  CDebug.set_flag Vmlambda.dump_lambda_flag b);
+    }
 
 let () =
   declare_bool_option
@@ -2078,7 +2094,7 @@ let get_current_context_of_args ~pstate =
 
 let query_command_selector ?loc = function
   | None -> None
-  | Some (Goal_select.SelectNth n) -> Some n
+  | Some (Goal_select.SelectList [NthSelector n]) -> Some n
   | _ -> user_err ?loc
       (str "Query commands only support the single numbered goal selector.")
 
@@ -2249,6 +2265,7 @@ let vernac_print =
     Prettyp.print_canonical_projections env sigma grefs
   | PrintUniverses prunivs -> no_state @@ fun ()->
     print_universes prunivs
+  | PrintSorts -> no_state print_sorts
   | PrintHint r -> with_proof_env @@ fun env sigma ->
     Hints.pr_hint_ref env sigma (smart_global r)
   | PrintHintGoal -> with_pstate @@ fun ~pstate ->
@@ -2352,12 +2369,12 @@ let vernac_register ~atts qid r =
       | ConstRef c -> c
       | _ -> CErrors.user_err ?loc:qid.loc Pp.(str "Register Scheme: expecing a constant.")
     in
-    let () = if not (Ind_tables.is_declared_scheme_object (scheme_kind, Some InType,false)) then
+    let () = if not (Ind_tables.is_declared_scheme_object (scheme_kind, Some UnivGen.QualityOrSet.qtype,false)) then
         CErrors.user_err Pp.(str ("unknown scheme kind " ^ (String.concat " " scheme_kind)))
     in
     let ind = Smartlocate.global_inductive_with_alias inductive in
     Dumpglob.add_glob ?loc:inductive.loc (IndRef ind);
-    DeclareScheme.declare_scheme local (scheme_kind, Some InType,false) (ind,gr)
+    DeclareScheme.declare_scheme local (scheme_kind, Some UnivGen.QualityOrSet.qtype,false) (ind,gr)
 
 let vernac_library_attributes atts =
   if Global.is_curmod_library () && not (Lib.sections_are_opened ()) then
@@ -2404,8 +2421,8 @@ let vernac_subproof gln ~pstate =
   Declare.Proof.map ~f:(fun p ->
     match gln with
     | None -> Proof.focus subproof_cond () 1 p
-    | Some (Goal_select.SelectNth n) -> Proof.focus subproof_cond () n p
-    | Some (Goal_select.SelectId id) -> Proof.focus_id subproof_cond () id p
+    | Some (Goal_select.SelectList [NthSelector n]) -> Proof.focus subproof_cond () n p
+    | Some (Goal_select.SelectList [IdSelector id]) -> Proof.focus_id subproof_cond () id p
     | _ -> user_err
              (str "Brackets do not support multi-goal selectors."))
     pstate
@@ -2680,6 +2697,9 @@ let translate_pure_vernac ?loc ~atts v = let open Vernactypes in match v with
         vernac_combined_scheme id l ~locmap:(Ind_tables.Locmap.default loc))
   | VernacUniverse l ->
     vtdefault(fun () -> vernac_universe ~poly:(only_polymorphism atts) l)
+
+  | VernacSort l ->
+    vtdefault(fun () -> vernac_sort ~poly:(only_polymorphism atts) l)
 
   | VernacConstraint l ->
     vtdefault(fun () -> vernac_constraint ~poly:(only_polymorphism atts) l)

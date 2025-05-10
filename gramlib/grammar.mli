@@ -67,6 +67,7 @@ module type S = sig
 
     type any_t = Any : 'a t -> any_t
     val accumulate_in : any_t list -> any_t list CString.Map.t with_estate
+    val all_in : unit -> any_t list CString.Map.t with_estate
   end
 
   module rec Symbol : sig
@@ -155,10 +156,10 @@ module type ExtS = sig
   type 's add_kw = { add_kw : 'c. 's -> 'c pattern -> 's }
 
   val safe_extend : 's add_kw -> EState.t -> 's -> 'a Entry.t -> 'a extend_statement -> EState.t * 's
-  val safe_delete_rule : EState.t -> 'a Entry.t -> 'a Production.t -> EState.t
 
   module Unsafe : sig
-    val clear_entry : EState.t -> 'a Entry.t -> EState.t
+    val existing_entry : EState.t -> 'a Entry.t -> EState.t
+    val existing_of_parser : EState.t -> 'a Entry.t -> 'a Entry.parser_fun -> EState.t
   end
 
 end

@@ -39,7 +39,7 @@ sig
     val for_all: (elt -> bool) -> t -> bool
     val exists: (elt -> bool) -> t -> bool
     val filter: (elt -> bool) -> t -> t
-(*    val filter_map: (elt -> elt option) -> t -> t [OCaml 4.11] *)
+    val filter_map: (elt -> elt option) -> t -> t
     val partition: (elt -> bool) -> t -> t * t
     val cardinal: t -> int
     val elements: t -> elt list
@@ -69,7 +69,7 @@ module type SetS = sig
     val of_list: elt list -> t
     val to_seq_from : elt -> t -> elt Seq.t
     val to_seq : t -> elt Seq.t
-    (* val to_rev_seq : t -> elt Seq.t [OCaml 4.12] *)
+    val to_rev_seq : t -> elt Seq.t
     val add_seq : elt Seq.t -> t -> t
     val of_seq : elt Seq.t -> t
 end
@@ -97,6 +97,7 @@ sig
     val for_all: (key -> 'a -> bool) -> 'a t -> bool
     val exists: (key -> 'a -> bool) -> 'a t -> bool
     val filter: (key -> 'a -> bool) -> 'a t -> 'a t
+    val filter_map: (key -> 'a -> 'b option) -> 'a t -> 'b t
     val partition: (key -> 'a -> bool) -> 'a t -> 'a t * 'a t
     val cardinal: 'a t -> int
     val bindings: 'a t -> (key * 'a) list

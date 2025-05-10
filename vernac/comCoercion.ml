@@ -231,20 +231,16 @@ let cache_coercion ?(update=false) c =
   let sigma = Evd.from_env env in
   Coercionops.declare_coercion env sigma ~update c
 
-let open_coercion i o =
-  if Int.equal i 1 then
-    cache_coercion o
-
 let discharge_coercion c =
   if c.coe_local then None
   else
     let n =
-      try Array.length (Lib.section_instance c.coe_value)
+      try Array.length (Global.section_instance c.coe_value)
       with Not_found -> 0
     in
     let nc = { c with
       coe_param = n + c.coe_param;
-      coe_is_projection = Option.map Lib.discharge_proj_repr c.coe_is_projection;
+      coe_is_projection = Option.map Global.discharge_proj_repr c.coe_is_projection;
     } in
     Some nc
 
@@ -255,7 +251,7 @@ let coe_cat = create_category "coercions"
 
 let inCoercion : coe_info_typ -> obj =
   declare_object {(default_object "COERCION") with
-    open_function = simple_open ~cat:coe_cat open_coercion;
+    open_function = simple_open ~cat:coe_cat cache_coercion;
     cache_function = cache_coercion;
     subst_function = (fun (subst,c) -> subst_coercion subst c);
     classify_function = classify_coercion;

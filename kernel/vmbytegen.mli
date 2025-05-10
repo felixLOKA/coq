@@ -28,4 +28,4 @@ val compile_constant_body : fail_on_error:bool ->
 val compile_alias : Names.Constant.t -> 'a pbody_code
 
 (** Dump the bytecode after compilation (for debugging purposes) *)
-val dump_bytecode : bool ref
+val dump_bytecode_flag : CDebug.flag

@@ -457,6 +457,12 @@ let configure ?(apply = fun () -> ()) parent =
         pcombo "Position:" labels initial setter;
       ]
   in
+  let config_message_tabs =
+    create_pref_box "Message tabs" [
+        pbool "Cap message length" message_tab_capped;
+        pint "Length limit" message_tab_length;
+      ]
+  in
 
   let config_font =
     let preview_text = "Goal (∃n : nat, n ≤ 0)∧(∀x,y,z, x∈y⋃z↔x∈y∨x∈z)." in
@@ -675,7 +681,7 @@ let configure ?(apply = fun () -> ()) parent =
           pref_section "Project" ~icon:`PAGE_SETUP [project_management];
         ];
       pref_section "Editor" ~icon:`EDIT [editor_appearance; editor_behavior];
-      pref_section "Appearance" ~icon:`ZOOM_FIT [config_window; config_document_tabs] ~children:[
+      pref_section "Appearance" ~icon:`ZOOM_FIT [config_window; config_document_tabs; config_message_tabs] ~children:[
           pref_section "Font" ~icon:`SELECT_FONT [config_font];
           pref_section "Colors" ~icon:`SELECT_COLOR [config_highlight; config_color];
           pref_section "Tags" ~icon:`SELECT_COLOR [config_tags];

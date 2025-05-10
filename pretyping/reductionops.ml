@@ -114,8 +114,8 @@ module ReductionBehaviour = struct
     | false, (gr, b) ->
       let b =
         let gr = GlobRef.ConstRef gr in
-        if Lib.is_in_section gr then
-          let vars = Lib.section_instance gr in
+        if Global.is_in_section gr then
+          let vars = Global.section_instance gr in
           let extra = Array.length vars in
           Option.map (more_args extra) b
         else b

@@ -176,6 +176,7 @@ type compiled_library = {
   comp_name : DirPath.t;
   comp_mod : module_body;
   comp_univs : Univ.ContextSet.t;
+  comp_qualities : Sorts.QVar.Set.t;
   comp_deps : library_info array;
   comp_flags : permanent_flags;
 }
@@ -226,6 +227,7 @@ type safe_environment =
     modlabels : Label.Set.t;
     objlabels : Label.Set.t;
     univ : Univ.ContextSet.t;
+    qualities : Sorts.QVar.Set.t ;
     future_cst : (Constant_typing.typing_context * safe_environment * Nonce.t) HandleMap.t;
     required : required_lib DPmap.t;
     loads : (ModPath.t * module_body) list;
@@ -257,6 +259,7 @@ let empty_environment =
     sections = None;
     future_cst = HandleMap.empty;
     univ = Univ.ContextSet.empty;
+    qualities = Sorts.QVar.Set.empty ;
     required = DPmap.empty;
     loads = [];
     local_retroknowledge = [];
@@ -395,7 +398,7 @@ end
 type side_effect = {
   seff_certif : Certificate.t CEphemeron.key;
   seff_constant : Constant.t;
-  seff_body : (Constr.t, Vmemitcodes.body_code option) Declarations.pconstant_body;
+  seff_body : HConstr.t option * (Constr.t, Vmemitcodes.body_code option) Declarations.pconstant_body;
   seff_univs : Univ.ContextSet.t;
 }
 (* Invariant: For any senv, if [Certificate.safe_extend senv seff_certif] returns [Some certif'] then
@@ -469,7 +472,7 @@ let push_private_constants env eff =
   let add_if_undefined env eff =
     if Environ.mem_constant eff.seff_constant env then env
     else
-      let cb = eff.seff_body in
+      let (_hbody, cb) = eff.seff_body in
       let vmtab, code = push_bytecode (Environ.vm_library env) cb.const_body_code in
       let cb = { cb with const_body_code = code } in
       let env = Environ.set_vm_library vmtab env in
@@ -496,6 +499,12 @@ let structure_body_of_safe_env env = env.revstruct
 
 let sections_of_safe_env senv = senv.sections
 
+let rec is_modtype senv =
+  match senv.modvariant with
+  | STRUCT (_,senv) -> is_modtype senv
+  | SIG _ -> true
+  | NONE | LIBRARY -> false
+
 let get_section = function
   | None -> CErrors.user_err Pp.(str "No open section.")
   | Some s -> s
@@ -512,6 +521,20 @@ let push_context_set ~strict cst senv =
 
 let add_constraints cst senv =
   push_context_set ~strict:true cst senv
+
+let push_quality_set qs senv =
+  if Sorts.QVar.Set.is_empty qs then senv
+  else
+    let () = if is_modtype senv
+      then CErrors.user_err (Pp.str "Cannot declare global sort qualities inside module types.")  ;
+    in
+    let sections = Option.map (Section.push_mono_qualities qs) senv.sections
+    in
+    { senv with
+      env = Environ.push_quality_set qs senv.env ;
+      qualities = Sorts.QVar.Set.union qs senv.qualities ;
+      sections
+    }
 
 let is_curmod_library senv =
   match senv.modvariant with LIBRARY -> true | _ -> false
@@ -629,11 +652,12 @@ let push_section_context uctx senv =
   let sections = Section.push_local_universe_context uctx sections in
   let senv = { senv with sections=Some sections } in
   let qualities, ctx = UVars.UContext.to_context_set uctx in
-  assert (Sorts.QVar.Set.is_empty qualities);
+  assert Sorts.QVar.Set.(is_empty (inter qualities senv.qualities));
   (* push_context checks freshness *)
   { senv with
     env = Environ.push_context ~strict:false uctx senv.env;
-    univ = Univ.ContextSet.union ctx senv.univ }
+    univ = Univ.ContextSet.union ctx senv.univ ;
+    qualities = Sorts.QVar.Set.union qualities senv.qualities }
 
 (** {6 Insertion of new declarations to current environment } *)
 
@@ -769,7 +793,7 @@ let inline_side_effects env body side_eff =
   else
     (** Second step: compute the lifts and substitutions to apply *)
     let cname c r = Context.make_annot (Name (Label.to_id (Constant.label c))) r in
-    let fold (subst, var, ctx, args) { seff_constant = c; seff_body = cb; seff_univs = univs; _ } =
+    let fold (subst, var, ctx, args) { seff_constant = c; seff_body = (_hbody, cb); seff_univs = univs; _ } =
       let (b, opaque) = match cb.const_body with
       | Def b -> (b, false)
       | OpaqueDef b -> (b, true)
@@ -862,7 +886,7 @@ type side_effect_declaration =
 | OpaqueEff : Constr.constr Entries.opaque_entry -> side_effect_declaration
 
 let constant_entry_of_side_effect eff =
-  let cb = eff.seff_body in
+  let (_hbody, cb) = eff.seff_body in
   let open Entries in
   let univs =
     match cb.const_universes with
@@ -908,10 +932,10 @@ let infer_direct_opaque ~sec_univs env ce =
   let cb, ctx = Constant_typing.infer_opaque ~sec_univs env ce in
   let body = ce.Entries.opaque_entry_body, Univ.ContextSet.empty in
   let handle _env c () = (c, Univ.ContextSet.empty, 0) in
-  let (_hbody, c, u) = Constant_typing.check_delayed handle ctx (body, ()) in
+  let (hbody, c, u) = Constant_typing.check_delayed handle ctx (body, ()) in
   (* No constraints can be generated, we set it empty everywhere *)
   let () = assert (is_empty_private u) in
-  { cb with const_body = OpaqueDef c }
+  hbody, { cb with const_body = OpaqueDef c }
 
 let export_side_effects senv eff =
   let sec_univs = Option.map Section.all_poly_univs senv.sections in
@@ -923,7 +947,7 @@ let export_side_effects senv eff =
   let seff, signatures = List.fold_left aux ([],[]) (SideEffects.repr eff) in
   let trusted = check_signatures senv signatures in
   let push_seff env eff =
-    let { seff_constant = kn; seff_body = cb ; _ } = eff in
+    let { seff_constant = kn; seff_body = (_hbody, cb); _ } = eff in
     let vmtab, code = push_bytecode (Environ.vm_library env) cb.const_body_code in
     let env = Environ.set_vm_library vmtab env in
     let cb = { cb with const_body_code = code } in
@@ -942,14 +966,14 @@ let export_side_effects senv eff =
         let univs = Univ.ContextSet.union uctx univs in
         let env, cb =
           let ce = constant_entry_of_side_effect eff in
-          let _hbody, cb = match ce with
+          let hbody, cb = match ce with
             | DefinitionEff ce ->
               Constant_typing.infer_definition ~sec_univs env ce
             | OpaqueEff ce ->
-              None, infer_direct_opaque ~sec_univs env ce
+              infer_direct_opaque ~sec_univs env ce
           in
           let cb = compile_bytecode env cb in
-          let eff = { eff with seff_body = cb } in
+          let eff = { eff with seff_body = (hbody, cb) } in
           (push_seff env eff, export_eff eff)
         in
         recheck_seff rest univs (cb :: acc) env
@@ -964,7 +988,7 @@ let push_opaque_proof senv =
 let export_private_constants eff senv =
   let uctx, exported = export_side_effects senv eff in
   let senv = push_context_set ~strict:true uctx senv in
-  let map senv (kn, c) = match c.const_body with
+  let map senv (kn, (hbody, c)) = match c.const_body with
   | OpaqueDef body ->
     (* Don't care about the body, it has been checked by {!infer_direct_opaque} *)
     let senv, o = push_opaque_proof senv in
@@ -973,16 +997,23 @@ let export_private_constants eff senv =
     | Monomorphic -> None
     | Polymorphic auctx -> Some (UVars.AbstractContext.size auctx)
     in
-    let _, body = Constr.hcons body in
+    (* Hashcons now, before storing in the opaque table *)
+    let _, body = match hbody with
+    | None -> Constr.hcons body
+    | Some hbody ->
+      let () = assert (HConstr.self hbody == body) in
+      HConstr.hcons hbody
+    in
     let opaque = { exp_body = body; exp_handle = h; exp_univs = univs } in
-    senv, (kn, { c with const_body = OpaqueDef o }, Some opaque)
+    senv, (kn, { c with const_body = OpaqueDef o }, Some opaque, None)
   | Def _ | Undef _ | Primitive _ | Symbol _ as body ->
-    senv, (kn, { c with const_body = body }, None)
+    (* Hashconsing is handled by {!add_constant_aux}, propagate hbody *)
+    senv, (kn, { c with const_body = body }, None, hbody)
   in
   let senv, bodies = List.fold_left_map map senv exported in
-  let exported = List.map (fun (kn, _, opaque) -> kn, opaque) bodies in
+  let exported = List.map (fun (kn, _, opaque, _) -> kn, opaque) bodies in
   (* No delayed constants to declare *)
-  let fold senv (kn, cb, _) = add_constant_aux senv (kn, cb) in
+  let fold senv (kn, cb, _, hbody) = add_constant_aux ?hbody senv (kn, cb) in
   let senv = List.fold_left fold senv bodies in
   exported, senv
 
@@ -1093,7 +1124,7 @@ let add_private_constant l uctx decl senv : (Constant.t * private_constants) * s
       match decl with
       | OpaqueEff ce ->
         let () = assert (check_constraints uctx ce.Entries.opaque_entry_universes) in
-        None, infer_direct_opaque ~sec_univs senv.env ce
+        infer_direct_opaque ~sec_univs senv.env ce
       | DefinitionEff ce ->
         let () = assert (check_constraints uctx ce.Entries.definition_entry_universes) in
         Constant_typing.infer_definition ~sec_univs senv.env ce
@@ -1115,7 +1146,7 @@ let add_private_constant l uctx decl senv : (Constant.t * private_constants) * s
     let eff = {
       seff_certif = from_env;
       seff_constant = kn;
-      seff_body = cb;
+      seff_body = (hbody, cb);
       seff_univs = uctx;
     } in
     SideEffects.add eff empty_private_constants
@@ -1232,6 +1263,7 @@ let start_mod_modtype ~istype l senv =
     modresolver = Mod_subst.empty_delta_resolver mp;
     paramresolver = ParamResolver.add_delta_resolver senv.modpath senv.modresolver senv.paramresolver;
     univ = senv.univ;
+    qualities = senv.qualities;
     required = senv.required;
     opaquetab = senv.opaquetab;
     sections = None; (* checked in check_empty_context *)
@@ -1328,6 +1360,7 @@ let propagate_senv newdef newenv newresolver senv oldsenv =
     revstruct = newdef::oldsenv.revstruct;
     modlabels = Label.Set.add (fst newdef) oldsenv.modlabels;
     univ = senv.univ;
+    qualities = senv.qualities ;
     future_cst = senv.future_cst;
     required = senv.required;
     loads = senv.loads@oldsenv.loads;
@@ -1344,6 +1377,7 @@ let end_module l restype senv =
   let mbids = List.rev_map fst params in
   let mb = build_module_body params restype senv in
   let newenv = Environ.set_universes (Environ.universes senv.env) oldsenv.env in
+  let newenv = Environ.set_qualities (Environ.qualities senv.env) newenv in
   let newenv = if Environ.rewrite_rules_allowed senv.env then Environ.allow_rewrite_rules newenv else newenv in
   let newenv = Environ.set_vm_library (Environ.vm_library senv.env) newenv in
   let senv' = propagate_loads { senv with env = newenv } in
@@ -1453,6 +1487,7 @@ let start_library dir senv =
     sections = None;
     future_cst = HandleMap.empty;
     univ = Univ.ContextSet.empty;
+    qualities = Sorts.QVar.Set.empty;
     loads = [];
     local_retroknowledge = [];
     opaquetab = Opaqueproof.empty_opaquetab;
@@ -1460,8 +1495,6 @@ let start_library dir senv =
 
 let export ~output_native_objects senv dir =
   let () = check_current_library dir senv in
-  (* qualities are in the senv only during sections *)
-  let () = assert (Sorts.QVar.Set.is_empty @@ Environ.qualities senv.env) in
   let mp = senv.modpath in
   let str = NoFunctor (List.rev senv.revstruct) in
   let mb = Mod_declarations.make_module_body str senv.modresolver senv.local_retroknowledge in
@@ -1481,6 +1514,7 @@ let export ~output_native_objects senv dir =
     comp_name = dir;
     comp_mod = mb;
     comp_univs = senv.univ;
+    comp_qualities = Environ.qualities senv.env;
     comp_deps = Array.of_list comp_deps;
     comp_flags = permanent_flags
   } in
@@ -1498,6 +1532,7 @@ let import lib vmtab vodigest senv =
   let mb = lib.comp_mod in
   let env = Environ.push_context_set ~strict:true lib.comp_univs senv.env in
   let env = Environ.link_vm_library vmtab env in
+  let env = Environ.push_quality_set lib.comp_qualities env in
   let env =
     let linkinfo = Nativecode.link_info_of_dirpath lib.comp_name in
     Modops.add_linked_module mp mb linkinfo env
@@ -1543,7 +1578,7 @@ let close_section senv =
   let sections0 = get_section senv.sections in
   let env0 = senv.env in
   (* First phase: revert the declarations added in the section *)
-  let sections, entries, cstrs, revert = Section.close_section sections0 in
+  let sections, entries, cstrs, qs, revert = Section.close_section sections0 in
   (* Don't revert the delayed constraints (future_cst). If some delayed constraints
      were forced inside the section, they have been turned into global monomorphic
      that are going to be replayed. Those that are not forced are not readded
@@ -1558,6 +1593,7 @@ let close_section senv =
   in
   (* Third phase: replay the discharged section contents *)
   let senv = push_context_set ~strict:true cstrs senv in
+  let senv = push_quality_set qs senv in
   let fold entry senv =
     match entry with
   | SecDefinition kn ->

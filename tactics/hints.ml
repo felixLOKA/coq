@@ -1184,7 +1184,7 @@ let is_trivial_action = function
 let rec is_section_path = function
 | PathAtom PathAny -> false
 | PathAtom (PathHints grs) ->
-  let check c = isVarRef c && Lib.is_in_section c in
+  let check c = isVarRef c && Global.is_in_section c in
   List.exists check grs
 | PathStar p -> is_section_path p
 | PathSeq (p, q) | PathOr (p, q) -> is_section_path p || is_section_path q
@@ -1209,9 +1209,9 @@ let load_autohint _ h =
   | AddMode { gref; mode } ->
     if superglobal then add_mode name gref mode
 
-let open_autohint i h =
+let open_autohint h =
   let superglobal = superglobal h in
-  if Int.equal i 1 then match h.hint_action with
+  match h.hint_action with
   | AddHints hints ->
     let () =
       if not superglobal then
@@ -1231,7 +1231,7 @@ let open_autohint i h =
     if not superglobal then add_mode h.hint_name gref mode
 
 let cache_autohint o =
-  load_autohint 1 o; open_autohint 1 o
+  load_autohint 1 o; open_autohint o
 
 let subst_autohint (subst, obj) =
   let subst_key gr =
@@ -1337,10 +1337,10 @@ let discharge_autohint obj =
         let filter e = match e with
         | Evaluable.EvalConstRef c -> Some e
         | Evaluable.EvalProjectionRef p ->
-          let p = Lib.discharge_proj_repr p in
+          let p = Global.discharge_proj_repr p in
           Some (Evaluable.EvalProjectionRef p)
         | Evaluable.EvalVarRef id ->
-          if Lib.is_in_section (GlobRef.VarRef id) then None else Some e
+          if Global.is_in_section (GlobRef.VarRef id) then None else Some e
         in
         let grs = List.filter_map filter grs in
         HintsReferences grs
@@ -1352,10 +1352,10 @@ let discharge_autohint obj =
     | AddCut path ->
       if is_section_path path then AddHints [] (* dummy *) else obj.hint_action
     | AddMode { gref; mode } ->
-      if Lib.is_in_section gref then
+      if Global.is_in_section gref then
         if isVarRef gref then AddHints [] (* dummy *)
         else
-          let inst = Lib.section_instance gref in
+          let inst = Global.section_instance gref in
           (* Default mode for discharged parameters is output *)
           let mode = Array.append (Array.make (Array.length inst) ModeOutput) mode in
           AddMode { gref; mode }
@@ -1553,13 +1553,13 @@ let add_hints ~locality dbnames h =
   | HintsTransparencyEntry (HintsReferences grs, _) ->
     let iter gr =
       let gr = global_of_evaluable_reference gr in
-      if is_notlocal locality && isVarRef gr && Lib.is_in_section gr then warn_non_local_section_hint ()
+      if is_notlocal locality && isVarRef gr && Global.is_in_section gr then warn_non_local_section_hint ()
     in
     List.iter iter grs
   | HintsCutEntry p ->
     if is_notlocal locality && is_section_path p then warn_non_local_section_hint ()
   | HintsModeEntry (gr, _) ->
-    if is_notlocal locality && isVarRef gr && Lib.is_in_section gr then warn_non_local_section_hint ()
+    if is_notlocal locality && isVarRef gr && Global.is_in_section gr then warn_non_local_section_hint ()
   in
   if String.List.mem "nocore" dbnames then
     user_err Pp.(str "The hint database \"nocore\" is meant to stay empty.");
@@ -1578,8 +1578,6 @@ let add_hints ~locality dbnames h =
       add_externs info tacexp ~locality dbnames
 
 let hint_globref gr = IsGlobRef gr
-
-let hint_constr (c, diff) = IsConstr (c, diff)
 
 let warn_non_reference_hint_using =
   CWarnings.create ~name:"non-reference-hint-using" ~category:CWarnings.CoreCategories.deprecated

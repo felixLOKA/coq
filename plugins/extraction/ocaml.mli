@@ -8,5 +8,5 @@
 (*         *     (see LICENSE file for the text of the license)         *)
 (************************************************************************)
 
-val ocaml_descr : Miniml.language_descr
+val ocaml_descr : Table.t Miniml.language_descr
 

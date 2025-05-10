@@ -10,29 +10,57 @@
 
 open Univ
 
-type family = InSProp | InProp | InSet | InType | InQSort
+module QGlobal = struct
+  open Names
 
-let all_families = [InSProp; InProp; InSet; InType; InQSort]
+  type t = {
+    library : DirPath.t;
+    id : Id.t
+  }
+
+  let make library id = { library ; id }
+
+  let repr x = (x.library, x.id)
+
+  let equal u1 u2 =
+    Id.equal u1.id u2.id &&
+    DirPath.equal u1.library u2.library
+
+  let hash u = Hashset.Combine.combine (Id.hash u.id) (DirPath.hash u.library)
+
+  let compare u1 u2 =
+    let c = Id.compare u1.id u2.id in
+    if c <> 0 then c
+    else
+      DirPath.compare u1.library u2.library
+
+  let to_string { library = d ; id } =
+    DirPath.to_string d ^ "." ^ Id.to_string id
+end
 
 module QVar =
 struct
   type repr =
     | Var of int
     | Unif of string * int
-
+    | Global of QGlobal.t
   type t = repr
 
   let make_var n = Var n
 
   let make_unif s n = Unif (s,n)
 
+  let make_global id = Global id
+
   let var_index = function
     | Var q -> Some q
     | Unif _ -> None
+    | Global _ -> None
 
   let hash = function
     | Var q -> Hashset.Combine.combinesmall 1 q
     | Unif (s,q) -> Hashset.Combine.(combinesmall 2 (combine (CString.hash s) q))
+    | Global id -> Hashset.Combine.combinesmall 3 (QGlobal.hash id)
 
   module Hstruct = struct
     type nonrec t = t
@@ -44,12 +72,14 @@ struct
       | Unif (s,i) as q ->
         let hs, s' = CString.hcons s in
         combinesmall 2 (combine hs i), if s == s' then q else Unif (s',i)
+      | Global id as q -> combinesmall 3 (QGlobal.hash id), q
 
     let eq a b =
       match a, b with
       | Var a, Var b -> Int.equal a b
       | Unif (sa, ia), Unif (sb, ib) -> sa == sb && Int.equal ia ib
-      | (Var _ | Unif _), _ -> false
+      | Global ida, Global idb -> QGlobal.equal ida idb
+      | (Var _ | Unif _| Global _), _ -> false
   end
 
   module Hasher = Hashcons.Make(Hstruct)
@@ -62,20 +92,25 @@ struct
       let c = Int.compare i1 i2 in
       if c <> 0 then c
       else CString.compare s1 s2
-    | Var _, Unif _ -> -1
-    | Unif _, Var _ -> 1
+    | Global ida, Global idb -> QGlobal.compare ida idb
+    | Var _, _ -> -1
+    | _, Var _ -> 1
+    | Unif _, _ -> -1
+    | _, Unif _ -> 1
 
   let equal a b = match a, b with
     | Var a, Var b ->  Int.equal a b
     | Unif (s1,i1), Unif (s2,i2) ->
       Int.equal i1 i2 && CString.equal s1 s2
-    | Var _, Unif _ | Unif _, Var _ -> false
+    | Global ida, Global idb -> QGlobal.equal ida idb
+    | (Var _| Unif _ | Global _), _ -> false
 
   let to_string = function
     | Var q -> Printf.sprintf "β%d" q
     | Unif (s,q) ->
       let s = if CString.is_empty s then "" else s^"." in
       Printf.sprintf "%sα%d" s q
+    | Global id -> Printf.sprintf "γ%s" (QGlobal.to_string id)
 
   let raw_pr q = Pp.str (to_string q)
 
@@ -92,6 +127,12 @@ module Quality = struct
   type t = QVar of QVar.t | QConstant of constant
 
   let var i = QVar (QVar.make_var i)
+  let global sg = QVar (QVar.make_global sg)
+
+  let is_var x =
+    match x with
+    | QVar _ -> true
+    | QConstant _ -> false
 
   let var_index = function
     | QVar q -> QVar.var_index q
@@ -111,6 +152,12 @@ module Quality = struct
       | _, QSProp -> 1
       | QType, QType -> 0
 
+    let eliminates_to a b = match a, b with
+      | _, QSProp -> true
+      | (QType | QProp), QProp -> true
+      | QType, _  -> true
+      | _, _ -> false
+
     let pr = function
       | QProp -> Pp.str "Prop"
       | QSProp -> Pp.str "SProp"
@@ -121,6 +168,7 @@ module Quality = struct
       | QProp -> 1
       | QType -> 2
 
+    let all = [QSProp; QProp; QType]
   end
 
   let equal a b = match a, b with
@@ -134,11 +182,20 @@ module Quality = struct
     | _, QVar _ -> 1
     | QConstant a, QConstant b -> Constants.compare a b
 
+  let eliminates_to a b = match a, b with
+    | QConstant QType, _ -> true
+    | QVar q, QVar q' -> QVar.equal q q' (* "trivial" check *)
+    | QConstant a, QConstant b -> Constants.eliminates_to a b
+    | _, (QVar _ | QConstant _) -> false
+
   let pr prv = function
     | QVar v -> prv v
     | QConstant q -> Constants.pr q
 
   let raw_pr q = pr QVar.raw_pr q
+
+  let all_constants = List.map (fun q -> QConstant q) Constants.all
+  let all = var (-1) :: all_constants
 
   let hash = let open Hashset.Combine in function
     | QConstant q -> Constants.hash q
@@ -180,6 +237,10 @@ module Quality = struct
   let qsprop = snd @@ hcons (QConstant QSProp)
   let qprop = snd @@ hcons (QConstant QProp)
   let qtype = snd @@ hcons (QConstant QType)
+
+  let is_qsprop = equal qsprop
+  let is_qprop = equal qprop
+  let is_qtype = equal qtype
 
   module Self = struct type nonrec t = t let compare = compare end
   module Set = CSet.Make(Self)
@@ -275,6 +336,11 @@ let qsort q u = QSort (q, u)
 let sort_of_univ u =
   if Universe.is_type0 u then set else Type u
 
+let univ_of_sort s =
+  match s with
+  | SProp | Prop | Set -> Universe.type0
+  | Type u | QSort (_, u) -> u
+
 let make q u =
   let open Quality in
   match q with
@@ -301,6 +367,15 @@ let compare s1 s2 =
       let c = QVar.compare q1 q2 in
       if Int.equal c 0 then Universe.compare u1 u2 else c
     | QSort _, (Prop | Set | Type _) -> 1
+
+let quality s =
+  match s with
+  | SProp -> Quality.qsprop
+  | Prop -> Quality.qprop
+  | Set | Type _ -> Quality.qtype
+  | QSort (q,_) -> Quality.QVar q
+
+let eliminates_to s1 s2 = Quality.eliminates_to (quality s1) (quality s2)
 
 let equal s1 s2 = Int.equal (compare s1 s2) 0
 
@@ -345,46 +420,11 @@ let subst_fn (fq,fu) = function
     | QConstant QProp -> prop
     | QConstant QType -> sort_of_univ (fu v)
 
-let family = function
-  | SProp -> InSProp
-  | Prop -> InProp
-  | Set -> InSet
-  | Type _ -> InType
-  | QSort _ -> InQSort
-
 let quality = let open Quality in function
-| Set | Type _ -> QConstant QType
-| Prop -> QConstant QProp
-| SProp -> QConstant QSProp
+| Set | Type _ -> qtype
+| Prop -> qprop
+| SProp -> qsprop
 | QSort (q, _) -> QVar q
-
-let family_compare a b = match a,b with
-  | InSProp, InSProp -> 0
-  | InSProp, _ -> -1
-  | _, InSProp -> 1
-  | InProp, InProp -> 0
-  | InProp, _ -> -1
-  | _, InProp -> 1
-  | InSet, InSet -> 0
-  | InSet, _ -> -1
-  | _, InSet -> 1
-  | InType, InType -> 0
-  | InType, _ -> -1
-  | _, InType -> 1
-  | InQSort, InQSort -> 0
-
-let family_equal a b =  match a, b with
-  | InSProp, InSProp | InProp, InProp | InSet, InSet | InType, InType -> true
-  | InQSort, InQSort -> true
-  | (InSProp | InProp | InSet | InType | InQSort), _ -> false
-
-let family_leq a b =
-  family_equal a b
-  || match a, b with
-  | InSProp, _ -> true
-  | InProp, InSet -> true
-  | _, InType -> true
-  | _ -> false
 
 open Hashset.Combine
 
@@ -400,7 +440,7 @@ let hash = function
     let h' = QVar.hash q in
     combinesmall 3 (combine h h')
 
-module Hsorts =
+module HSorts =
   Hashcons.Make(
     struct
       type nonrec t = t
@@ -421,7 +461,7 @@ module Hsorts =
         | (SProp | Prop | Set | Type _ | QSort _), _ -> false
     end)
 
-let hcons = Hashcons.simple_hcons Hsorts.generate Hsorts.hcons ()
+let hcons = Hashcons.simple_hcons HSorts.generate HSorts.hcons ()
 
 (** On binders: is this variable proof relevant *)
 type relevance = Relevant | Irrelevant | RelevanceVar of QVar.t
@@ -430,10 +470,6 @@ let relevance_equal r1 r2 = match r1,r2 with
   | Relevant, Relevant | Irrelevant, Irrelevant -> true
   | RelevanceVar q1, RelevanceVar q2 -> QVar.equal q1 q2
   | (Relevant | Irrelevant | RelevanceVar _), _ -> false
-
-let relevance_of_sort_family = function
-  | InSProp -> Irrelevant
-  | _ -> Relevant
 
 let relevance_hash = function
   | Relevant -> 0
@@ -463,12 +499,15 @@ let debug_print = function
   | QSort (q, u) -> Pp.(str "QSort(" ++ QVar.raw_pr q ++ str ","
                         ++ spc() ++ Univ.Universe.raw_pr u ++ str ")")
 
-let pr_sort_family = function
-  | InSProp -> Pp.(str "SProp")
-  | InProp -> Pp.(str "Prop")
-  | InSet -> Pp.(str "Set")
-  | InType -> Pp.(str "Type")
-  | InQSort -> Pp.(str "Type") (* FIXME? *)
+let pr prv pru = function
+  | SProp -> Pp.(str "SProp")
+  | Prop -> Pp.(str "Prop")
+  | Set -> Pp.(str "Set")
+  | Type u -> Pp.(str "Type@{" ++ pru u ++ str "}")
+  | QSort (q, u) -> Pp.(str "Type@{" ++ prv q ++ str "|"
+                        ++ spc() ++ pru u ++ str "}")
+
+let raw_pr = pr QVar.raw_pr Univ.Universe.raw_pr
 
 type pattern =
   | PSProp | PSSProp | PSSet | PSType of int option | PSQSort of int option * int option
@@ -492,35 +531,4 @@ let pattern_match ps s qusubst =
   | PSType uio, Type u -> Some (Partial_subst.maybe_add_univ uio (extract_level u) qusubst)
   | PSQSort (qio, uio), s -> Some (qusubst |> Partial_subst.maybe_add_quality qio (quality s) |> Partial_subst.maybe_add_univ uio (extract_sort_level s))
   | (PSProp | PSSProp | PSSet | PSType _), _ -> None
-
-(** Map with key of type : string list * family option * bool 
-                           scheme name *  Type family  * mutual *)
-let compareT (l1,s1,b1) (l2,s2,b2) =
-    let listc = CList.compare Stdlib.compare l1 l2 in
-    if (listc == 0)
-    then match s1,s2 with
-      | None, None -> if b1 = b2 then 0 else 1
-      | Some _, None
-      | None, Some _ -> 1
-      | Some x, Some y ->
-        if x = y
-        then if b1 = b2 then 0 else 1
-        else 1
-    else listc
-
-module Self1 =
-struct
-  type t = string list * family option * bool
-  let compare = compareT
-end
-
-module Set = CSet.Make(Self1)
-module Map = CMap.Make(Self1)
-
-let family_to_str = function
-  | InSProp -> "InSProp"
-  | InProp -> "InProp"
-  | InSet -> "InSet"
-  | InType -> "InType"
-  | InQSort -> "InQSort"
     

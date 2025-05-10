@@ -14,6 +14,67 @@ open Constr
 open Univ
 open UVars
 
+module QualityOrSet = struct
+  type t = Qual of Quality.t | Set
+
+  let equal a b = match a, b with
+    | Qual a, Qual b -> Quality.equal a b
+    | Set, Set -> true
+    | Qual _, Set | Set, Qual _ -> false
+
+  let compare a b = match a, b with
+    | Qual a, Qual b -> Quality.compare a b
+    | Set, Set -> 0
+    | Qual _, Set -> 1
+    | Set, Qual _ -> -1
+
+  let eliminates_to a b =
+    let to_qual = function
+      | Set -> Quality.qtype
+      | Qual q -> q
+    in Quality.eliminates_to (to_qual a) (to_qual b)
+
+  let of_quality q = Qual q
+  let of_sort s = match s with
+    | Sorts.Set -> Set
+    | s -> of_quality (Sorts.quality s)
+  let quality q = match q with
+    | Set -> Quality.qtype
+    | Qual q -> q
+
+  let set = Set
+
+  let qtype = Qual Quality.qtype
+  let prop = Qual Quality.qprop
+  let sprop = Qual Quality.qsprop
+
+  let is_type q = match q with
+    | Set -> false
+    | Qual q -> Quality.is_qtype q
+
+  let is_set q = match q with
+    | Set -> true
+    | Qual _ -> false
+
+  let is_prop q = match q with
+    | Set -> false
+    | Qual q -> Quality.is_qprop q
+
+  let is_sprop q = match q with
+    | Set -> false
+    | Qual q -> Quality.is_qsprop q
+
+  let pr prv q = match q with
+    | Set -> Pp.str"Set"
+    | Qual q -> Quality.pr prv q
+
+  let raw_pr = pr Sorts.QVar.raw_pr
+
+  let all_constants = Set :: List.map (fun q -> Qual q) Quality.all_constants
+  let all = Set :: List.map (fun q -> Qual q) Quality.all
+end
+
+
 type sort_context_set = (Sorts.QVar.Set.t * Univ.Level.Set.t) * Univ.Constraints.t
 
 type 'a in_sort_context_set = 'a * sort_context_set
@@ -66,13 +127,16 @@ let new_sort_id =
   let cnt = ref 0 in
   fun () -> incr cnt; !cnt
 
-let new_sort_global () =
+let new_sort_global id =
+  Sorts.QGlobal.make (Global.current_dirpath ()) id
+
+let fresh_sort_quality () =
   let s = if Flags.async_proofs_is_worker() then !Flags.async_proofs_worker_id else "" in
   Sorts.QVar.make_unif s (new_sort_id ())
 
 let fresh_instance auctx : _ in_sort_context_set =
   let qlen, ulen = AbstractContext.size auctx in
-  let qinst = Array.init qlen (fun _ -> Sorts.Quality.QVar (new_sort_global())) in
+  let qinst = Array.init qlen (fun _ -> Sorts.Quality.QVar (fresh_sort_quality ())) in
   let uinst = Array.init ulen (fun _ -> fresh_level()) in
   let qctx = Array.fold_left (fun qctx q -> match q with
       | Sorts.Quality.QVar q -> Sorts.QVar.Set.add q qctx
@@ -134,13 +198,15 @@ let constr_of_monomorphic_global env gr =
       Pp.(str "globalization of polymorphic reference " ++ Nametab.pr_global_env Id.Set.empty gr ++
           str " would forget universes.")
 
-let fresh_sort_in_family = function
-  | InSProp -> Sorts.sprop, empty_sort_context
-  | InProp -> Sorts.prop, empty_sort_context
-  | InSet -> Sorts.set, empty_sort_context
-  | InType | InQSort (* Treat as Type *) ->
-    let u = fresh_level () in
-      sort_of_univ (Univ.Universe.make u), ((QVar.Set.empty,Level.Set.singleton u),Constraints.empty)
+let fresh_sort_in_quality =
+  let open QualityOrSet in
+  function
+  | Qual (QConstant QSProp) -> Sorts.sprop, empty_sort_context
+  | Qual (QConstant QProp) -> Sorts.prop, empty_sort_context
+  | Set -> Sorts.set, empty_sort_context
+  | Qual (QConstant QType | QVar _ (* Treat as Type *)) ->
+     let u = fresh_level () in
+     sort_of_univ (Univ.Universe.make u), ((QVar.Set.empty,Level.Set.singleton u), Constraints.empty)
 
 let new_global_univ () =
   let u = fresh_level () in
@@ -162,9 +228,42 @@ let fresh_universe_context_set_instance ctx =
 let fresh_sort_context_instance ((qs,us),csts) =
   let usubst, (us, csts) = fresh_universe_context_set_instance (us,csts) in
   let qsubst, qs = QVar.Set.fold (fun q (qsubst,qs) ->
-      let q' = new_sort_global () in
+      let q' = fresh_sort_quality () in
       QVar.Map.add q (Sorts.Quality.QVar q') qsubst, QVar.Set.add q' qs)
       qs
       (QVar.Map.empty, QVar.Set.empty)
   in
   (qsubst, usubst), ((qs, us), csts)
+
+(** Map with key of type : string list * family option * bool 
+                           scheme name *  Type family  * mutual *)
+let compareT (l1,s1,b1) (l2,s2,b2) =
+    let listc = CList.compare Stdlib.compare l1 l2 in
+    if (listc == 0)
+    then match s1,s2 with
+      | None, None -> if b1 = b2 then 0 else 1
+      | Some _, None
+      | None, Some _ -> 1
+      | Some x, Some y ->
+        if x = y
+        then if b1 = b2 then 0 else 1
+        else 1
+    else listc
+
+module Self1 =
+struct
+  type t = string list * QualityOrSet.t option * bool
+  let compare = compareT
+end
+
+module Set = CSet.Make(Self1)
+module Map = CMap.Make(Self1)
+
+let family_to_str = function
+  | QualityOrSet.Set -> "InSet"
+  | Qual a -> begin match a with
+      | Quality.QConstant Quality.QSProp -> "InSProp"
+      | Quality.QConstant Quality.QProp -> "InProp"
+      | Quality.QConstant Quality.QType -> "InType"
+      | Quality.QVar _ -> "InQSort"
+    end

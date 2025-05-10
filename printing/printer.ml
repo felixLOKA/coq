@@ -45,7 +45,8 @@ let { Goptions.get = should_gname } =
     ~value:false
     ()
 
-let print_goal_names = should_gname (* for export *)
+let print_goal_name sigma ev =
+  should_gname () || Evd.evar_has_ident ev sigma
 
 (**********************************************************************)
 (** Terms                                                             *)
@@ -187,7 +188,7 @@ let u_ident = Id.of_string "u"
 
 let universe_binders_with_opt_names orig names =
   let open Univ in
-  let qorig, uorig = UVars.AbstractContext.names orig in
+  let {UVars.quals = qorig; UVars.univs = uorig} = UVars.AbstractContext.names orig in
   let qorig, uorig as orig = Array.to_list qorig, Array.to_list uorig in
   let qdecl, udecl = match names with
   | None -> orig
@@ -575,12 +576,12 @@ let pr_goal_tag g =
 
 (* display a goal name *)
 let pr_goal_name sigma g =
-  if should_gname() then str " " ++ Pp.surround (pr_existential_key (Global.env ()) sigma g)
+  if print_goal_name sigma g then str " " ++ Pp.surround (pr_existential_key (Global.env ()) sigma g)
   else mt ()
 
 let pr_goal_header nme sigma g =
   str "goal " ++ nme ++ (if should_tag() then pr_goal_tag g else str"")
-  ++ (if should_gname() then str " " ++ Pp.surround (pr_existential_key (Global.env ()) sigma g) else mt ())
+  ++ (if print_goal_name sigma g then str " " ++ Pp.surround (pr_existential_key (Global.env ()) sigma g) else mt ())
 
 (* display the conclusion of a goal *)
 let pr_concl n ?diffs sigma g =

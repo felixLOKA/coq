@@ -842,7 +842,7 @@ let build_beq_scheme env handle kn =
          let cores = Array.init nb_ind make_one_eq in
          Array.init nb_ind (fun i ->
             let kelim = Inductiveops.elim_sort (mib,mib.mind_packets.(i)) in
-            if not (Sorts.family_leq InSet kelim) then
+            if not (Inductive.eliminates_to kelim Sorts.Quality.qtype) then
               raise (NonSingletonProp (kn,i));
             let decrArg = Context.Rel.length nonrecparams_ctx_with_eqs in
             let fix = mkFix (((Array.make nb_ind decrArg),i),(names,types,cores)) in
@@ -852,7 +852,8 @@ let build_beq_scheme env handle kn =
          (* If the inductive type is not recursive, the fixpoint is
              not used, so let's replace it with garbage *)
          let kelim = Inductiveops.elim_sort (mib,mib.mind_packets.(0)) in
-         if not (Sorts.family_leq InSet kelim) then raise (NonSingletonProp (kn,0));
+         if not (Inductive.eliminates_to kelim Sorts.Quality.qtype)
+         then raise (NonSingletonProp (kn,0));
          [|Term.it_mkLambda_or_LetIn (make_one_eq 0) recparams_ctx_with_eqs|]
   in
 
@@ -935,7 +936,7 @@ let prepare_f_handle f handle =
   fun env' mutind' -> f env' handle mutind'
 
 let beq_scheme_kind =
-  Ind_tables.declare_mutual_scheme_object (["Boolean";"Equality"], Some InType)
+  Ind_tables.declare_mutual_scheme_object (["Boolean";"Equality"], Some UnivGen.QualityOrSet.qtype)
   (fun id -> match id with None -> "beq" | Some i -> (Id.to_string i.mind_typename) ^ "_" ^ "beq")
   ~deps:(fun env mutind intern -> match try_declare_scheme (beq_scheme_msg (mutind,0)) build_beq_scheme_deps env mutind with
       | None -> CErrors.user_err (Pp.str "Problem when declaring scheme dependencies")
@@ -1270,7 +1271,7 @@ let make_bl_scheme_deps env ind _ =
   Ind_tables.SchemeMutualDep (ind, beq_scheme_kind, true) :: List.map map inds
 
 let bl_scheme_kind =
-  Ind_tables.declare_mutual_scheme_object (["Boolean";"Leibniz"],Some InType)
+  Ind_tables.declare_mutual_scheme_object (["Boolean";"Leibniz"],Some UnivGen.QualityOrSet.qtype)
   (fun id -> match id with None -> "dec_bl" | Some i -> (Id.to_string i.mind_typename) ^ "_" ^ "dec_bl")
   ~deps:make_bl_scheme_deps
   (fun env handle kn intern ->
@@ -1404,7 +1405,7 @@ let make_lb_scheme_deps env ind _ =
   Ind_tables.SchemeMutualDep (ind, beq_scheme_kind, true) :: List.map map inds
 
 let lb_scheme_kind =
-  Ind_tables.declare_mutual_scheme_object (["Leibniz";"Boolean"], Some InType)
+  Ind_tables.declare_mutual_scheme_object (["Leibniz";"Boolean"], Some UnivGen.QualityOrSet.qtype)
   (fun id -> match id with None -> "dec_lb" | Some i -> (Id.to_string i.mind_typename) ^ "_" ^ "dec_lb")
   ~deps:make_lb_scheme_deps
   (fun env handle kn intern ->
@@ -1595,7 +1596,7 @@ let make_eq_decidability env handle indl =
   ([|ans|], ctx)
 
 let eq_dec_scheme_kind =
-  Ind_tables.declare_mutual_scheme_object (["Equality"], Some InType)
+  Ind_tables.declare_mutual_scheme_object (["Equality"], Some UnivGen.QualityOrSet.qtype)
   (fun id -> match id with None -> "eq_dec" | Some i -> (Id.to_string i.mind_typename) ^ "_" ^ "eq_dec")
   ~deps:(fun _ ind _ -> [SchemeMutualDep (ind, beq_scheme_kind, false); SchemeMutualDep (ind, bl_scheme_kind, true); SchemeMutualDep (ind, lb_scheme_kind, true)])
   (fun env handle kn intern ->

@@ -48,7 +48,7 @@ OCAMLWARN         := $(COQMF_WARN)
 	@COQ_MAKEFILE_INVOCATION@
 
 # This file can be created by the user to hook into double colon rules or
-# add any other Makefile code he may need
+# add any other Makefile code they may need
 -include @LOCAL_FILE@
 
 # Parameters ##################################################################

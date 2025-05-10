@@ -22,6 +22,7 @@ val safe_env : unit -> Safe_typing.safe_environment
 val env : unit -> Environ.env
 
 val universes : unit -> UGraph.t
+val qualities : unit -> Sorts.QVar.Set.t
 val named_context_val : unit -> Environ.named_context_val
 val named_context : unit -> Constr.named_context
 
@@ -68,6 +69,9 @@ val add_constraints : Univ.Constraints.t -> unit
 
 val push_context_set : Univ.ContextSet.t -> unit
 
+(** Extra sort qualities *)
+val push_quality_set : Sorts.QVar.Set.t -> unit
+
 (** Non-interactive modules and module types *)
 
 val add_module :
@@ -89,6 +93,20 @@ val close_section : Summary.Interp.frozen -> unit
     the section what opened. *)
 
 val sections_are_opened : unit -> bool
+
+(** {6 Section management for discharge } *)
+
+val section_segment_of_constant : Constant.t -> Cooking.cooking_info
+val section_segment_of_inductive: MutInd.t -> Cooking.cooking_info
+val section_segment_of_reference : GlobRef.t -> Cooking.cooking_info
+
+val section_instance : GlobRef.t -> Constr.t array
+val is_in_section : GlobRef.t -> bool
+
+(** [discharge_proj_repr p] discharges projection [p] if the associated record
+    was defined in the current section. If that is not the case, it returns [p]
+    unchanged. *)
+val discharge_proj_repr : Projection.Repr.t -> Projection.Repr.t
 
 (** Interactive modules and module types *)
 

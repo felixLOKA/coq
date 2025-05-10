@@ -57,7 +57,7 @@ in particular how to build it. The
 documentation of the last released version is available on the Rocq
 web site at [rocq-prover.org/docs](https://rocq-prover.org/docs).
 See also [the Rocq wiki](https://github.com/rocq-prover/rocq/wiki),
-and the [Rocq FAQ](https://github.com/rocq-prover/rocq/wiki/The-Coq-FAQ),
+and the [Rocq FAQ](https://github.com/rocq-prover/rocq/wiki/The-Rocq-FAQ),
 for additional user-contributed documentation.
 
 The documentation of the master branch is continuously deployed.  See:

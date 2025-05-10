@@ -612,7 +612,7 @@ let discharge_implicits (req,l) =
      let l' =
        try
          List.map (fun (gr, l) ->
-             let vars = Array.map_to_list Constr.destVar (Lib.section_instance gr) in
+             let vars = Array.map_to_list Constr.destVar (Global.section_instance gr) in
              let extra_impls = impls_of_context vars in
              let newimpls = List.map (add_section_impls vars extra_impls) l in
              (gr, newimpls)) l
@@ -638,7 +638,7 @@ let rebuild_implicits (req,l) =
 
   | ImplInteractive (flags,o) ->
       let ref,oldimpls = List.hd l in
-      (if isVarRef ref && Lib.is_in_section ref then ImplLocal else req),
+      (if isVarRef ref && Global.is_in_section ref then ImplLocal else req),
       match o with
       | ImplAuto ->
          let newimpls = compute_global_implicits flags ref in
@@ -669,7 +669,7 @@ let inImplicits : implicits_obj -> obj =
     discharge_function = discharge_implicits;
     rebuild_function = rebuild_implicits }
 
-let is_local local ref = local || isVarRef ref && Lib.is_in_section ref
+let is_local local ref = local || isVarRef ref && Global.is_in_section ref
 
 let declare_implicits_gen req flags ref =
   let imps = compute_global_implicits flags ref in

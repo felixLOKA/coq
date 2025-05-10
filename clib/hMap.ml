@@ -188,6 +188,12 @@ struct
     let s = Int.Map.map ff s in
     Int.Map.filter (fun _ m -> not (Set.is_empty m)) s
 
+  let filter_map f s =
+    Int.Map.filter_map (fun _ m ->
+        let m = Set.filter_map f m in
+        if Set.is_empty m then None else Some m)
+      s
+
   let partition f s =
     let fold h m (sl, sr) =
       let (ml, mr) = Set.partition f m in

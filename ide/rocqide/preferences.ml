@@ -418,6 +418,12 @@ let line_ending =
 let document_tabs_pos =
   new preference ~name:["document_tabs_pos"] ~init:"top" ~repr:Repr.(string)
 
+let message_tab_capped =
+  new preference ~name:["message_tab_capped"] ~init:true ~repr:Repr.(bool)
+
+let message_tab_length =
+  new preference ~name:["message_tab_length"] ~init:1000 ~repr:Repr.(int)
+
 (* let background_color = *)
 (*   new preference ~name:["background_color"] ~init:"cornsilk" ~repr:Repr.(string) *)
 

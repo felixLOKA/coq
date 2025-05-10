@@ -880,16 +880,16 @@ let is_univ_copy (maxq,maxu) u =
   check_array maxq Sorts.Quality.var_index qs
   && check_array maxu Univ.Level.var_index us
 
-let dump_bytecode = ref false
+let dump_bytecode_flag, dump_bytecode = CDebug.create_full ~name:"vmbytecode" ()
 
 let dump_bytecodes init code fvs =
-  let open Pp in
-    (str "code =" ++ fnl () ++
-     pp_bytecodes init ++ fnl () ++
-     pp_bytecodes code ++ fnl () ++
-     str "fv = " ++
-     prlist_with_sep (fun () -> str "; ") pp_fv_elem fvs ++
-     fnl ())
+  dump_bytecode Pp.(fun () ->
+      str "code =" ++ fnl () ++
+      pp_bytecodes init ++ fnl () ++
+      pp_bytecodes code ++ fnl () ++
+      str "fv = " ++
+      prlist_with_sep (fun () -> str "; ") pp_fv_elem fvs ++
+      fnl ())
 
 let skip_suffix l =
   let rec aux = function
@@ -942,8 +942,7 @@ let compile ?universes:(universes=(0,0)) env sigma c =
     | FUniv -> assert false
     in
     let fv = List.rev_map map_fv (!(cenv.in_env).fv_rev) in
-    (if !dump_bytecode then
-      Feedback.msg_debug (dump_bytecodes init_code fun_code fv)) ;
+    dump_bytecodes init_code fun_code fv;
     let res = init_code @ fun_code in
     let code, patch = to_memory (Array.of_list fv) res in
     mask, code, patch

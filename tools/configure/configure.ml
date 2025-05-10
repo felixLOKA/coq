@@ -104,19 +104,19 @@ let check_caml_version prefs caml_version caml_version_nums =
   if caml_version_nums >= [5;0;0] && prefs.nativecompiler <> NativeNo then
     let () = cprintf prefs "Your version of OCaml is %s." caml_version in
     die "You have enabled Rocq's native compiler, however it is not compatible with OCaml >= 5.0.0"
-  else if caml_version_nums >= [4;9;0] then
+  else if caml_version_nums >= [4;14;0] then
     cprintf prefs "You have OCaml %s. Good!" caml_version
   else
     let () = cprintf prefs "Your version of OCaml is %s." caml_version in
-    die "You need OCaml 4.09.0 or later."
+    die "You need OCaml 4.14.0 or later."
 
 let check_findlib_version prefs { CamlConf.findlib_version; _ } =
   let findlib_version_nums = generic_version_nums ~name:"findlib" findlib_version in
-  if findlib_version_nums >= [1;8;1] then
+  if findlib_version_nums >= [1;9;1] then
     cprintf prefs "You have OCamlfind %s. Good!" findlib_version
   else
     let () = cprintf prefs "Your version of OCamlfind is %s." findlib_version in
-    die "You need OCamlfind 1.8.1 or later."
+    die "You need OCamlfind 1.9.1 or later."
 
 (** Note, these warnings are only used in Rocq Makefile *)
 (** Explanation of enabled/disabled warnings:

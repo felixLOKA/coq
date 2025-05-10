@@ -143,8 +143,6 @@ let start_compilation s mp =
     CErrors.user_err Pp.(str "compilation unit is already started");
   assert (List.is_empty !synterp_state.lib_stk);
   assert (List.is_empty !interp_state);
-  if Global.sections_are_opened () then (* XXX not sure if we need this check *)
-    CErrors.user_err Pp.(str "some sections are already opened");
   let path = try
       let prefix, id = Libnames.split_dirpath s in
       Libnames.make_path prefix id
@@ -172,7 +170,7 @@ let end_compilation_checks dir =
           if not (Names.DirPath.equal m dir) then
             CErrors.anomaly Pp.(str "The current open module has name"
               ++ spc () ++ DirPath.print m ++ spc () ++ str "and not"
-              ++ spc () ++ DirPath.print m ++ str ".");
+              ++ spc () ++ DirPath.print dir ++ str ".");
   in
   ()
 
@@ -242,22 +240,30 @@ let pop_path_prefix () =
 
 (* Returns true if we are inside an opened module or module type *)
 let is_module_or_modtype () =
-  match Safe_typing.module_is_modtype (Global.safe_env ()) with
-  | [] -> false
-  | _ -> true
+  let rec aux = function
+    | [] -> assert false
+    | (OpenedSection _, _) :: rest -> aux rest
+    | (OpenedModule _, _) :: _ -> true
+    | (CompilingLibrary _, _) :: _ -> false
+  in
+  aux (!synterp_state).lib_stk
 
 let is_modtype () =
-  let modules = Safe_typing.module_is_modtype (Global.safe_env ()) in
-  List.exists (fun x -> x) modules
+  List.exists (function OpenedModule (istyp, _, _, _), _ -> istyp | _ -> false)
+    (!synterp_state).lib_stk
 
 let is_modtype_strict () =
-  match Safe_typing.module_is_modtype (Global.safe_env ()) with
-  | b :: _ -> b
-  | [] -> false
+  let rec aux = function
+    | [] -> assert false
+    | (OpenedSection _, _) :: rest -> aux rest
+    | (OpenedModule (istyp, _, _, _), _) :: _ -> istyp
+    | (CompilingLibrary _, _) :: _ -> false
+  in
+  aux (!synterp_state).lib_stk
 
 let is_module () =
-  let modules = Safe_typing.module_is_modtype (Global.safe_env ()) in
-  List.exists (fun x -> not x) modules
+  List.exists (function OpenedModule (istyp, _, _, _), _ -> not istyp | _ -> false)
+    (!synterp_state).lib_stk
 
 (* Discharge tables *)
 
@@ -267,32 +273,6 @@ let is_module () =
    - the list of variables on which each inductive depends in this section
    - the list of substitution to do at section closing
 *)
-
-let sections () = Safe_typing.sections_of_safe_env @@ Global.safe_env ()
-
-let force_sections () = match Safe_typing.sections_of_safe_env (Global.safe_env()) with
-  | Some s -> s
-  | None -> CErrors.user_err Pp.(str "No open section.")
-
-let section_segment_of_constant con =
-  Section.segment_of_constant con (force_sections ())
-
-let section_segment_of_inductive kn =
-  Section.segment_of_inductive kn (force_sections ())
-
-let section_segment_of_reference = let open GlobRef in function
-| ConstRef c -> section_segment_of_constant c
-| IndRef (kn,_) | ConstructRef ((kn,_),_) ->
-  section_segment_of_inductive kn
-| VarRef _ -> Cooking.empty_cooking_info
-
-let is_in_section ref = match sections () with
-  | None -> false
-  | Some sec ->
-    Section.is_in_section (Global.env ()) ref sec
-
-let section_instance ref =
-  Cooking.instance_of_cooking_info (section_segment_of_reference ref)
 
 type discharged_item =
   | DischargedExport of Libobject.ExportObj.t
@@ -324,17 +304,6 @@ let rec split_modpath = function
 let library_part = function
   | GlobRef.VarRef id -> library_dp ()
   | ref -> ModPath.dp (mp_of_global ref)
-
-let discharge_section_proj_repr p =
-  let ind = Projection.Repr.inductive p in
-  let sec = section_segment_of_reference (GlobRef.IndRef ind) in
-  Cooking.discharge_proj_repr sec p
-
-let discharge_proj_repr p =
-    if is_in_section (Names.GlobRef.IndRef (Names.Projection.Repr.inductive p)) then
-      discharge_section_proj_repr p
-    else
-      p
 
 let debug_object_name = function
   | Libobject.ModuleObject _ -> "ModuleObject"

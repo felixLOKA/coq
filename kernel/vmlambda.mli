@@ -20,4 +20,4 @@ val as_value : int -> lambda array -> lval option
 val lambda_of_constr : env -> Genlambda.evars -> Constr.t -> lambda
 
 (** Dump the VM lambda code after compilation (for debugging purposes) *)
-val dump_lambda : bool ref
+val dump_lambda_flag : CDebug.flag

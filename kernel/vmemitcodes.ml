@@ -78,13 +78,9 @@ let output buf n =
 let input s pos =
   let c = Char.code s.[!pos] in
   if Int.equal c 0x00 then
-    (* TODO: use String.get_int32_be when available in OCaml 4.13.0 *)
-    let c1 = Char.code s.[!pos + 1] in
-    let c2 = Char.code s.[!pos + 2] in
-    let c3 = Char.code s.[!pos + 3] in
-    let c4 = Char.code s.[!pos + 4] in
+    let c = String.get_int32_be s (!pos+1) in
     let () = pos := !pos + 5 in
-    (c1 lsl 24) lor (c2 lsl 16) lor (c3 lsl 8) lor c4
+    Int32.to_int c
   else
     let () = pos := !pos + 1 in
     c
@@ -214,9 +210,6 @@ let compress_code src sz =
 let decompress_code src =
   let sz = String.length src in
   let buf = Buffer.create (sz * 4) in
-  (* TODO: remove the following two lines once the minimal version of OCaml is 4.13 *)
-  let module String = Bytes in
-  let src = String.unsafe_of_string src in
   let i = ref 0 in
   while !i < sz do
     let c01, c23 =

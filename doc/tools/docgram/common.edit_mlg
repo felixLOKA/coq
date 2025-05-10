@@ -929,13 +929,6 @@ match_rule: [
 | DELETE "_" "=>" ltac_expr5
 ]
 
-goal_selector: [
-| REPLACE range_selector_or_nth  (* depends on whether range_selector_or_nth is deleted first *)
-| WITH LIST1 range_selector SEP ","
-]
-
-range_selector_or_nth: [ | DELETENT ]
-
 firstorder_rhs: [
 | firstorder_using
 | "with" LIST1 preident
@@ -1298,18 +1291,18 @@ command: [
 | REPLACE "Debug" "Off"
 | WITH "Debug" [ "On" | "Off" ]
 | EDIT "Defined" ADD_OPT identref
-| REPLACE "Derive" "Inversion" identref "with" constr "Sort" sort_family
-| WITH "Derive" "Inversion" identref "with" constr OPT ( "Sort" sort_family )
+| REPLACE "Derive" "Inversion" identref "with" constr "Sort" sort_quality_or_set
+| WITH "Derive" "Inversion" identref "with" constr OPT ( "Sort" sort_quality_or_set )
 | DELETE "Derive" "Inversion" identref "with" constr
-| REPLACE "Derive" "Inversion_clear" identref "with" constr "Sort" sort_family
-| WITH "Derive" "Inversion_clear" identref "with" constr OPT ( "Sort" sort_family )
+| REPLACE "Derive" "Inversion_clear" identref "with" constr "Sort" sort_quality_or_set
+| WITH "Derive" "Inversion_clear" identref "with" constr OPT ( "Sort" sort_quality_or_set )
 | DELETE "Derive" "Inversion_clear" identref "with" constr
 | EDIT "Focus" ADD_OPT natural
 | DELETE "Hint" "Rewrite" orient LIST1 constr ":" LIST1 preident
-| REPLACE "Hint" "Rewrite" orient LIST1 constr "using" tactic ":" LIST1 preident
-| WITH "Hint" "Rewrite" orient LIST1 constr OPT ( "using" tactic ) OPT ( ":" LIST1 preident )
+| REPLACE "Hint" "Rewrite" orient LIST1 constr "using" generic_tactic ":" LIST1 preident
+| WITH "Hint" "Rewrite" orient LIST1 constr OPT ( "using" generic_tactic ) OPT ( ":" LIST1 preident )
 | DELETE "Hint" "Rewrite" orient LIST1 constr
-| DELETE "Hint" "Rewrite" orient LIST1 constr "using" tactic
+| DELETE "Hint" "Rewrite" orient LIST1 constr "using" generic_tactic
 | REPLACE "Next" "Obligation" "of" identref withtac
 | WITH "Next" "Obligation" OPT ( "of" identref ) withtac
 | DELETE "Next" "Obligation" withtac
@@ -1622,12 +1615,6 @@ record_declaration: [
 
 fields_def: [ | DELETENT ]
 
-constr_body: [
-| DELETE ":=" lconstr
-| REPLACE ":" lconstr ":=" lconstr
-| WITH OPT ( ":" type ) ":=" lconstr
-]
-
 scheme: [
 | DELETE scheme_kind
 | REPLACE identref ":=" scheme_kind
@@ -1766,11 +1753,11 @@ SPLICE: [
 | subprf
 ]
 
-ltac2_scope: [
+ltac2_syntax_class: [
 | REPLACE syn_node      (* Ltac2 plugin *)
 | WITH name TAG Ltac2
-| REPLACE syn_node "(" LIST1 ltac2_scope SEP "," ")"      (* Ltac2 plugin *)
-| WITH name "(" LIST1 ltac2_scope SEP "," ")" TAG Ltac2
+| REPLACE syn_node "(" LIST1 ltac2_syntax_class SEP "," ")"      (* Ltac2 plugin *)
+| WITH name "(" LIST1 ltac2_syntax_class SEP "," ")" TAG Ltac2
 ]
 
 tac2mode: [
@@ -1807,10 +1794,6 @@ toplevel_selector_temp: [
 control_command: [ ]
 
 (* move all commands under "command" *)
-
-DELETE: [
-| vernac
-]
 
 vernac_aux: [
 | DELETE gallina "."
@@ -2372,7 +2355,6 @@ SPLICE: [
 | withtac
 | debug
 | eauto_search_strategy
-| constr_body
 | reference_or_constr
 | opt_hintbases
 | opthints

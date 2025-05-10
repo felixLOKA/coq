@@ -67,6 +67,7 @@ module type S = sig
     val is_empty : 'a t -> bool with_estate
     type any_t = Any : 'a t -> any_t
     val accumulate_in : any_t list -> any_t list CString.Map.t with_estate
+    val all_in : unit -> any_t list CString.Map.t with_estate
   end
 
   module rec Symbol : sig
@@ -152,10 +153,10 @@ module type ExtS = sig
   type 's add_kw = { add_kw : 'c. 's -> 'c pattern -> 's }
 
   val safe_extend : 's add_kw -> EState.t -> 's -> 'a Entry.t -> 'a extend_statement -> EState.t * 's
-  val safe_delete_rule : EState.t -> 'a Entry.t -> 'a Production.t -> EState.t
 
   module Unsafe : sig
-    val clear_entry : EState.t -> 'a Entry.t -> EState.t
+    val existing_entry : EState.t -> 'a Entry.t -> EState.t
+    val existing_of_parser : EState.t -> 'a Entry.t -> 'a Entry.parser_fun -> EState.t
   end
 
 end
@@ -242,6 +243,7 @@ and ('self, 'trec, 'trecs, 'trecb, 'a, 'r) ty_node = {
      significant slowdowns on most developments)
 *)
 type ('t,'a) entry_data = {
+  eentry : 'a ty_entry;
   edesc : 'a ty_desc;
   estart : 't -> int -> 'a parser_t;
   econtinue : 't -> int -> int -> 'a -> 'a parser_t;
@@ -733,138 +735,8 @@ let levels_of_rules add_kw lstate entry edata st =
     let lstate, levs = List.fold_left fold (lstate, []) rules in
     lstate, levs1 @ List.rev levs @ levs2
 
-let logically_eq_symbols entry =
-  let rec eq_symbols : type s1 s2 trec1 trec2 a1 a2. (s1, trec1, a1) ty_symbol -> (s2, trec2, a2) ty_symbol -> bool = fun s1 s2 ->
-    match s1, s2 with
-      Snterm e1, Snterm e2 -> e1.ename = e2.ename
-    | Snterm e1, Sself -> e1.ename = entry.ename
-    | Sself, Snterm e2 -> entry.ename = e2.ename
-    | Snterml (e1, l1), Snterml (e2, l2) -> e1.ename = e2.ename && l1 = l2
-    | Slist0 s1, Slist0 s2 -> eq_symbols s1 s2
-    | Slist0sep (s1, sep1, b1), Slist0sep (s2, sep2, b2) ->
-        eq_symbols s1 s2 && eq_symbols sep1 sep2 && b1 = b2
-    | Slist1 s1, Slist1 s2 -> eq_symbols s1 s2
-    | Slist1sep (s1, sep1, b1), Slist1sep (s2, sep2, b2) ->
-        eq_symbols s1 s2 && eq_symbols sep1 sep2 && b1 = b2
-    | Sopt s1, Sopt s2 -> eq_symbols s1 s2
-    | Stree t1, Stree t2 -> eq_trees t1 t2
-    | Stoken p1, Stoken p2 -> L.tok_pattern_eq p1 p2 <> None
-    | Stokens pl1, Stokens pl2 -> tok_pattern_eq_list pl1 pl2 <> None
-    | Sself, Sself -> true
-    | Snext, Snext -> true
-    | _ -> false
-  and eq_trees : type s1 s2 tr1 tr2 a1 a2. (s1, tr1, a1) ty_tree -> (s2, tr2, a2) ty_tree -> bool = fun t1 t2 ->
-    match t1, t2 with
-      Node (_, n1), Node (_, n2) ->
-        eq_symbols n1.node n2.node && eq_trees n1.son n2.son &&
-        eq_trees n1.brother n2.brother
-    | LocAct _, LocAct _ -> true
-    | LocAct _, DeadEnd -> true
-    | DeadEnd, LocAct _ -> true
-    | DeadEnd, DeadEnd -> true
-    | _ -> false
-  in
-  eq_symbols
-
-(* [delete_rule_in_tree] returns
-     [Some (dsl, t)] if success
-        [dsl] =
-           Some (list of deleted nodes) if branch deleted
-           None if action replaced by previous version of action
-        [t] = remaining tree
-     [None] if failure *)
-
 type 's ex_symbols =
 | ExS : ('s, 'tr, 'p) ty_symbols -> 's ex_symbols
-
-let delete_rule_in_tree entry =
-  let rec delete_in_tree :
-    type s tr tr' p r. (s, tr, p) ty_symbols -> (s, tr', r) ty_tree -> (s ex_symbols option * (s, r) ty_mayrec_tree) option =
-    fun symbols tree ->
-    match symbols, tree with
-    | TCns (_, s, sl), Node (_, n) ->
-        if logically_eq_symbols entry s n.node then delete_son sl n
-        else
-          begin match delete_in_tree symbols n.brother with
-            Some (dsl, MayRecTree t) ->
-              Some (dsl, MayRecTree (Node (MayRec3, {node = n.node; son = n.son; brother = t})))
-          | None -> None
-          end
-    | TCns (_, s, sl), _ -> None
-    | TNil, Node (_, n) ->
-        begin match delete_in_tree TNil n.brother with
-          Some (dsl, MayRecTree t) ->
-            Some (dsl, MayRecTree (Node (MayRec3, {node = n.node; son = n.son; brother = t})))
-        | None -> None
-        end
-    | TNil, DeadEnd -> None
-    | TNil, LocAct (_, []) -> Some (Some (ExS TNil), MayRecTree DeadEnd)
-    | TNil, LocAct (_, action :: list) -> Some (None, MayRecTree (LocAct (action, list)))
-  and delete_son :
-    type s p tr trn trs trb a r. (s, tr, p) ty_symbols -> (s, trn, trs, trb, a, r) ty_node -> (s ex_symbols option * (s, r) ty_mayrec_tree) option =
-    fun sl n ->
-    match delete_in_tree sl n.son with
-      Some (Some (ExS dsl), MayRecTree DeadEnd) -> Some (Some (ExS (TCns (MayRec2, n.node, dsl))), MayRecTree n.brother)
-    | Some (Some (ExS dsl), MayRecTree t) ->
-        let t = Node (MayRec3, {node = n.node; son = t; brother = n.brother}) in
-        Some (Some (ExS (TCns (MayRec2, n.node, dsl))), MayRecTree t)
-    | Some (None, MayRecTree t) ->
-        let t = Node (MayRec3, {node = n.node; son = t; brother = n.brother}) in
-        Some (None, MayRecTree t)
-    | None -> None
-  in
-  delete_in_tree
-
-let rec delete_rule_in_suffix entry symbols =
-  function
-    Level lev :: levs ->
-      begin match delete_rule_in_tree entry symbols lev.lsuffix with
-        Some (dsl, MayRecTree t) ->
-          begin match t, lev.lprefix with
-            DeadEnd, DeadEnd -> levs
-          | _ ->
-              let lev =
-                {assoc = lev.assoc; lname = lev.lname; lsuffix = t;
-                 lprefix = lev.lprefix}
-              in
-              Level lev :: levs
-          end
-      | None ->
-          let levs = delete_rule_in_suffix entry symbols levs in
-          Level lev :: levs
-      end
-  | [] -> raise Not_found
-
-let rec delete_rule_in_prefix entry symbols =
-  function
-    Level lev :: levs ->
-      begin match delete_rule_in_tree entry symbols lev.lprefix with
-        Some (dsl, MayRecTree t) ->
-          begin match t, lev.lsuffix with
-            DeadEnd, DeadEnd -> levs
-          | _ ->
-              let lev =
-                {assoc = lev.assoc; lname = lev.lname; lsuffix = lev.lsuffix;
-                 lprefix = t}
-              in
-              Level lev :: levs
-          end
-      | None ->
-          let levs = delete_rule_in_prefix entry symbols levs in
-          Level lev :: levs
-      end
-  | [] -> raise Not_found
-
-let delete_rule_in_level_list (type s tr p) (entry : s ty_entry) (symbols : (s, tr, p) ty_symbols) levs =
-  match symbols with
-    TCns (_, Sself, symbols) -> delete_rule_in_suffix entry symbols levs
-  | TCns (_, Snterm e, symbols') ->
-    begin match eq_entry e entry with
-    | None -> delete_rule_in_prefix entry symbols levs
-    | Some Refl ->
-      delete_rule_in_suffix entry symbols' levs
-    end
-  | _ -> delete_rule_in_prefix entry symbols levs
 
 let rec flatten_tree : type s tr a. (s, tr, a) ty_tree -> s ex_symbols list =
   function
@@ -1604,6 +1476,7 @@ let make_start_parser_of_entry entry desc =
   | Dparser p -> fun gstate levn strm -> p gstate.kwstate strm
 
 let make_entry_data entry desc = {
+  eentry = entry;
   edesc = desc;
   estart = make_start_parser_of_entry entry desc;
   econtinue = make_continue_parser_of_entry entry desc;
@@ -1612,7 +1485,7 @@ let make_entry_data entry desc = {
 (* Extend syntax *)
 
 let modify_entry estate e f = try EState.modify (DMap.tag_of_onetag e.etag) f estate
-  with Not_found -> assert false
+  with Not_found -> CErrors.anomaly Pp.(str "modify_entry: " ++ str e.ename ++ str " not found")
 
 let add_entry otag estate e v =
   assert (not (EState.mem (DMap.tag_of_onetag e.etag) estate));
@@ -1626,16 +1499,6 @@ let extend_entry add_kw estate kwstate entry statement =
       make_entry_data entry (Dlevels elev))
   in
   estate, !kwstate
-
-(* Deleting a rule *)
-
-let delete_rule estate entry sl =
-  modify_entry estate entry (fun edata ->
-      match edata.edesc with
-      | Dlevels levs ->
-        let levs = delete_rule_in_level_list entry sl levs in
-        make_entry_data entry (Dlevels levs)
-      | Dparser _ -> edata)
 
 (* Normal interface *)
 
@@ -1711,13 +1574,16 @@ module Entry = struct
     let etag = DMap.make () in
     { ename = n; etag }, etag
 
+  let empty_entry_val e = {
+    eentry = e;
+    edesc = Dlevels [];
+    estart = empty_entry e.ename;
+    econtinue = (fun _ _ _ _ (strm__ : _ LStream.t) -> raise Stream.Failure);
+  }
+
   let make n estate =
     let e, otag = fresh n in
-    let estate = add_entry otag estate e {
-        edesc = Dlevels [];
-        estart = empty_entry n;
-        econtinue = (fun _ _ _ _ (strm__ : _ LStream.t) -> raise Stream.Failure);
-      }
+    let estate = add_entry otag estate e (empty_entry_val e)
     in
     estate, e
 
@@ -1726,16 +1592,19 @@ module Entry = struct
   let parse_token_stream (e : 'a t) ts gstate : 'a =
     start_parser_of_entry gstate e 0 ts
   let name e = e.ename
+
   type 'a parser_fun = { parser_fun : L.keyword_state -> (L.keyword_state,te) LStream.t -> 'a }
-  let of_parser n { parser_fun = p } estate =
+  let of_parser_val e { parser_fun = p } = {
+    eentry = e;
+    estart = (fun gstate _ (strm:_ LStream.t) -> p gstate.kwstate strm);
+    econtinue = (fun _ _ _ _ (strm__ : _ LStream.t) -> raise Stream.Failure);
+    edesc = Dparser p;
+  }
+  let of_parser n p estate =
     let e, otag = fresh n in
-    let estate = add_entry otag estate e {
-        estart = (fun gstate _ (strm:_ LStream.t) -> p gstate.kwstate strm);
-        econtinue = (fun _ _ _ _ (strm__ : _ LStream.t) -> raise Stream.Failure);
-        edesc = Dparser p;
-      }
-    in
+    let estate = add_entry otag estate e (of_parser_val e p) in
     estate, e
+
   let print ppf e estate = fprintf ppf "%a@." (print_entry estate) e
 
   let is_empty e estate = match (get_entry estate e).edesc with
@@ -1775,6 +1644,14 @@ module Entry = struct
         elev
 
   let same_entry (Any e) (Any e') = Option.has_some (eq_entry e e')
+
+  let all_in () estate =
+    let add_entry (Any e as a) acc = String.Map.update e.ename (function
+        | None -> Some [a]
+        | Some l -> Some (a::l))
+        acc
+    in
+    EState.fold { fold = fun _ data acc -> add_entry (Any data.eentry) acc} estate String.Map.empty
 
   let accumulate_in initial estate =
     let add_visited visited (Any e as any) =
@@ -1878,23 +1755,14 @@ module Production = struct
 end
 
 module Unsafe = struct
+  let existing_entry estate e =
+    add_entry e.etag estate e (Entry.empty_entry_val e)
 
-  let clear_entry estate e =
-    modify_entry estate e (fun data -> {
-          estart = (fun _ _ (strm__ : _ LStream.t) -> raise Stream.Failure);
-          econtinue = (fun _ _ _ _ (strm__ : _ LStream.t) -> raise Stream.Failure);
-          edesc = match data.edesc with
-            | Dlevels _ -> Dlevels []
-            | Dparser _ -> data.edesc;
-        })
-
+  let existing_of_parser estate e p =
+    add_entry e.etag estate e (Entry.of_parser_val e p)
 end
 
 let safe_extend = extend_entry
-
-let safe_delete_rule estate e (TProd (r,_act)) =
-  let AnyS (symbols, _) = get_symbols r in
-  delete_rule estate e symbols
 
 let level_of_nonterm sym = match sym with
   | Snterml (_,l) -> Some l

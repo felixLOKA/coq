@@ -251,7 +251,7 @@ let coqnative_module_rule ~(cctx: Context.t) coq_module =
   let tname = cctx.theory.dirname in
   (* deps *)
   let vfile = Coq_module.source coq_module in
-  let vofile_deps = Dep_info.lookup ~dep_info:cctx.dep_info vfile |> Util.pmap (cmi_of_dep ~tname) in
+  let vofile_deps = Dep_info.lookup ~dep_info:cctx.dep_info vfile |> List.filter_map (cmi_of_dep ~tname) in
   (* base [maybe this should go to coq_module] *)
   let vofile_base = Path.(replace_ext ~ext:".vo" vfile |> basename) in
   (* handle -noinit, inject prelude.vo if needed *)

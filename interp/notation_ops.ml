@@ -483,8 +483,6 @@ let pr_notation_info prglob ntn c =
 (******************************************************************************)
 (* Translating a glob_constr into a notation, interpreting recursive patterns *)
 
-let print_parentheses = ref false
-
 type found_variables = {
     vars : Id.t list;
     recursive_term_vars : (Id.t * Id.t) list;
@@ -1428,7 +1426,12 @@ let match_binderlist match_iter_fun match_termin_fun alp metas sigma rest x y it
 
 let add_meta_term x metas = (x,NtnTypeConstr)::metas
 
-let match_termlist match_fun alp metas sigma rest x y iter termin revert =
+type match_flags = {
+  print_parentheses : bool;
+  print_universes : bool;
+}
+
+let match_termlist flags match_fun alp metas sigma rest x y iter termin revert =
   let rec aux alp sigma acc rest =
     try
       let metas = add_ldots_var (add_meta_term y metas) in
@@ -1436,7 +1439,7 @@ let match_termlist match_fun alp metas sigma rest x y iter termin revert =
       let _,newstaticbinders,rest = Id.List.assoc ldots_var terms in
       let vars,_,t = Id.List.assoc y terms in
       let sigma = remove_sigma y (remove_sigma ldots_var sigma) in
-      if !print_parentheses && not (List.is_empty acc) then raise No_match;
+      if flags.print_parentheses && not (List.is_empty acc) then raise No_match;
       (* The union is overkill at the current time because each term matches *)
       (* at worst the same binder metavariable of the same pattern *)
       let alp' = {actualvars = Id.Set.union vars alp.actualvars; staticbinders = newstaticbinders; renaming = alp.renaming} in
@@ -1489,7 +1492,7 @@ let rec match_ inner u alp metas sigma a1 a2 =
 
   (* Matching recursive notations for terms *)
   | r1, NList (x,y,iter,termin,revert) ->
-      match_termlist (match_hd u) alp metas sigma a1 x y iter termin revert
+      match_termlist u (match_hd u) alp metas sigma a1 x y iter termin revert
 
   (* Matching recursive notations for binders: general case *)
   | _r, NBinderList (x,y,iter,termin,revert) ->
@@ -1584,7 +1587,7 @@ let rec match_ inner u alp metas sigma a1 a2 =
 
   (* Next pair of lines useful only if not coming from detyping *)
   | GSort (None, UNamed [(GSProp|GProp|GSet),0]), NSort (None, UAnonymous _) -> raise No_match
-  | GSort _, NSort (None, UAnonymous _) when not u -> sigma
+  | GSort _, NSort (None, UAnonymous _) when not u.print_universes -> sigma
 
   | GSort s1, NSort s2 when glob_sort_eq s1 s2 -> sigma
   | GInt i1, NInt i2 when Uint63.equal i1 i2 -> sigma
@@ -1731,9 +1734,10 @@ let group_by_type ids (terms,termlists,binders,binderlists) =
        (terms',termlists',binders',(bl,scl)::binderlists'))
     ids ([],[],[],[])
 
-let match_notation_constr ~print_univ c ~vars (metas,pat) =
+let match_notation_constr ~print_parentheses ~print_univ c ~vars (metas,pat) =
   let metatyps = List.map (fun (id,(_,_,typ)) -> (id,typ)) metas in
-  let subst = match_ false print_univ {actualvars=vars;staticbinders=[];renaming=[]} metatyps ([],[],[],[]) c pat in
+  let flags = { print_parentheses; print_universes = print_univ } in
+  let subst = match_ false flags {actualvars=vars;staticbinders=[];renaming=[]} metatyps ([],[],[],[]) c pat in
   group_by_type metas subst
 
 (* Matching cases pattern *)

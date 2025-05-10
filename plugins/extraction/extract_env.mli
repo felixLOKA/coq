@@ -25,18 +25,18 @@ val extract_and_compile : opaque_access:Global.indirect_accessor -> qualid list 
 (* For debug / external output via coqtop.byte + Drop : *)
 
 val mono_environment :
- opaque_access:Global.indirect_accessor -> GlobRef.t list -> ModPath.t list -> Miniml.ml_structure
+ Table.t -> opaque_access:Global.indirect_accessor -> GlobRef.t list -> ModPath.t list -> Miniml.ml_structure
 
 (* Used by the Relation Extraction plugin *)
 
 val print_one_decl :
-  Miniml.ml_structure -> ModPath.t -> Miniml.ml_decl -> Pp.t
+  Table.t -> Miniml.ml_structure -> ModPath.t -> Miniml.ml_decl -> Pp.t
 
 (* Used by Extraction Compute *)
 
 val structure_for_compute :
   opaque_access:Global.indirect_accessor -> Environ.env -> Evd.evar_map -> EConstr.t ->
-    Miniml.ml_decl list * Miniml.ml_ast * Miniml.ml_type
+    Table.t * Miniml.ml_decl list * Miniml.ml_ast * Miniml.ml_type
 
 (* Show the extraction of the current ongoing proof *)
 

@@ -96,6 +96,8 @@ val stop_before : bool preference
 val reset_on_tab_switch : bool preference
 val line_ending : line_ending preference
 val document_tabs_pos : string preference
+val message_tab_capped : bool preference
+val message_tab_length : int preference
 (* val background_color : string preference *)
 val processing_color : string preference
 val processed_color : string preference

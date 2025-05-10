@@ -47,26 +47,26 @@ type individual_scheme_object_function =
     inductive's name.
 *)
 
-val declare_mutual_scheme_object : string list * Sorts.family option ->
+val declare_mutual_scheme_object : string list * UnivGen.QualityOrSet.t option ->
   (Declarations.one_inductive_body option -> string) ->
   ?deps:(Environ.env -> Names.MutInd.t -> bool -> scheme_dependency list) ->
   mutual_scheme_object_function -> mutual scheme_kind
 
-val declare_individual_scheme_object : string list * Sorts.family option ->
+val declare_individual_scheme_object : string list * UnivGen.QualityOrSet.t option ->
   (Declarations.one_inductive_body option -> string) ->
   ?deps:(Environ.env -> inductive -> bool -> scheme_dependency list) ->
   individual_scheme_object_function ->
   individual scheme_kind
 
-val is_declared_scheme_object : string list * Sorts.family option * bool -> bool
+val is_declared_scheme_object : string list * UnivGen.QualityOrSet.t option * bool -> bool
 (** Is the string used as the name of a [scheme_kind]? *)
 
-val scheme_kind_name : _ scheme_kind -> string list * Sorts.family option * bool
+val scheme_kind_name : _ scheme_kind -> string list * UnivGen.QualityOrSet.t option * bool
 (** Name of a [scheme_kind]. Can be used to register with DeclareScheme. *)
 
-val scheme_key : string list * Sorts.family option * bool -> _ scheme_kind
+val scheme_key : string list * UnivGen.QualityOrSet.t option * bool -> _ scheme_kind
 
-val get_suff : string list -> Sorts.family option -> Declarations.one_inductive_body option -> string
+val get_suff : string list -> UnivGen.QualityOrSet.t option -> Declarations.one_inductive_body option -> string
   
 (** Force generation of a (mutually) scheme with possibly user-level names *)
 
@@ -104,6 +104,7 @@ val declare_definition_scheme :
    -> univs:UState.named_universes_entry
    -> role:Evd.side_effect_role
    -> name:Id.t
+   -> effs:Evd.side_effects
    -> ?loc:Loc.t
    -> Constr.t
    -> Constant.t * Evd.side_effects) ref

@@ -162,8 +162,8 @@ let message_view sid : message_view =
   let add_msg msg =
     let mlines = insert_msg msg in
     msgs := (msg, mlines) :: !msgs;
-    let max_lines = 1000 in
-    if buffer#line_count > max_lines then begin
+    let max_lines = message_tab_length#get in
+    if message_tab_capped#get && buffer#line_count > max_lines then begin
       let rec trim lcnt res msgs =
         match msgs with
         | (m,len) :: tl when lcnt < max_lines ->

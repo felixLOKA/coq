@@ -27,9 +27,8 @@ open Procq
    translated in camlp5 into "constr" without level) or to another level
    (to be translated into "constr LEVEL n")
 
-   The boolean is true if the entry was existing _and_ empty; this to
-   circumvent a weakness of camlp5 whose undo mechanism is not the
-   converse of the extension mechanism *)
+   The boolean is true if the entry was existing _and_ empty;
+   cf use in find_positions_gen *)
 
 let constr_level = string_of_int
 
@@ -102,38 +101,33 @@ let create_pos = function
 let find_position_gen current ensure assoc lev =
   match lev with
   | None ->
-    current, (ReuseFirst, None, None, None)
+    current, (ReuseFirst, None, None)
   | Some n ->
-    let after = ref None in
-    let init = ref None in
-    let rec add_level q = function
-      | (p,_,_ as pa)::l when p > n -> pa :: add_level (Some p) l
-      | (p,a,reinit)::l when Int.equal p n ->
-        if reinit then
+    let rec add_level previous = function
+      | (p,_,_ as pa)::l when p > n ->
+        let updated, res = add_level (Some p) l in
+        pa :: updated, res
+      | (p,a,empty)::l when Int.equal p n ->
+        if empty then
+          (* XXX we ignore preexisting associativity for empty levels, is that what we want? *)
           let a' = create_assoc assoc in
-          (init := Some (a', q); (p,a',false)::l)
+          let updated = (p,a',false)::l in
+          updated, (ReuseLevel n, None, None)
         else if admissible_assoc (a,assoc) then
           raise_notrace Exit
         else
           error_level_assoc p a (Option.get assoc)
-      | l -> after := q; (n,create_assoc assoc,ensure)::l
+      | l ->
+        let assoc = create_assoc assoc in
+        let updated = (n,assoc,ensure)::l in
+        updated, (create_pos previous, Some assoc, Some (constr_level n))
     in
-    try
-      let updated = add_level None current in
-      let assoc = create_assoc assoc in
-      begin match !init with
-        | None ->
-          (* Create the entry *)
-          updated, (create_pos !after, Some assoc, Some (constr_level n), None)
-        | _ ->
-          (* The reinit flag has been updated *)
-          updated, (ReuseLevel n, None, None, !init)
-      end
+    try add_level None current
     with
     (* Nothing has changed *)
       Exit ->
       (* Just inherit the existing associativity and name (None) *)
-      current, (ReuseLevel n, None, None, None)
+      current, (ReuseLevel n, None, None)
 
 let rec list_mem_assoc_triple x = function
   | [] -> false
@@ -267,10 +261,10 @@ type (_, _) entry =
 
 type _ any_entry = TTAny : ('s, 'r) entry -> 's any_entry
 
-let constr_custom_entry : (string, Constrexpr.constr_expr) entry_command =
-  create_entry_command "constr" { eext_fun = (fun s st -> [s], st); eext_eq = (==) (* FIXME *) }
-let pattern_custom_entry : (string, Constrexpr.cases_pattern_expr) entry_command =
-  create_entry_command "pattern" { eext_fun = (fun s st -> [s], st); eext_eq = (==) (* FIXME *) }
+let constr_custom_entry : Constrexpr.constr_expr entry_command =
+  create_entry_command "constr"
+let pattern_custom_entry : Constrexpr.cases_pattern_expr entry_command =
+  create_entry_command "pattern"
 
 let custom_entry_locality = Summary.ref ~name:"LOCAL-CUSTOM-ENTRY" String.Set.empty
 (** If the entry is present then local *)
@@ -534,20 +528,14 @@ let target_to_bool : type r. r target -> bool = function
 | ForConstr -> false
 | ForPattern -> true
 
-let prepare_empty_levels forpat (where,(pos,p4assoc,name,reinit)) =
+let prepare_empty_levels forpat (where,(pos,p4assoc,name)) =
   let empty = match pos with
   | ReuseFirst -> Procq.Reuse (None, [])
   | ReuseLevel n -> Procq.Reuse (Some (constr_level n), [])
   | NewFirst -> Procq.Fresh (Gramlib.Gramext.First, [(name, p4assoc, [])])
   | NewAfter n -> Procq.Fresh (Gramlib.Gramext.After (constr_level n), [(name, p4assoc, [])])
   in
-  match reinit with
-  | None ->
-    ExtendRule (target_entry where forpat, empty)
-  | Some (assoc, pos) ->
-    let pos = match pos with None -> Gramlib.Gramext.First | Some n -> Gramlib.Gramext.After (constr_level n) in
-    let reinit = (assoc, pos) in
-    ExtendRuleReinit (target_entry where forpat, reinit, empty)
+  ExtendRule (target_entry where forpat, empty)
 
 let different_levels (custom,opt_level) (custom',string_level) =
   match opt_level with
@@ -591,7 +579,7 @@ let extend_constr state forpat ng =
     let pure_sublevels = pure_sublevels' assoc fromlev forpat level pt in
     let isforpat = target_to_bool forpat in
     let needed_levels, state = register_empty_levels state isforpat pure_sublevels in
-    let (pos,p4assoc,name,reinit), state = find_position state custom isforpat assoc level in
+    let (pos,p4assoc,name), state = find_position state custom isforpat assoc level in
     let empty_rules = List.map (prepare_empty_levels forpat) needed_levels in
     let empty = { constrs = []; constrlists = []; binders = []; binderlists = [] } in
     let act = ty_eval r (make_act forpat ng.notgram_notation) empty in
@@ -607,14 +595,7 @@ let extend_constr state forpat ng =
       | ReuseFirst -> Procq.Reuse (None, [r])
       | ReuseLevel n -> Procq.Reuse (Some (constr_level n), [r])
     in
-    let r = match reinit with
-      | None ->
-        ExtendRule (entry, rule)
-      | Some (assoc, pos) ->
-        let pos = match pos with None -> Gramlib.Gramext.First | Some n -> Gramlib.Gramext.After (constr_level n) in
-        let reinit = (assoc, pos) in
-        ExtendRuleReinit (entry, reinit, rule)
-    in
+    let r = ExtendRule (entry, rule) in
     (accu @ empty_rules @ [r], state)
   in
   List.fold_left fold ([], state) ng.notgram_prods

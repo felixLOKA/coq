@@ -604,13 +604,6 @@ let insert p v l =
   in
   insrec l
 
-let rec find_map f = function
-  | [] -> None
-  | x :: l ->
-    match f x with
-    | None -> find_map f l
-    | Some _ as y -> y
-
 let find_map_exn f l =
   match find_map f l with
   | Some v -> v

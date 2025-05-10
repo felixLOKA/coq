@@ -62,6 +62,7 @@ type printable =
   | PrintCoercionPaths of coercion_class * coercion_class
   | PrintCanonicalConversions of qualid or_by_notation list
   | PrintUniverses of print_universes
+  | PrintSorts
   | PrintHint of qualid or_by_notation
   | PrintHintGoal
   | PrintHintDbName of string
@@ -258,7 +259,7 @@ type proof_end =
 type scheme = {
   sch_type : string list ;
   sch_qualid : Libnames.qualid Constrexpr.or_by_notation ;
-  sch_sort : Sorts.family option ;
+  sch_sort : UnivGen.QualityOrSet.t option;
 }
 
 type section_subset_expr =
@@ -422,6 +423,7 @@ type nonrec synpure_vernac_expr =
   | VernacScheme of (lident option * scheme) list
   | VernacCombinedScheme of lident * lident list
   | VernacUniverse of lident list
+  | VernacSort of lident list
   | VernacConstraint of univ_constraint_expr list
   | VernacAddRewRule of lident * (universe_decl_expr option * constr_expr * constr_expr) list
 

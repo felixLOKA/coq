@@ -424,7 +424,7 @@ type 'target conversion_kind = 'target * option_kind
    [ToPostCheck r] behaves as [ToPostCopy] except in the reverse
    translation which fails if the copied term is not [r].
    When [n] is null, no translation is performed. *)
-type to_post_arg = ToPostCopy | ToPostAs of int | ToPostHole | ToPostCheck of Constr.t
+type to_post_arg = ToPostCopy | ToPostAs of int | ToPostHole of Id.t | ToPostCheck of Constr.t
 type ('target, 'warning) prim_token_notation_obj =
   { to_kind : 'target conversion_kind;
     to_ty : GlobRef.t;
@@ -563,7 +563,7 @@ let rec check_glob env sigma g c = match DAst.get g, Constr.kind c with
      let sigma,ty = check_glob env sigma ty ty' in
      sigma, mkArray (u,t,def,ty)
   | Glob_term.GSort s, Constr.Sort s' ->
-     let sigma,s = Evd.fresh_sort_in_family sigma (Glob_ops.glob_sort_family s) in
+     let sigma,s = Glob_ops.fresh_glob_sort_in_quality sigma s in
      let s = EConstr.ESorts.kind sigma s in
      if not (Sorts.equal s s') then raise NotAValidPrimToken;
      sigma,mkSort s
@@ -578,7 +578,7 @@ let rec constr_of_glob to_post post env sigma g = match DAst.get g with
          (* [g] is not a GApp so check that [post]
             does not expect any actual argument
             (i.e., [a] contains only ToPostHole since they mean "ignore arg") *)
-         if List.exists ((<>) ToPostHole) a then raise NotAValidPrimToken;
+         if List.exists (function ToPostHole _ -> false | _ -> true) a then raise NotAValidPrimToken;
          constr_of_globref env sigma r
       end
   | Glob_term.GApp (gc, gcl) ->
@@ -606,7 +606,7 @@ let rec constr_of_glob to_post post env sigma g = match DAst.get g with
               let sigma,c = constr_of_glob to_post to_post.(i) env sigma gc in
               let sigma,cl = aux sigma a gcl in
               sigma, c :: cl
-           | ToPostHole :: post, _ :: gcl -> aux sigma post gcl
+           | ToPostHole _ :: post, _ :: gcl -> aux sigma post gcl
            | [], _ :: _ | _ :: _, [] -> raise NotAValidPrimToken
          in
          let sigma,cl = aux sigma a gcl in
@@ -622,7 +622,7 @@ let rec constr_of_glob to_post post env sigma g = match DAst.get g with
       let sigma, ty' = constr_of_glob to_post post env sigma ty in
        sigma, mkArray (u',t',def',ty')
   | Glob_term.GSort gs ->
-      let sigma,c = Evd.fresh_sort_in_family sigma (Glob_ops.glob_sort_family gs) in
+      let sigma,c = Glob_ops.fresh_glob_sort_in_quality sigma gs in
       let c = EConstr.ESorts.kind sigma c in
       sigma,mkSort c
   | _ ->
@@ -707,8 +707,8 @@ let rec postprocess env token_kind ?loc ty to_post post g =
   match o with None -> g | Some (_, r, a) ->
   let rec f n a gl = match a, gl with
     | [], [] -> []
-    | ToPostHole :: a, gl ->
-       let e = GImplicitArg (r, (n, None), true) in
+    | ToPostHole id :: a, gl ->
+       let e = GImplicitArg (r, (n, id), true) in
        let h = DAst.make ?loc (Glob_term.GHole e) in
        h :: f (n+1) a gl
     | (ToPostCopy | ToPostCheck _) :: a, g :: gl -> g :: f (n+1) a gl
@@ -1283,12 +1283,9 @@ let subst_prim_token_interpretation (subs,infos) =
 let classify_prim_token_interpretation infos =
     if infos.pt_local then Dispose else Substitute
 
-let open_prim_token_interpretation i o =
-  if Int.equal i 1 then cache_prim_token_interpretation o
-
 let inPrimTokenInterp : prim_token_infos -> obj =
   declare_object {(default_object "PRIM-TOKEN-INTERP") with
-     open_function  = simple_open ~cat:notation_cat open_prim_token_interpretation;
+     open_function  = simple_open ~cat:notation_cat cache_prim_token_interpretation;
      cache_function = cache_prim_token_interpretation;
      subst_function = subst_prim_token_interpretation;
      classify_function = classify_prim_token_interpretation}
@@ -2002,11 +1999,11 @@ let discharge_available_scopes map =
       if List.is_empty ltop && List.is_empty lbot then None else Some (ltop, lbot)) map
 
 let discharge_arguments_scope (req,r,scs,_cls,available_scopes) =
-  if req == ArgsScopeNoDischarge || (isVarRef r && Lib.is_in_section r) then None
+  if req == ArgsScopeNoDischarge || (isVarRef r && Global.is_in_section r) then None
   else
     let n =
       try
-        Array.length (Lib.section_instance r)
+        Array.length (Global.section_instance r)
       with
         Not_found (* Not a ref defined in this section *) -> 0 in
     let available_scopes = discharge_available_scopes available_scopes in
@@ -2057,7 +2054,7 @@ let inArgumentsScope : arguments_scope_obj -> obj =
       discharge_function = discharge_arguments_scope;
       rebuild_function = rebuild_arguments_scope }
 
-let is_local local ref = local || isVarRef ref && Lib.is_in_section ref
+let is_local local ref = local || isVarRef ref && Global.is_in_section ref
 
 let declare_arguments_scope_gen req r (scl,cls) =
   Lib.add_leaf (inArgumentsScope (req,r,scl,cls,!scope_class_map))

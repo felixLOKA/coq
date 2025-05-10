@@ -178,21 +178,6 @@ val library_dp : unit -> DirPath.t
 val split_modpath : ModPath.t -> DirPath.t * Id.t list
 val library_part :  GlobRef.t -> DirPath.t
 
-(** {6 Section management for discharge } *)
-val section_segment_of_constant : Constant.t -> Cooking.cooking_info
-val section_segment_of_inductive: MutInd.t -> Cooking.cooking_info
-val section_segment_of_reference : GlobRef.t -> Cooking.cooking_info
-
-val section_instance : GlobRef.t -> Constr.t array
-val is_in_section : GlobRef.t -> bool
-
-(** {6 Discharge: decrease the section level if in the current section } *)
-
-(** [discharge_proj_repr p] discharges projection [p] if the associated record
-    was defined in the current section. If that is not the case, it returns [p]
-    unchanged. *)
-val discharge_proj_repr : Projection.Repr.t -> Projection.Repr.t
-
 (** Compatibility layer *)
 
 (** This also does init_summaries *)

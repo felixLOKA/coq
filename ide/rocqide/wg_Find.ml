@@ -197,7 +197,7 @@ class finder name (view : GText.view) =
       let _ = replace_all_button#connect#clicked ~callback:self#replace_all in
 
       (* Keypress interaction *)
-      let dispatch_key_cb esc_cb ret_cb shift_ret_cb ev =
+      let dispatch_key_cb esc_cb ret_cb shift_ret_cb next_focus ev =
         let ev_key = GdkEvent.Key.keyval ev in
         let ev_modifiers = GdkEvent.Key.state ev in
         if ev_key = GdkKeysyms._Return then
@@ -205,10 +205,13 @@ class finder name (view : GText.view) =
             shift_ret_cb ()
           else ret_cb (); true)
         else if ev_key = GdkKeysyms._Escape then (esc_cb (); true)
+        else if ev_key = GdkKeysyms._Tab then (next_focus (); true)
         else false
       in
-      let find_cb = dispatch_key_cb self#hide self#find_forward self#find_backward in
-      let replace_cb = dispatch_key_cb self#hide self#replace self#replace in
+      let find_focus () = replace_entry#misc#grab_focus () in
+      let replace_focus () = find_entry#misc#grab_focus () in
+      let find_cb = dispatch_key_cb self#hide self#find_forward self#find_backward find_focus in
+      let replace_cb = dispatch_key_cb self#hide self#replace self#replace replace_focus in
       let _ = find_entry#event#connect#key_press ~callback:find_cb in
       let _ = replace_entry#event#connect#key_press ~callback:replace_cb in
 

@@ -41,6 +41,11 @@ val pr_partial_pat : PartialPat.t -> Pp.t
 
 val pr_rawexpr_gen : exp_level -> avoid:Id.Set.t -> raw_tacexpr -> Pp.t
 
+val pr_syntax_class : sexpr -> Pp.t
+
+(** Print main commands, without the "Ltac2" prefix *)
+val pr_strexpr : strexpr -> Pp.t
+
 (** Utility function *)
 val partial_pat_of_glb_pat : glb_pat -> PartialPat.t
 
@@ -60,19 +65,3 @@ val pr_valexpr : Environ.env -> Evd.evar_map -> valexpr -> 'a glb_typexpr -> Pp.
 val int_name : unit -> (int -> string)
 (** Create a function that give names to integers. The names are generated on
     the fly, in the order they are encountered. *)
-
-(** {5 Ltac2 primitives}*)
-
-type format =
-| FmtString
-| FmtInt
-| FmtConstr
-| FmtIdent
-| FmtLiteral of string
-| FmtAlpha
-
-val val_format : format list Tac2dyn.Val.tag
-
-exception InvalidFormat
-
-val parse_format : string -> format list
